@@ -6,7 +6,7 @@
 
 Phiên bản 0.5.1 sửa lỗi tiêu đề `3.1.1` bị xuất thành `0.0.1` và nhận diện tiêu đề đứng trước nội dung trong cùng đoạn qua Shift+Enter/ngắt dòng khi dán từ Word. Xem [bản sửa 0.5.1](docs/UPGRADE-0.5.1.md) và [đồng bộ LAN 0.5.0](docs/UPGRADE-0.5.0.md). Bản Windows hiện tại là `release-desktop/latest-2026-10-08/Viet-Latex-Studio-0.5.1-Portable.exe`, có manifest và SHA-256 bên cạnh. Thanh tiêu đề phải hiển thị **0.5.1**; chọn **Cập nhật PDF** để biên dịch lại tài liệu. Bộ app gồm Pandoc 3.11; **XeLaTeX cần được cài riêng** bằng MiKTeX hoặc TeX Live. Lần đầu TeX có thể cần mạng để tải gói còn thiếu. **Quản lý tài liệu → Hệ thống** kiểm tra XeLaTeX/Pandoc và xóa cache.
 
-Bản Portable chưa ký số và chưa xác minh khởi chạy. Windows Code Integrity trên máy hiện tại đã chặn EXE đóng gói khi kiểm tra; Electron chạy từ workspace với renderer production đã qua. Xem [báo cáo rà soát và chịu tải](docs/AUDIT-LOAD-2026-10-08.md).
+Bản Portable chưa ký số. Chính EXE 0.5.1 đã qua kiểm thử khởi chạy, nhận diện mục lục và tạo PDF thật bằng XeLaTeX từ bản sao tài liệu hiện tại. Hai EXE 0.5.0 vẫn còn vì cơ chế duyệt thao tác đã chặn việc xóa; chọn đúng file có phiên bản 0.5.1. Xem [báo cáo rà soát và chịu tải](docs/AUDIT-LOAD-2026-10-08.md).
 
 Trong thư mục dự án, mở `Mở app Electron.cmd` để build backend/giao diện mới nhất rồi mở cửa sổ Electron. Thanh tiêu đề hiển thị phiên bản đang chạy. `npm run desktop:preview` build lại giao diện trước khi mở Electron.
 
