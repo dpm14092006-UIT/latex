@@ -52,7 +52,8 @@ try {
     page = await app.firstWindow()
   }
   page.on('pageerror', error => errors.push(error.message))
-  await page.addInitScript(() => {
+  await page.getByRole('textbox', { name: 'Tên tài liệu' }).waitFor({ timeout: 30000 })
+  await page.evaluate(() => {
     const original = URL.createObjectURL.bind(URL)
     URL.createObjectURL = blob => {
       const url = original(blob)
@@ -60,8 +61,6 @@ try {
       return url
     }
   })
-  await page.reload({ waitUntil: 'domcontentloaded' })
-  await page.getByRole('textbox', { name: 'Tên tài liệu' }).waitFor({ timeout: 30000 })
   const outline = page.getByRole('navigation', { name: 'Mục lục bản thảo', exact: true })
   await outline.getByRole('button', { name: '3.1 Dữ liệu vệ tinh', exact: true }).waitFor()
   await outline.getByRole('button', { name: '3.1.1 Night time light', exact: true }).waitFor()
