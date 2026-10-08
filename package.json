@@ -1,0 +1,168 @@
+{
+  "name": "latex-word-studio",
+  "version": "0.5.0",
+  "description": "Trình soạn thảo desktop cục bộ cho văn bản, LaTeX và PDF.",
+  "author": "Viet LaTeX Studio",
+  "main": "electron/main.cjs",
+  "private": true,
+  "type": "module",
+  "packageManager": "npm@11.12.1",
+  "engines": {
+    "node": ">=22.13.0",
+    "npm": ">=11.0.0"
+  },
+  "scripts": {
+    "dev": "npm run backend:build && node scripts/run-web.mjs",
+    "build": "vite build",
+    "lint": "eslint .",
+    "check": "npm run lint && npm run test:go && npm run test:backend && npm run test:sync && npm run test:upgrade && npm run build",
+    "check:full": "node scripts/check-full.mjs",
+    "preview": "npm run backend:build && node scripts/run-web.mjs --preview",
+    "backend:build": "node scripts/build-backend.mjs",
+    "backend:build:windows": "node scripts/build-backend.mjs --windows-x64",
+    "test:backend": "npm run backend:build && node --test scripts/bibliography.test.mjs scripts/project-assets.test.mjs scripts/latex-compiler.test.mjs scripts/electron-proxy.test.mjs scripts/citation-linker.test.mjs scripts/citation-review.test.mjs scripts/document-data.test.mjs scripts/project-compilation.test.mjs scripts/document-serializer.test.mjs scripts/math-input.test.mjs scripts/formula-recognition.test.mjs scripts/math-suggestion-scanner.test.mjs scripts/math-node-transforms.test.mjs scripts/rich-text.test.mjs scripts/external-links.test.mjs scripts/untrusted-latex-trust.test.mjs scripts/pdf-compile-scheduler.test.mjs electron/app-protocol.test.cjs electron/backend-client.test.cjs electron/workspace-store.test.cjs",
+    "smoke:latex": "npm run backend:build && node scripts/smoke-latex.mjs",
+    "smoke:math-paste": "node scripts/smoke-math-paste.mjs",
+    "desktop:dev": "node scripts/run-desktop-dev.mjs",
+    "desktop:preview": "node scripts/run-desktop.mjs",
+    "desktop:build:dir": "node scripts/build-desktop.mjs && electron-builder --config electron-builder.config.cjs --dir && node scripts/copy-desktop-installer.cjs --app-only",
+    "desktop:build": "npm run desktop:build:dir && electron-builder --config electron-builder.config.cjs --win nsis && node scripts/copy-desktop-installer.cjs",
+    "desktop:build:mac": "node scripts/build-mac.mjs",
+    "test:sync": "node --test electron/lan-sync.test.cjs",
+    "test:sync:desktop": "node scripts/lan-sync-desktop.mjs",
+    "test:quit-failure": "node scripts/quit-failure-desktop.mjs",
+    "test:pdf-batching": "npm run backend:build && node scripts/pdf-batching-smoke.mjs",
+    "test:load": "npm run backend:build && node scripts/load-compile.mjs",
+    "setup:pandoc": "node scripts/setup-pandoc.mjs",
+    "test:upgrade": "npm run backend:build && node --test scripts/upgrade.test.mjs",
+    "test:desktop": "npm run backend:build && node scripts/desktop-smoke.mjs",
+    "test:ui": "node scripts/monochrome-ui-smoke.mjs",
+    "test:project-tabs": "node scripts/project-tabs-ui.mjs",
+    "test:project-pdf": "npm run backend:build && node scripts/project-compilation-pdf.mjs",
+    "test:desktop:dist": "node scripts/build-desktop.mjs && cross-env VIETLATEX_TEST_PACKAGED_RENDERER=true node scripts/desktop-smoke.mjs",
+    "test:stress": "npm run backend:build && node scripts/stress-backend.mjs",
+    "smoke:serializer": "npm run backend:build && node scripts/smoke-serializer-xelatex.mjs",
+    "test:go": "cd backend && go vet ./... && go test ./...",
+    "test:go:race": "cd backend && go test -race -count=1 ./...",
+    "test:bench": "npm run backend:build && node scripts/bench-compile.mjs",
+    "test:citation-scan": "node --test scripts/citation-linker.test.mjs scripts/citation-review.test.mjs && node scripts/citation-linker-ui.mjs && node scripts/citation-screenshot-ui.mjs",
+    "test:review-fixes": "node scripts/review-fixes-ui.mjs"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/legacy-modes": "^6.5.4",
+    "@codemirror/search": "^6.7.2",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.13",
+    "@fontsource-variable/dm-sans": "^5.3.0",
+    "@fontsource-variable/newsreader": "^5.3.0",
+    "@lezer/highlight": "^1.2.5",
+    "@tiptap/extension-heading": "^3.31.3",
+    "@tiptap/extension-highlight": "^3.31.3",
+    "@tiptap/extension-mathematics": "^3.31.3",
+    "@tiptap/extension-placeholder": "^3.31.3",
+    "@tiptap/extension-subscript": "^3.31.3",
+    "@tiptap/extension-superscript": "^3.31.3",
+    "@tiptap/extension-table": "^3.31.3",
+    "@tiptap/extension-text-align": "^3.31.3",
+    "@tiptap/extension-text-style": "^3.31.3",
+    "@tiptap/react": "^3.31.3",
+    "@tiptap/starter-kit": "^3.31.3",
+    "fflate": "^0.8.3",
+    "katex": "^0.18.9",
+    "lucide-react": "^1.48.0",
+    "mathlive": "^0.110.0",
+    "pdfjs-dist": "^6.3.289",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-resizable-panels": "^4.14.1"
+  },
+  "devDependencies": {
+    "@electron/fuses": "^2.1.3",
+    "@eslint/js": "^10.0.1",
+    "@tailwindcss/vite": "^4.3.3",
+    "@vitejs/plugin-react": "^6.1.1",
+    "cross-env": "^10.1.0",
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3",
+    "eslint": "^10.11.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.12.0",
+    "playwright": "^1.63.0",
+    "tailwindcss": "^4.3.3",
+    "vite": "^8.3.1"
+  },
+  "overrides": {
+    "@electron/get": {
+      "global-agent": "4.1.3"
+    }
+  },
+  "build": {
+    "appId": "vn.vietlatex.studio",
+    "productName": "Viet Latex Studio",
+    "directories": {
+      "output": "release-desktop"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "src/services/*.js",
+      "src/math-input.js",
+      "package.json",
+      "!electron/**/*.test.cjs"
+    ],
+    "asar": true,
+    "electronFuses": {
+      "runAsNode": false,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true,
+      "grantFileProtocolExtraPrivileges": false
+    },
+    "extraResources": [
+      {
+        "from": "build/backend",
+        "to": "backend",
+        "filter": [
+          "vietlatex-backend",
+          "vietlatex-backend.exe"
+        ]
+      },
+      {
+        "from": "tools/pandoc",
+        "to": "pandoc",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "icon": "build/app-icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "Viet-Latex-Studio-${version}-Setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "perMachine": false
+    },
+    "mac": {
+      "category": "public.app-category.productivity",
+      "artifactName": "Viet-Latex-Studio-${version}-${arch}.${ext}",
+      "target": [
+        "dmg"
+      ]
+    }
+  }
+}

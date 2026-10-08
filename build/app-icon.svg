@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="night" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#202d37"/>
+      <stop offset="1" stop-color="#10171e"/>
+    </linearGradient>
+    <linearGradient id="paper" x1="0" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#fffefa"/>
+      <stop offset="1" stop-color="#ecebe4"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#d6b77e"/>
+      <stop offset="1" stop-color="#a77d42"/>
+    </linearGradient>
+  </defs>
+  <rect x="22" y="22" width="468" height="468" rx="112" fill="url(#night)"/>
+  <rect x="22.5" y="22.5" width="467" height="467" rx="111.5" fill="none" stroke="#ffffff" stroke-opacity=".12"/>
+  <path d="M150 78h169l55 55v300H150z" fill="url(#paper)"/>
+  <path d="M319 78v56h55" fill="#deddd4"/>
+  <path d="M319 78v56h55" fill="none" stroke="#d4d2c8" stroke-width="3"/>
+  <text x="254" y="291" text-anchor="middle" font-family="Segoe UI Symbol,serif" font-size="190" font-weight="600" fill="url(#gold)">Σ</text>
+  <path d="M197 331h114M197 356h89" stroke="#c7c8c4" stroke-width="11" stroke-linecap="round"/>
+  <path d="M197 388h61" stroke="#769a91" stroke-width="11" stroke-linecap="round"/>
+  <circle cx="339" cy="382" r="14" fill="#769a91"/>
+</svg>

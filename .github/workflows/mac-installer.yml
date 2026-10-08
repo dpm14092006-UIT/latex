@@ -1,0 +1,52 @@
+name: Build Mac installer
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mac-installer-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  installer:
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.8'
+          cache-dependency-path: backend/go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm install --global npm@11.12.1
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run test:go
+      - run: npm run test:sync
+      - name: Build universal DMG
+        run: npm run desktop:build:mac
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - name: Verify installer checksum
+        shell: bash
+        run: |
+          cd release-desktop
+          shasum -a 256 -c *.dmg.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Viet-Latex-Studio-macOS-universal
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            release-desktop/*.dmg
+            release-desktop/*.dmg.sha256

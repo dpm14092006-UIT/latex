@@ -1,0 +1,6 @@
+{
+  "note": "Ratios are relative to the single-pass compile, so they hold across machines. maxMs is a generous absolute ceiling for CI runners.",
+  "ratios": { "references": 2.2, "bibliography": 3.4 },
+  "maxMs": { "single": 6000, "references": 12000, "bibliography": 18000 },
+  "minCoalesced": 1
+}

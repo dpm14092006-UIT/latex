@@ -1,0 +1,108 @@
+name: Quality checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.8'
+          cache-dependency-path: backend/go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.21.0
+          cache: npm
+      - run: npm install --global npm@11.12.1
+      - run: npm ci
+      - run: npm run test:go
+      - run: npm run test:go:race
+      - run: npm run lint
+      - run: npm run test:backend
+      - run: npm run test:sync
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Run UI smoke
+        run: npm run test:ui
+        env:
+          UI_TEST_BROWSER: chromium
+      - run: npm run build
+      - run: npm audit
+
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.8'
+          cache-dependency-path: backend/go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.21.0
+          cache: npm
+      - run: npm install --global npm@11.12.1
+      - run: npm ci
+      - run: npm run test:go
+      - run: npm run lint
+      - run: npm run test:backend
+      - run: npm run test:sync
+      - run: npx playwright install chromium
+      - run: npm run test:project-tabs
+        env:
+          UI_TEST_BROWSER: chromium
+      - run: npm run test:sync:desktop
+      - run: npm run test:quit-failure
+      - name: Build universal Mac test installer
+        run: npm run desktop:build:mac
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-universal-test-installer
+          path: |
+            release-desktop/*.dmg
+            release-desktop/*.dmg.sha256
+
+  compile-benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.8'
+          cache-dependency-path: backend/go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.21.0
+          cache: npm
+      - run: npm install --global npm@11.12.1
+      - run: npm ci
+      - name: Install XeLaTeX
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends texlive-xetex texlive-latex-recommended texlive-fonts-recommended fonts-lmodern
+      - name: Benchmark compile speed
+        run: npm run test:bench
+        env:
+          BENCH_ROUNDS: '5'
+          BENCH_ENFORCE: '1'
+          BENCH_OUTPUT: bench-result.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: compile-benchmark
+          path: bench-result.json

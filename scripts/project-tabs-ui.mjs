@@ -1,0 +1,72 @@
+import assert from 'node:assert/strict'
+import { mkdir } from 'node:fs/promises'
+import { chromium } from 'playwright'
+import { createServer } from 'vite'
+import { createTask, createProject } from '../src/services/WorkspaceData.js'
+
+const doc = text => ({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] })
+const project = createProject('Luận văn', createTask('Mở đầu', doc('Nội dung A')))
+project.tasks.push(createTask('Kết luận', doc('Nội dung B')))
+const fixture = { projects: [project], activeProjectId: project.id, mode: 'write' }
+const server = await createServer({ server: { host: '127.0.0.1', port: 5192, strictPort: true } })
+await server.listen()
+let browser
+try {
+  browser = await chromium.launch({ headless: true, ...(process.env.UI_TEST_BROWSER === 'chromium' || process.platform !== 'win32' ? {} : { channel: 'msedge' }) })
+  const page = await browser.newPage({ viewport: { width: 1500, height: 1000 } })
+  const errors = []
+  page.on('pageerror', error => errors.push(error.message))
+  await page.addInitScript(data => {
+    if (!localStorage.getItem('latex-workspace-v1')) localStorage.setItem('latex-workspace-v1', JSON.stringify(data))
+    localStorage.setItem('latex-pdf-batch-mode', 'manual')
+  }, fixture)
+  await page.goto('http://127.0.0.1:5192')
+  const draft = page.locator('.tiptap')
+  await draft.waitFor()
+  await draft.fill('Nội dung A mới')
+  await page.getByRole('tab', { name: 'Tổng hợp', exact: true }).click()
+  await page.waitForFunction(() => globalThis.document.querySelector('.tiptap')?.textContent.includes('Nội dung B'))
+  assert.match(await draft.innerText(), /Nội dung A mới/)
+  assert.equal(await draft.getAttribute('contenteditable'), 'false')
+  await page.getByRole('button', { name: 'Sắp xếp và tổng hợp tab' }).click()
+  await page.getByRole('button', { name: 'Đưa Kết luận lên trước' }).click()
+  assert.ok((await draft.innerText()).indexOf('Nội dung B') < (await draft.innerText()).indexOf('Nội dung A mới'))
+  await page.locator('.project-tab-option').filter({ hasText: 'Kết luận' }).getByRole('checkbox').first().uncheck()
+  assert.doesNotMatch(await draft.innerText(), /Nội dung B/)
+  await page.getByRole('button', { name: 'LaTeX', exact: true }).click()
+  await page.locator('.cm-content').waitFor()
+  assert.equal(await page.locator('.cm-content').getAttribute('contenteditable'), 'false')
+  assert.match(await page.locator('.cm-content').innerText(), /Nội dung A mới/)
+  await page.getByRole('tab', { name: 'Mở đầu', exact: true }).click()
+  await page.getByRole('button', { name: 'Soạn thảo', exact: true }).click()
+  assert.equal(await draft.getAttribute('contenteditable'), 'true')
+  assert.equal(await draft.innerText(), 'Nội dung A mới')
+  await page.getByRole('tab', { name: 'Mở đầu', exact: true }).dblclick()
+  await page.getByRole('textbox', { name: 'Tên tab', exact: true }).fill('Giới thiệu')
+  await page.getByRole('button', { name: 'Lưu tên', exact: true }).click()
+  await page.getByRole('tab', { name: 'Giới thiệu', exact: true }).waitFor()
+  await page.waitForTimeout(1000)
+  await page.reload()
+  await page.getByRole('tab', { name: 'Giới thiệu', exact: true }).waitFor()
+  await page.getByRole('tab', { name: 'Tổng hợp', exact: true }).click()
+  assert.match(await draft.innerText(), /Nội dung A mới/)
+  assert.doesNotMatch(await draft.innerText(), /Nội dung B/)
+  await mkdir('artifacts/project-tabs', { recursive: true })
+  await page.screenshot({ path: 'artifacts/project-tabs/desktop.png' })
+  await page.setViewportSize({ width: 700, height: 900 })
+  await page.screenshot({ path: 'artifacts/project-tabs/compact.png' })
+  await page.getByRole('button', { name: 'Thêm tab', exact: true }).click()
+  await page.getByRole('dialog').getByRole('textbox', { name: 'Tên tab', exact: true }).fill('Chương mới')
+  await page.getByRole('dialog').getByRole('button', { name: 'Tạo tab', exact: true }).click()
+  await page.getByRole('tab', { name: 'Chương mới', exact: true }).waitFor()
+  assert.equal((await draft.innerText()).trim(), '')
+  await draft.fill('Nội dung chương mới')
+  await page.getByRole('tab', { name: 'Tổng hợp', exact: true }).click()
+  await page.waitForFunction(() => globalThis.document.querySelector('.tiptap')?.textContent.includes('Nội dung chương mới'))
+  assert.match(await draft.innerText(), /Nội dung A mới/)
+  assert.deepEqual(errors, [])
+  console.log('Project tabs UI passed: live edits, compilation, ordering, selection, read-only source, rename and reload.')
+} finally {
+  await browser?.close()
+  await server.close()
+}
