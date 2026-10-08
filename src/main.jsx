@@ -33,7 +33,7 @@ import {
   imageStats,
   normalizeDocumentDelimiters,
   normalizeDocumentHeadings,
-  normalizeHeadingNode,
+  normalizeHeadingBlocks,
   reconcileEditorImagesIntoLatexSource,
   starter,
   textIn,
@@ -199,18 +199,19 @@ const HeadingRecognition = Extension.create({
       appendTransaction(transactions, _oldState, newState) {
         if (!transactions.some(transaction => transaction.docChanged)) return null
         const activeIndex = newState.selection.$from.depth ? newState.selection.$from.index(0) : -1
+        const pasted = transactions.some(isClipboardPasteTransaction)
         const replacements = []
         for (const { index, from, node } of changedTopLevelBlocks(transactions, newState.doc)) {
-          if (index === activeIndex && node.type.name !== 'heading') continue
           const source = node.toJSON()
-          const normalized = normalizeHeadingNode(source)
-          if (normalized !== source) {
-            const replacement = newState.schema.nodeFromJSON(normalized)
+          const normalized = normalizeHeadingBlocks(source)
+          if (index === activeIndex && node.type.name !== 'heading' && normalized.length === 1 && !pasted) continue
+          if (normalized.length !== 1 || normalized[0] !== source) {
+            const replacement = normalized.map(block => newState.schema.nodeFromJSON(block))
             replacements.push({
               from,
               to: from + node.nodeSize,
-              node: replacement,
-              updateAttributes: node.type.name === 'heading' && replacement.type === node.type,
+              nodes: replacement,
+              updateAttributes: replacement.length === 1 && node.type.name === 'heading' && replacement[0].type === node.type,
             })
           }
         }
@@ -218,9 +219,9 @@ const HeadingRecognition = Extension.create({
         const transaction = newState.tr
         for (const replacement of replacements.reverse()) {
           if (replacement.updateAttributes) {
-            transaction.setNodeMarkup(replacement.from, replacement.node.type, replacement.node.attrs, replacement.node.marks)
+            transaction.setNodeMarkup(replacement.from, replacement.nodes[0].type, replacement.nodes[0].attrs, replacement.nodes[0].marks)
           } else {
-            transaction.replaceWith(replacement.from, replacement.to, replacement.node)
+            transaction.replaceWith(replacement.from, replacement.to, replacement.nodes)
           }
         }
         return transaction.docChanged ? transaction : null

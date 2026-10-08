@@ -344,6 +344,41 @@ test('numeric prefixes split across text marks preserve heading formatting and c
   assert.match(latex, /\\setcounter\{section\}\{3\}\n\\setcounter\{subsection\}\{6\}\n\\subsection\{\\textbf\{Samples\}\}/)
 })
 
+test('a numbered heading and body separated by Shift+Enter become distinct blocks without losing formatting', () => {
+  const title = { type: 'text', text: '3.1 Dữ liệu vệ tinh', marks: [{ type: 'bold' }] }
+  const bodyContent = [text('Nghiên cứu sử dụng 6 vệ tinh '), { type: 'inlineMath', attrs: { latex: 'x^2' } }, { type: 'hardBreak' }, { type: 'text', text: 'Dòng tiếp theo.', marks: [{ type: 'italic' }] }]
+  const document = { type: 'doc', content: [
+    { type: 'paragraph', attrs: { textAlign: 'justify' }, content: [title, { type: 'hardBreak' }, ...bodyContent] },
+    { type: 'heading', attrs: { level: 3 }, content: [text('3.1.1 Night time light')] },
+  ] }
+  const original = structuredClone(document)
+  const normalized = normalizeDocumentHeadings(document)
+  assert.deepEqual(normalized.content.map(node => [node.type, node.attrs.level]), [['heading', 2], ['paragraph', undefined], ['heading', 3]])
+  assert.deepEqual(normalized.content[0].content, [title])
+  assert.deepEqual(normalized.content[1], { type: 'paragraph', attrs: { textAlign: 'justify' }, content: bodyContent })
+  assert.equal(normalizeDocumentHeadings(normalized), normalized, 'normalization must be idempotent')
+  assert.deepEqual(document, original, 'normalization must not mutate the stored document')
+  const latex = toLatex(document, '3. Data').latex
+  assert.match(latex, /\\subsection\{\\textbf\{Dữ liệu vệ tinh\}\}/)
+  assert.match(latex, /\\subsubsection\{Night time light\}/)
+  assert.match(latex, /\\setcounter\{section\}\{3\}/)
+})
+
+test('consecutive heading lines normalize once while prose, lists and existing multiline headings stay intact', () => {
+  const consecutive = para(text('3. Data'), { type: 'hardBreak' }, text('3.1 Satellites'), { type: 'hardBreak' }, text('3.1.1 Night time light'))
+  const document = { type: 'doc', content: [consecutive] }
+  const normalized = normalizeDocumentHeadings(document)
+  assert.deepEqual(normalized.content.map(node => node.attrs.level), [1, 2, 3])
+  assert.equal(normalizeDocumentHeadings(normalized), normalized)
+  assert.equal(normalizeDocumentHeadings(document, { skipIndex: 0 }), document)
+  for (const node of [
+    para(text('3.1 triệu người tham gia.'), { type: 'hardBreak' }, text('Phần mô tả.')),
+    para(text('Nội dung mở đầu.'), { type: 'hardBreak' }, text('3.1 Dữ liệu vệ tinh')),
+    { type: 'orderedList', content: [{ type: 'listItem', content: [consecutive] }] },
+    { type: 'heading', attrs: { level: 2 }, content: [text('Heading'), { type: 'hardBreak' }, text('continued')] },
+  ]) assert.equal(normalizeDocumentHeadings({ type: 'doc', content: [node] }).content[0], node)
+})
+
 test('bibliography headings are semantic unnumbered top-level headings', () => {
   const articleLatex = body([
     { type: 'heading', attrs: { level: 2 }, content: [text('References')] },

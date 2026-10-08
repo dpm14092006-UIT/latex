@@ -1,10 +1,10 @@
-# Viet LaTeX Studio 0.5.0
+# Viet LaTeX Studio 0.5.1
 
 Ứng dụng desktop soạn tài liệu tiếng Việt, nhập công thức trực quan, chỉnh LaTeX và xem PDF. Bản thảo, tài nguyên, sao lưu và chuyển đổi Word được xử lý trên máy.
 
 ## Sử dụng Windows
 
-Phiên bản 0.5.0 thêm đồng bộ LAN Windows/macOS, giữ phiên bản xung đột và sửa lỗi lưu khi thoát; xem [bàn giao 0.5.0](docs/UPGRADE-0.5.0.md). Bản mới nhất sau đợt sửa lỗi ngày 08/10/2026 là `release-desktop/latest-2026-10-08/Viet-Latex-Studio-0.5.0-Portable-cd4077f.exe`, có manifest và SHA-256 bên cạnh. Bản này đã sửa lỗi tiêu đề `3.1.1` bị xuất thành `0.0.1`. Đóng ứng dụng cũ, mở đúng file mới rồi chọn **Cập nhật PDF**. File cùng thư mục không có hậu tố `cd4077f` là bản trước, tạm giữ vì tiến trình đang sử dụng. Các bản phát hành cũ, kể cả 0.4.6, đã được dọn theo yêu cầu. Bộ app gồm Pandoc 3.11; **XeLaTeX cần được cài riêng** bằng MiKTeX hoặc TeX Live. Lần đầu TeX có thể cần mạng để tải gói còn thiếu. **Quản lý tài liệu → Hệ thống** kiểm tra XeLaTeX/Pandoc và xóa cache.
+Phiên bản 0.5.1 sửa lỗi tiêu đề `3.1.1` bị xuất thành `0.0.1` và nhận diện tiêu đề đứng trước nội dung trong cùng đoạn qua Shift+Enter/ngắt dòng khi dán từ Word. Xem [bản sửa 0.5.1](docs/UPGRADE-0.5.1.md) và [đồng bộ LAN 0.5.0](docs/UPGRADE-0.5.0.md). Bản Windows hiện tại là `release-desktop/latest-2026-10-08/Viet-Latex-Studio-0.5.1-Portable.exe`, có manifest và SHA-256 bên cạnh. Thanh tiêu đề phải hiển thị **0.5.1**; chọn **Cập nhật PDF** để biên dịch lại tài liệu. Bộ app gồm Pandoc 3.11; **XeLaTeX cần được cài riêng** bằng MiKTeX hoặc TeX Live. Lần đầu TeX có thể cần mạng để tải gói còn thiếu. **Quản lý tài liệu → Hệ thống** kiểm tra XeLaTeX/Pandoc và xóa cache.
 
 Bản Portable chưa ký số và chưa xác minh khởi chạy. Windows Code Integrity trên máy hiện tại đã chặn EXE đóng gói khi kiểm tra; Electron chạy từ workspace với renderer production đã qua. Xem [báo cáo rà soát và chịu tải](docs/AUDIT-LOAD-2026-10-08.md).
 

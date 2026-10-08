@@ -1,6 +1,6 @@
 # Bộ cài MacBook
 
-File `.exe` dành cho Windows. Bản cài trực tiếp cho Mac của dự án là `Viet-Latex-Studio-0.5.0-universal.dmg`; bên trong có `Viet Latex Studio.app`. Mục tiêu universal hỗ trợ cả Mac Intel và Apple Silicon.
+File `.exe` dành cho Windows. Bản cài trực tiếp cho Mac của dự án là `Viet-Latex-Studio-0.5.1-universal.dmg`; bên trong có `Viet Latex Studio.app`. Mục tiêu universal hỗ trợ cả Mac Intel và Apple Silicon.
 
 Hiện chưa có file DMG được tạo hoặc kiểm thử trong phiên Windows này. `scripts/build-mac.mjs` và thư viện ghép universal cần chạy trên macOS. Cross-compile backend từ Windows chỉ kiểm tra mã Go tạo được binary Darwin, không thay thế build và chạy ứng dụng Mac. Không đổi đuôi EXE sang DMG.
 
@@ -13,7 +13,7 @@ git clone https://github.com/dpm14092006-UIT/latex.git
 cd latex
 ```
 
-Nếu đã clone, chạy `git pull --ff-only` trong thư mục repo để cập nhật. Có thể dùng gói `Viet-Latex-Studio-0.5.0-Mac-Build-Source.zip` rồi giải nén khi không dùng Git. Gói này là mã nguồn để tạo bộ cài, không chứa workspace cá nhân, dependency Windows hoặc các bản phát hành cũ.
+Nếu đã clone, chạy `git pull --ff-only` trong thư mục repo để cập nhật. Có thể dùng gói `Viet-Latex-Studio-0.5.1-Mac-Build-Source.zip` rồi giải nén khi không dùng Git. Gói này là mã nguồn để tạo bộ cài, không chứa workspace cá nhân, dependency Windows hoặc các bản phát hành cũ.
 
 Cần [Node.js 24 LTS](https://nodejs.org/en/download) với npm 11 và [Go 1.26.8+](https://go.dev/dl/), cùng Command Line Tools của Apple cho lipo. Nếu chưa có Command Line Tools, cài bằng `xcode-select --install` trên Mac. Sau khi môi trường sẵn sàng, chạy trong thư mục repo hoặc thư mục mã nguồn vừa giải nén:
 

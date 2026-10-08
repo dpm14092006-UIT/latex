@@ -1,6 +1,6 @@
 {
   "name": "latex-word-studio",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Trình soạn thảo desktop cục bộ cho văn bản, LaTeX và PDF.",
   "author": "Viet LaTeX Studio",
   "main": "electron/main.cjs",
@@ -47,7 +47,8 @@
     "test:go:race": "cd backend && go test -race -count=1 ./...",
     "test:bench": "npm run backend:build && node scripts/bench-compile.mjs",
     "test:citation-scan": "node --test scripts/citation-linker.test.mjs scripts/citation-review.test.mjs && node scripts/citation-linker-ui.mjs && node scripts/citation-screenshot-ui.mjs",
-    "test:review-fixes": "node scripts/review-fixes-ui.mjs"
+    "test:review-fixes": "node scripts/review-fixes-ui.mjs",
+    "test:headings": "node scripts/build-desktop.mjs && node scripts/heading-numbering-desktop.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",

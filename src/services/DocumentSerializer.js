@@ -286,13 +286,32 @@ export function normalizeHeadingNode(node) {
   return { type: 'heading', attrs, content }
 }
 
+export function normalizeHeadingBlocks(node) {
+  if (node?.type !== 'paragraph' || !Array.isArray(node.content)) return [normalizeHeadingNode(node)]
+  const blocks = []
+  let start = 0
+  // Word and Shift+Enter can put a heading and its body in one paragraph.
+  // Split only leading, explicitly labelled heading lines; retain the body,
+  // inline nodes, marks and subsequent line breaks without interpreting prose.
+  for (let index = 0; index < node.content.length; index += 1) {
+    if (node.content[index].type !== 'hardBreak') continue
+    const heading = normalizeHeadingNode({ ...node, content: node.content.slice(start, index) })
+    if (heading.type !== 'heading') break
+    blocks.push(heading)
+    start = index + 1
+  }
+  if (!blocks.length) return [normalizeHeadingNode(node)]
+  if (start < node.content.length) blocks.push(normalizeHeadingNode({ ...node, content: node.content.slice(start) }))
+  return blocks
+}
+
 export function normalizeDocumentHeadings(doc, { skipIndex = -1 } = {}) {
   if (!doc || doc.type !== 'doc' || !Array.isArray(doc.content)) return doc
   let changed = false
-  const content = doc.content.map((node, index) => {
-    if (index === skipIndex) return node
-    const normalized = normalizeHeadingNode(node)
-    if (normalized !== node) changed = true
+  const content = doc.content.flatMap((node, index) => {
+    if (index === skipIndex) return [node]
+    const normalized = normalizeHeadingBlocks(node)
+    if (normalized.length !== 1 || normalized[0] !== node) changed = true
     return normalized
   })
   return changed ? { ...doc, content } : doc

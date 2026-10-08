@@ -30,6 +30,7 @@ const suites = [
   { name: 'test:sync:desktop' },
   { name: 'test:quit-failure' },
   { name: 'test:desktop:dist' },
+  { name: 'test:headings' },
   { name: 'test:load', env: { VIETLATEX_COMPILE_WORKERS: '4' } },
   { name: 'test:stress', env: { STRESS_CLIENTS: '64', STRESS_REQUESTS: '8', VIETLATEX_COMPILE_WORKERS: '4' } },
   { name: 'test:bench', env: { BENCH_ENFORCE: '1', BENCH_ROUNDS: '5', BENCH_OUTPUT: join(output, 'benchmark.json'), VIETLATEX_COMPILE_WORKERS: '4' } },
