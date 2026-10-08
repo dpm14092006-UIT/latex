@@ -60,7 +60,7 @@ try {
       return url
     }
   })
-  await page.reload()
+  await page.reload({ waitUntil: 'domcontentloaded' })
   await page.getByRole('textbox', { name: 'Tên tài liệu' }).waitFor({ timeout: 30000 })
   const outline = page.getByRole('navigation', { name: 'Mục lục bản thảo', exact: true })
   await outline.getByRole('button', { name: '3.1 Dữ liệu vệ tinh', exact: true }).waitFor()
