@@ -316,6 +316,34 @@ test('common numbered title prefixes select matching heading depth without print
   }
 })
 
+test('an isolated 3.1.1 heading preserves its explicit number and a semantic reference label', () => {
+  const document = { type: 'doc', content: [
+    { type: 'heading', attrs: { level: 3, label: 'sec:night' }, content: [text('3.1.1 Night time light')] },
+    { type: 'heading', attrs: { level: 3 }, content: [text('Next measurement')] },
+  ] }
+  const original = structuredClone(document)
+  const latex = toLatex(document, '3. Data').latex
+  assert.match(latex, /\\setcounter\{section\}\{3\}\n\\setcounter\{subsection\}\{1\}\n\\setcounter\{subsubsection\}\{0\}\n\\subsubsection\{Night time light\}\\label\{sec:night\}/)
+  assert.match(latex, /\\subsubsection\{Next measurement\}/)
+  assert.doesNotMatch(latex, /\\subsubsection\*|\\subsubsection\{3\.1\.1/)
+  assert.deepEqual(document, original, 'export must not rewrite the saved draft')
+})
+
+test('explicit nonsequential headings seed the matching counters in report templates', () => {
+  const report = builtInDocumentTemplates.find(item => /\\documentclass\[.*\]\{report\}/.test(item.source))
+  assert.ok(report)
+  const document = { type: 'doc', content: [para(text('6.1.4. Lasso Regression'))] }
+  const latex = toLatex(document, 'Model', report.source).latex
+  assert.match(latex, /\\setcounter\{chapter\}\{6\}\n\\setcounter\{section\}\{1\}\n\\setcounter\{subsection\}\{3\}\n\\subsection\{Lasso Regression\}/)
+})
+
+test('numeric prefixes split across text marks preserve heading formatting and counter values', () => {
+  const latex = body([{ type: 'heading', attrs: { level: 2 }, content: [
+    text('3.'), { type: 'text', text: '7. Samples', marks: [{ type: 'bold' }] },
+  ] }])
+  assert.match(latex, /\\setcounter\{section\}\{3\}\n\\setcounter\{subsection\}\{6\}\n\\subsection\{\\textbf\{Samples\}\}/)
+})
+
 test('bibliography headings are semantic unnumbered top-level headings', () => {
   const articleLatex = body([
     { type: 'heading', attrs: { level: 2 }, content: [text('References')] },

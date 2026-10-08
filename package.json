@@ -111,7 +111,9 @@
       "src/services/*.js",
       "src/math-input.js",
       "package.json",
-      "!electron/**/*.test.cjs"
+      "!electron/**/*.test.cjs",
+      "!node_modules/@napi-rs/canvas/**",
+      "!node_modules/@napi-rs/canvas-*/**"
     ],
     "asar": true,
     "electronFuses": {

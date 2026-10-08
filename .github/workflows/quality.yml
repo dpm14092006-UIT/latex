@@ -68,13 +68,16 @@ jobs:
       - run: npm run test:sync:desktop
       - run: npm run test:quit-failure
       - name: Build universal Mac test installer
+        if: github.event_name == 'workflow_dispatch'
         run: npm run desktop:build:mac
         env:
           GITHUB_TOKEN: ${{ github.token }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       - name: Verify and test packaged Mac app
+        if: github.event_name == 'workflow_dispatch'
         run: npm run desktop:verify:mac
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
         with:
           name: macos-universal-test-installer
           path: |

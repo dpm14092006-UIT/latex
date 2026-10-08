@@ -197,6 +197,7 @@ function numberedHeading(text) {
       automaticNumbering: !match[1].endsWith(')'),
       level: Math.min(3, components.length),
       depth: components.length,
+      numbers: components.map(Number),
       title: match[2],
     }
   }
@@ -252,6 +253,7 @@ function inferredHeading(node) {
     automaticNumbering: inferred.automaticNumbering,
     level: Math.min(3, Math.max(1, inferred.level)),
     depth: inferred.depth,
+    numbers: inferred.numbers,
     prefixLength: titleStartInRaw,
   }
 }
@@ -275,7 +277,7 @@ export function normalizeHeadingNode(node) {
   const inferred = inferredHeading(node)
   if (!inferred) return node
   // Keep explicit numeric labels visible in the editor and outline. The LaTeX
-  // serializer removes them from the exported title after using them to infer depth.
+  // serializer uses their values as LaTeX counters and removes the duplicated title prefix.
   const content = inferred.kind === 'markdown' ? withoutPrefix(node.content, inferred.prefixLength) : node.content
   const attrs = { ...(node.attrs || {}), level: inferred.level }
   if (node.type === 'heading') {
@@ -789,8 +791,13 @@ ${graphic}
         ? withoutPrefix(children, inferred.prefixLength)
         : children
       const headingText = headingContent.map(child => nodeLatex(child, { ...context, inHeading: true })).join('')
+      // An isolated tab may start at 3.1.1 without containing its parent headings.
+      // Seed every explicit counter, then let the heading command advance its own.
+      const counters = inferred?.numbers && !keepLiteralNumber && !isBibliographyHeading
+        ? inferred.numbers.map((number, index) => `\\setcounter{${commands[index + 1]}}{${number - (index === inferred.numbers.length - 1 ? 1 : 0)}}\n`).join('')
+        : ''
       const tocEntry = keepLiteralNumber ? `\\addcontentsline{toc}{${baseCommand}}{${headingText}}` : ''
-      return '\\' + command + `{${headingText}}${tocEntry}${safeLabel(node.attrs?.label) ? `\\label{${safeLabel(node.attrs.label)}}` : ''}\n\n`
+      return counters + '\\' + command + `{${headingText}}${tocEntry}${safeLabel(node.attrs?.label) ? `\\label{${safeLabel(node.attrs.label)}}` : ''}\n\n`
     }
     case 'bulletList':
       return String.raw`\begin{itemize}
