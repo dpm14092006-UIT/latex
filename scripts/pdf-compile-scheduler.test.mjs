@@ -27,6 +27,29 @@ function fixture() {
   return { scheduler, jobs, states, advance }
 }
 
+test('live preview compiles small edits promptly and queues the latest revision during a run', async () => {
+  const f = fixture()
+  f.scheduler.setMode('live')
+  f.scheduler.update(input('first'))
+  await f.advance(899)
+  assert.equal(f.jobs.length, 0)
+  await f.advance(1)
+  f.scheduler.update(input('newest'))
+  f.jobs[0].resolve(new Blob(['old'])); await flush()
+  assert.equal(f.states.at(-1).stale, true)
+  await f.advance(1999)
+  assert.equal(f.jobs.length, 1)
+  await f.advance(1)
+  assert.equal(f.jobs[1].source, 'newest')
+  f.jobs[1].resolve(new Blob(['latest'])); await flush()
+  assert.equal(f.states.at(-1).status, 'ready')
+  await f.advance(1000)
+  f.scheduler.update(input('one word changed'))
+  await f.advance(1000)
+  assert.equal(f.jobs[2].source, 'one word changed')
+  f.scheduler.dispose()
+})
+
 test('first trusted document is compiled after idle and small edits wait 60 seconds', async () => {
   const f = fixture()
   f.scheduler.update(input('first'))
@@ -196,5 +219,23 @@ test('reverting an edit reuses current PDF and cancels scheduled work', async ()
   await f.advance(120000)
   assert.equal(f.jobs.length, 1)
   assert.equal(f.states.at(-1).status, 'ready')
+  f.scheduler.dispose()
+})
+
+test('matching received PDF can be viewed and exported without compiling untrusted source', async () => {
+  const f = fixture(), received = input('remote', { blocked: 'untrusted' }), blob = new Blob(['%PDF-1.7'])
+  f.scheduler.update(received)
+  assert.equal(f.scheduler.receiveShared(received, blob), true)
+  assert.equal(f.states.at(-1).status, 'ready')
+  assert.equal(f.states.at(-1).shared, true)
+  assert.equal(await f.scheduler.request(received), blob)
+  await f.advance(120000)
+  assert.equal(f.jobs.length, 0)
+  await assert.rejects(f.scheduler.request(received, { fresh: true }), /untrusted/)
+  const changed = { ...received, source: 'new revision' }
+  f.scheduler.update(changed)
+  assert.equal(f.scheduler.receiveShared(received, blob), false)
+  assert.equal(f.states.at(-1).stale, true)
+  await assert.rejects(f.scheduler.request(changed), /untrusted/)
   f.scheduler.dispose()
 })

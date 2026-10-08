@@ -783,7 +783,7 @@ func runBibtex(ctx context.Context, directory string) error {
 	_, err = runCommand(ctx, bibtex, []string{"document"}, directory, maxTexCommandTime)
 	var command *commandError
 	if errors.As(err, &command) && command.missing {
-		return appError(http.StatusServiceUnavailable, fmt.Sprintf("Không tìm thấy %s để xử lý tài liệu tham khảo. APA 7th cần Biber, biblatex-apa và csquotes trong MiKTeX hoặc TeX Live.", program))
+		return appError(http.StatusServiceUnavailable, fmt.Sprintf("Không tìm thấy %s để xử lý tài liệu tham khảo. APA 7th cần Biber, biblatex-apa và csquotes trong MacTeX hoặc TeX Live.", program))
 	}
 	return err
 }
@@ -797,11 +797,7 @@ func runXdvipdfmx(ctx context.Context, source, directory string) error {
 	if err == nil {
 		_, err = runCommand(ctx, executable, args, directory, maxTexCommandTime)
 	}
-	var command *commandError
-	if errors.As(err, &command) && command.missing {
-		// Some TeX installs lack a standalone driver; a full pass still works.
-		return runXeLatex(ctx, source, directory, false)
-	}
+
 	return err
 }
 
@@ -815,9 +811,6 @@ func texCompanion(name string) (string, error) {
 		return name, nil
 	}
 	companion := filepath.Join(filepath.Dir(xelatex), name)
-	if runtime.GOOS == "windows" {
-		companion += ".exe"
-	}
 	return companion, nil
 }
 
@@ -844,21 +837,28 @@ func readCompiledPDF(pdf string) ([]byte, error) {
 
 func runXeLatex(ctx context.Context, source, directory string, noPDF bool) error {
 	args := []string{"-interaction=nonstopmode", "-halt-on-error", "-file-line-error", "-no-shell-escape"}
-	if noPDF {
-		args = append(args, "-no-pdf")
-	}
 	if os.Getenv("VIETLATEX_SANDBOX") == "docker" {
+		if noPDF {
+			args = append(args, "-no-pdf")
+		}
 		return runSandboxProgram(ctx, "xelatex", append(args, "document.tex"), directory)
 	}
 	executable, err := findXeLatex()
 	if err != nil {
 		return err
 	}
-	// The command runs inside directory, so name the main file relative to
-	// it, as the warm path does. TeX tokenizes the file name: a "~" (as in
-	// 8.3 short TEMP paths like C:\Users\NGUYEN~1\...) or "%" in an absolute
-	// path made every cold compile fail with "Emergency stop".
-	_, err = runCommand(ctx, executable, append(args, "-output-directory", directory, filepath.Base(source)), directory, maxTexCommandTime)
+	// Keep the TeX file name relative: absolute paths may contain ~ or %.
+	// Invoke the PDF driver directly. XeTeX's shell-based output driver
+	// strips quotes from app bundle paths containing spaces on macOS.
+	args = append(args, "-no-pdf", "-output-directory", directory, filepath.Base(source))
+	if _, err = runCommand(ctx, executable, args, directory, maxTexCommandTime); err != nil || noPDF {
+		return err
+	}
+	driver, err := texCompanion("xdvipdfmx")
+	if err != nil {
+		return err
+	}
+	_, err = runCommand(ctx, driver, []string{"-q", "-E", "-o", "document.pdf", "document.xdv"}, directory, maxTexCommandTime)
 	return err
 }
 
@@ -892,7 +892,7 @@ func latexError(err error) error {
 	var command *commandError
 	if errors.As(err, &command) {
 		if command.missing {
-			return appError(http.StatusServiceUnavailable, "Không tìm thấy XeLaTeX. Cài MiKTeX hoặc TeX Live (MacTeX trên macOS), rồi mở lại ứng dụng.")
+			return appError(http.StatusServiceUnavailable, "Không tìm thấy XeLaTeX. Cài MacTeX hoặc TeX Live, rồi mở lại ứng dụng.")
 		}
 		if command.timeout {
 			return appError(http.StatusGatewayTimeout, "Biên dịch vượt quá thời gian 30 giây.")
@@ -949,14 +949,12 @@ func logTail(log string) string {
 
 func findXeLatex() (string, error) {
 	candidates := []string{os.Getenv("XELATEX_PATH")}
+	for _, root := range []string{os.Getenv("VIETLATEX_RESOURCES_PATH"), filepath.Join(os.Getenv("VIETLATEX_APP_PATH"), "tools")} {
+		if root != "" && filepath.IsAbs(root) {
+			candidates = append(candidates, filepath.Join(root, "tex", "bin", "universal-darwin", "xelatex"))
+		}
+	}
 	switch runtime.GOOS {
-	case "windows":
-		if local := os.Getenv("LOCALAPPDATA"); local != "" {
-			candidates = append(candidates, filepath.Join(local, "Programs", "MiKTeX", "miktex", "bin", "x64", "xelatex.exe"))
-		}
-		if programFiles := os.Getenv("ProgramFiles"); programFiles != "" {
-			candidates = append(candidates, filepath.Join(programFiles, "MiKTeX", "miktex", "bin", "x64", "xelatex.exe"))
-		}
 	case "darwin":
 		candidates = append(candidates, "/Library/TeX/texbin/xelatex", "/opt/homebrew/bin/xelatex", "/usr/local/bin/xelatex", "/opt/local/bin/xelatex")
 		if home, err := os.UserHomeDir(); err == nil {
@@ -969,7 +967,7 @@ func findXeLatex() (string, error) {
 		if candidate == "" || !filepath.IsAbs(candidate) {
 			continue
 		}
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0111 != 0 {
 			return candidate, nil
 		}
 	}
@@ -992,11 +990,11 @@ func (s *latexService) environment(ctx context.Context) map[string]any {
 	}
 	executable, err := findXeLatex()
 	if err != nil {
-		return map[string]any{"available": false, "error": "Không tìm thấy XeLaTeX. Cài MiKTeX hoặc TeX Live rồi khởi động lại ứng dụng.", "help": "Cài MiKTeX hoặc TeX Live rồi khởi động lại ứng dụng."}
+		return map[string]any{"available": false, "error": "Không tìm thấy XeLaTeX. Cài MacTeX hoặc TeX Live rồi khởi động lại ứng dụng.", "help": "Cài MacTeX hoặc TeX Live rồi khởi động lại ứng dụng."}
 	}
 	version, err := runCommand(ctx, executable, []string{"--version"}, "", 5*time.Second)
 	if err != nil {
-		return map[string]any{"available": false, "executable": executable, "error": err.Error(), "help": "Cài MiKTeX hoặc TeX Live rồi khởi động lại ứng dụng."}
+		return map[string]any{"available": false, "executable": executable, "error": err.Error(), "help": "Cài MacTeX hoặc TeX Live rồi khởi động lại ứng dụng."}
 	}
 	firstLine := strings.SplitN(strings.TrimSpace(string(version)), "\n", 2)[0]
 	return map[string]any{"available": true, "executable": executable, "version": strings.TrimSuffix(firstLine, "\r"), "sandbox": "local"}

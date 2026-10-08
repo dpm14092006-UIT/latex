@@ -6,7 +6,7 @@ import { mkdir } from 'node:fs/promises'
 const server = await createServer({server:{host:'127.0.0.1',port:0}})
 await server.listen()
 await mkdir('artifacts/noir-ui',{recursive:true})
-const browser = await chromium.launch({channel:'msedge',headless:true})
+const browser = await chromium.launch({headless:true})
 try {
  const page = await browser.newPage({viewport:{width:1600,height:1000}})
  const errors=[];page.on('pageerror',e=>errors.push(e.message))

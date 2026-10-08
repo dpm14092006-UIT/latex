@@ -1,3 +1,4 @@
+import { primaryKey } from './platform-keys.mjs'
 import assert from 'node:assert/strict'
 import { chromium } from 'playwright'
 import { createServer } from 'vite'
@@ -7,7 +8,7 @@ const server = await createServer({ server: { host: '127.0.0.1', port: 5186, str
 await server.listen()
 let browser
 try {
-  browser = await chromium.launch({ headless: true, channel: 'msedge' })
+  browser = await chromium.launch({ headless: true })
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } })
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
   const project = createProject('Kiểm thử', createTask('Công thức'))
@@ -39,7 +40,7 @@ try {
   await input.fill('sqrt(')
   assert.ok(await dialog.getByRole('alert').isVisible())
   assert.ok(await dialog.getByRole('button', { name: 'Chèn công thức', exact: true }).isDisabled())
-  await input.press('Control+Enter')
+  await input.press(`${primaryKey}+Enter`)
   assert.ok(await dialog.isVisible())
   await input.fill('(a+b)/sqrt(x^2+1)')
   await dialog.getByRole('button', { name: 'Sửa mã LaTeX', exact: true }).click()
@@ -51,7 +52,7 @@ try {
   await page.getByRole('button', { name: 'Chèn công thức toán học', exact: true }).first().click()
   await dialog.getByRole('button', { name: 'Gõ thường', exact: true }).click()
   await page.evaluate(() => navigator.clipboard.writeText('p >= N_train'))
-  await input.press('Control+V')
+  await input.press(`${primaryKey}+V`)
   assert.equal(await dialog.getByLabel('LaTeX nhận diện được').inputValue(), String.raw`p \geq N_{\mathrm{train}}`)
   await dialog.getByRole('button', { name: 'Chèn công thức', exact: true }).click()
   await page.locator('.tiptap .katex').nth(1).waitFor()

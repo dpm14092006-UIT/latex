@@ -6,6 +6,21 @@ export function stableJSON(value) {
 }
 export const sameRecord = (a, b) => stableJSON(a ?? null) === stableJSON(b ?? null)
 
+export function pdfRecordInput(records, id) {
+  const task = records[`task:${id}`]
+  if (task) {
+    const { projectId: _projectId, ...document } = task
+    return { document, template: records[`documentTemplates:${task.activeDocumentTemplateId}`] || null }
+  }
+  if (id.startsWith('compilation-')) {
+    const project = records[`project:${id.slice(12)}`]
+    if (project) return { project, tasks: project.taskIds.map(taskId => pdfRecordInput(records, taskId)) }
+  }
+  return null
+}
+
+export const pdfCompileInput = input => ({ source: input.source, images: input.images || [], assets: input.assets || [] })
+
 export function workspaceRecords(workspace) {
   const records = Object.create(null)
   for (const project of workspace?.projects || []) {

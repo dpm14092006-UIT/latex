@@ -32,7 +32,7 @@ try {
     await new Promise(resolve => allocator.listen(0, '127.0.0.1', resolve))
     const port = allocator.address().port
     await new Promise(resolve => allocator.close(resolve))
-    child = spawn(process.env.DESKTOP_EXE, [`--remote-debugging-port=${port}`, '--disable-background-timer-throttling', '--disable-renderer-backgrounding'], { env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
+    child = spawn(process.env.DESKTOP_EXE, [`--remote-debugging-port=${port}`, '--disable-background-timer-throttling', '--disable-renderer-backgrounding'], { env, stdio: ['ignore', 'pipe', 'pipe'] })
     let diagnostics = ''
     child.stderr.on('data', chunk => { diagnostics = (diagnostics + chunk.toString()).slice(-5000) })
     child.stdout.resume()
@@ -101,15 +101,21 @@ try {
 } finally {
   await loading?.destroy()
   if (app) {
-    await page?.evaluate(() => globalThis.close()).catch(() => {})
-    await app.close()
+    const process = app.process()
+    const exited = new Promise(resolve => {
+      if (process.exitCode !== null) resolve()
+      else process.once('exit', resolve)
+    })
+    process.kill('SIGTERM')
+    const timer = setTimeout(() => process.kill('SIGKILL'), 20000)
+    try { await exited } finally { clearTimeout(timer) }
   }
-  if (page && child?.exitCode === null) {
-    await page.evaluate(() => globalThis.close()).catch(() => {})
+  if (child?.exitCode === null) {
+    child.kill('SIGTERM')
     const deadline = Date.now() + 20000
     while (child.exitCode === null && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 100))
+    if (child.exitCode === null) child.kill('SIGKILL')
   }
-  if (child?.exitCode === null) child.kill()
   await browser?.close().catch(() => {})
   await rm(userData, { recursive: true, force: true })
 }

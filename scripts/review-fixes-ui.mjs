@@ -1,3 +1,4 @@
+import { primaryKey, documentStartKey, documentEndKey } from './platform-keys.mjs'
 import assert from 'node:assert/strict'
 import { chromium } from 'playwright'
 import { createServer } from 'vite'
@@ -27,7 +28,7 @@ const server = await createServer({ server: { host: '127.0.0.1', port: 5192, str
 await server.listen()
 let browser
 try {
-  browser = await chromium.launch({ headless: true, channel: 'msedge' })
+  browser = await chromium.launch({ headless: true })
   const page = await browser.newPage({ viewport: { width: 1500, height: 1000 } })
   page.setDefaultTimeout(15000)
   const errors = []
@@ -54,10 +55,10 @@ try {
   const editor = page.locator('.tiptap')
   await editor.waitFor()
   await editor.click()
-  await page.keyboard.press('Control+Home')
+  await page.keyboard.press(documentStartKey)
   await page.keyboard.insertText('Mới ')
-  await page.keyboard.press('Control+a')
-  await page.keyboard.press('Control+Shift+c')
+  await page.keyboard.press(`${primaryKey}+a`)
+  await page.keyboard.press(`${primaryKey}+Shift+c`)
   let insertionDialog = page.getByRole('dialog')
   await insertionDialog.locator('.cite-item').filter({ hasText: 'First' }).getByRole('checkbox').check()
   await insertionDialog.getByLabel('Cách cite', { exact: true }).selectOption('narrative')
@@ -71,21 +72,21 @@ try {
   await insertionDialog.getByLabel('Cách cite', { exact: true }).selectOption('parenthetical')
   await insertionDialog.getByRole('button', { name: 'Cập nhật', exact: true }).click()
   assert.equal(await editor.locator('[data-type="citation"]').last().getAttribute('data-citation-mode'), 'parenthetical')
-  await page.keyboard.press('Control+z')
+  await page.keyboard.press(`${primaryKey}+z`)
   assert.equal(await editor.locator('[data-type="citation"]').last().getAttribute('data-citation-mode'), 'narrative')
-  await page.keyboard.press('Control+z')
+  await page.keyboard.press(`${primaryKey}+z`)
   assert.equal(await editor.locator('[data-type="citation"]').count(), 2)
-  await page.keyboard.press('Control+Shift+c')
+  await page.keyboard.press(`${primaryKey}+Shift+c`)
   let dialog = page.getByRole('dialog')
   await dialog.getByRole('button', { name: 'Xóa cite trong bản thảo (2)', exact: true }).click()
   assert.equal(await editor.locator('[data-type="citation"]').count(), 0)
   await dialog.getByRole('button', { name: 'Hủy', exact: true }).click()
   await editor.click()
-  await page.keyboard.press('Control+z')
+  await page.keyboard.press(`${primaryKey}+z`)
   assert.equal(await editor.locator('[data-type="citation"]').count(), 2)
   assert.ok((await editor.innerText()).includes('Mới Giữ văn bản'))
 
-  await page.keyboard.press('Control+Shift+c')
+  await page.keyboard.press(`${primaryKey}+Shift+c`)
   dialog = page.getByRole('dialog')
   await dialog.getByRole('button', { name: 'Thêm tài liệu', exact: true }).click()
   await dialog.locator('#cite-import').fill(ref)
@@ -100,7 +101,7 @@ try {
 
   await page.locator('.mono-doc-item').filter({ hasText: manual.title }).click()
   await editor.click()
-  await page.keyboard.press('Control+Shift+c')
+  await page.keyboard.press(`${primaryKey}+Shift+c`)
   dialog = page.getByRole('dialog')
   assert.equal(await dialog.getByRole('button', { name: 'Xóa cite trong bản thảo (2)', exact: true }).isDisabled(), true)
   await dialog.getByText('PDF đang dùng source riêng.', { exact: false }).waitFor()
@@ -111,7 +112,7 @@ try {
   const original = await source.innerText()
   assert.match(original, /Source retained/)
   await source.click()
-  await source.press('Control+End')
+  await source.press(documentEndKey)
   await source.evaluate((element, payload) => {
     const clipboardData = new window.DataTransfer()
     clipboardData.setData('text/plain', payload)
@@ -121,12 +122,12 @@ try {
   assert.equal(await source.innerText(), original, 'oversized UTF-8 paste leaves the previous source intact')
   await page.keyboard.insertText('\n% allowed edit')
   assert.match(await source.innerText(), /allowed edit/)
-  await source.press('Control+z')
+  await source.press(`${primaryKey}+z`)
   assert.equal(await source.innerText(), original)
 
   const syncedSource = `${original}\n% source-sync-ui`
   await source.click()
-  await source.press('Control+End')
+  await source.press(documentEndKey)
   await page.keyboard.insertText('\n% source-sync-ui')
   await page.getByText('Bản thảo đã được cập nhật từ LaTeX.', { exact: true }).waitFor()
   await page.getByRole('button', { name: 'Soạn thảo', exact: true }).click()
@@ -134,7 +135,7 @@ try {
 
   await page.getByRole('button', { name: 'LaTeX', exact: true }).click()
   await page.locator('.cm-content').click()
-  await page.keyboard.press('Control+End')
+  await page.keyboard.press(documentEndKey)
   await page.keyboard.insertText('\n% parser failure')
   await page.getByText('Chưa cập nhật bản thảo: Synthetic parse failure', { exact: true }).waitFor()
   await page.getByRole('button', { name: 'Soạn thảo', exact: true }).click()
@@ -143,13 +144,13 @@ try {
   await page.getByRole('button', { name: 'LaTeX', exact: true }).click()
   const failedSource = page.locator('.cm-content')
   await failedSource.click()
-  await page.keyboard.press('Control+a')
+  await page.keyboard.press(`${primaryKey}+a`)
   await page.keyboard.insertText(syncedSource)
   await page.getByText('Bản thảo đã được cập nhật từ LaTeX.', { exact: true }).waitFor()
   await page.getByRole('button', { name: 'Soạn thảo', exact: true }).click()
   assert.ok((await editor.innerText()).includes('Source parsed from LaTeX'))
   await editor.click()
-  await page.keyboard.press('Control+End')
+  await page.keyboard.press(documentEndKey)
   await page.keyboard.insertText(' Draft edit')
   await page.getByText('PDF đang đồng bộ với bản thảo. Source riêng trước đó vẫn được giữ lại.', { exact: true }).waitFor()
   await page.getByRole('button', { name: 'Khôi phục source riêng', exact: true }).click()

@@ -1,5 +1,6 @@
 import { clampHeadingLevels, isValidDocument } from './DocumentData.js'
 import { starter } from './DocumentSerializer.js'
+import { normalizeDocumentContent } from './RichTextFormats.js'
 import { sanitizeSettings } from './DocumentSettings.js'
 import { validateAssets } from './ProjectAssets.js'
 
@@ -45,7 +46,7 @@ function sanitizeTask(value, seenIds) {
   return {
     id: value.id,
     title: typeof value.title === 'string' ? value.title.slice(0, 160) : 'Chưa đặt tên',
-    document,
+    document: normalizeDocumentContent(document),
     sourceDraft: typeof value.sourceDraft === 'string' ? value.sourceDraft : '',
     sourceEdited: value.sourceEdited === true,
     sourceDraftBackup: value.sourceDraftBackup === true,
@@ -84,7 +85,7 @@ export function createTask(title = 'Tài liệu mới', document = starter) {
   return {
     id: makeId('task-'),
     title: cleanName(title, 'Tài liệu mới'),
-    document,
+    document: normalizeDocumentContent(document),
     sourceDraft: '',
     sourceEdited: false,
     sourceDraftBackup: false,

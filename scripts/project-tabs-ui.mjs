@@ -12,7 +12,7 @@ const server = await createServer({ server: { host: '127.0.0.1', port: 5192, str
 await server.listen()
 let browser
 try {
-  browser = await chromium.launch({ headless: true, ...(process.env.UI_TEST_BROWSER === 'chromium' || process.platform !== 'win32' ? {} : { channel: 'msedge' }) })
+  browser = await chromium.launch({ headless: true })
   const page = await browser.newPage({ viewport: { width: 1500, height: 1000 } })
   const errors = []
   page.on('pageerror', error => errors.push(error.message))

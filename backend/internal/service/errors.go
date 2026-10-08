@@ -60,8 +60,7 @@ func runCommandWithLimit(ctx context.Context, executable string, args []string, 
 	defer cancel()
 	command := exec.CommandContext(commandContext, executable, args...)
 	command.Dir = directory
-	hideCommandWindow(command)
-	killTreeOnCancel(command)
+	configureCommand(command)
 	command.WaitDelay = 2 * time.Second
 	stdout := &limitedBuffer{max: maxOutput}
 	stderr := &limitedBuffer{max: maxOutput}

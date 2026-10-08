@@ -1,3 +1,5 @@
+import { normalizeDocumentSpacing } from './DocumentSpacing.js'
+
 // Word-style character formatting. Every value here must survive both the
 // LaTeX serializer and the document validator, so the UI only offers values
 // from these lists and the validator rejects anything else.
@@ -45,3 +47,44 @@ export function normalizeFontSize(value) {
   if (!Number.isFinite(points) || points <= 0) return null
   return FONT_SIZES.reduce((best, size) => Math.abs(parseFloat(size) - points) < Math.abs(parseFloat(best) - points) ? size : best)
 }
+
+// Neutral foregrounds used by dark themes belong to the editor presentation,
+// not the white printed page. The text palette does not offer these colors.
+export function normalizeTextColor(value) {
+  const color = normalizeColor(value)
+  if (color && /^#([0-9a-f]{2})\1\1$/.test(color) && parseInt(color.slice(1, 3), 16) >= 224) return null
+  return color
+}
+
+// Repair saved/imported dark-theme foreground marks without changing text,
+// other character formatting, highlights or the original object in place.
+export function normalizeDocumentTextColors(node) {
+  if (!node || typeof node !== 'object') return node
+  let changed = false
+  let content = node.content
+  if (Array.isArray(content)) {
+    const next = content.map(normalizeDocumentTextColors)
+    if (next.some((child, index) => child !== content[index])) { content = next; changed = true }
+  }
+  let marks = node.marks
+  if (Array.isArray(marks)) {
+    let marksChanged = false
+    const next = marks.flatMap(mark => {
+      if (mark.type !== 'textStyle' || !normalizeColor(mark.attrs?.color) || normalizeTextColor(mark.attrs.color)) return [mark]
+      marksChanged = true
+      const attrs = { ...mark.attrs, color: null }
+      return Object.values(attrs).some(value => value != null && value !== '') ? [{ ...mark, attrs }] : []
+    })
+    if (marksChanged) { marks = next; changed = true }
+  }
+  if (!changed) return node
+  const result = { ...node }
+  if (content !== node.content) result.content = content
+  if (marks !== node.marks) {
+    if (marks.length) result.marks = marks
+    else delete result.marks
+  }
+  return result
+}
+
+export const normalizeDocumentContent = node => normalizeDocumentSpacing(normalizeDocumentTextColors(node))

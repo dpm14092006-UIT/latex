@@ -5,6 +5,7 @@ const { mkdir, readFile, readdir, open, lstat, rm, stat } = require('node:fs/pro
 const { join } = require('node:path')
 const { pathToFileURL } = require('node:url')
 const transport = require('./lan-sync-transport.cjs')
+const pdfCache = require('./lan-pdf.cjs')
 const { renameWithRetry, syncDirectory } = require('./workspace-store.cjs')
 const MAX_STATE = 512 * 1024 * 1024
 const MAX_RECORDS = 10000
@@ -16,8 +17,10 @@ const hash = value => createHash('sha256').update(JSON.stringify(value ?? null))
 const clone = value => structuredClone(value)
 const label = value => value?.title || value?.name || 'Mục đã xóa'
 
-function createLanSync({ directory, appPath = join(__dirname, '..'), name = hostname() }) {
+function createLanSync({ directory, appPath = join(__dirname, '..'), name = hostname(), now = Date.now }) {
   let state, server, invite, pending, stopped = false, lastError = '', lastSyncAt = null
+  const peerActivity = new Map()
+  let remotePdfVersion = 0, pdfError = ''
   let queue = Promise.resolve()
   const replay = new Map(), attempts = new Map()
   // Bounds memory held by request bodies that are still being read.
@@ -78,6 +81,65 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
     if (document.sanitizeFormulaTemplates(workspace.customTemplates).length !== workspace.customTemplates.length || document.sanitizeDocumentTemplates(workspace.documentTemplates).length !== workspace.documentTemplates.length) throw new Error('Mẫu đồng bộ không hợp lệ.')
   }
   function values(records = state.records) { return Object.fromEntries(Object.entries(records).map(([key, entry]) => [key, entry.value])) }
+  async function pdfKeys(snapshot, input) {
+    const [data] = await modules
+    const record = data.pdfRecordInput(data.workspaceRecords(snapshot), input.id)
+    if (!record || typeof input.source !== 'string' || Buffer.byteLength(input.source) > 800 * 1024) throw new Error('Phiên bản tài liệu PDF không hợp lệ.')
+    return { documentKey: pdfCache.digest(data.stableJSON(record)), compileKey: pdfCache.digest(data.stableJSON(data.pdfCompileInput(input))) }
+  }
+  async function pdfOffers() {
+    const [data] = await modules
+    const records = values()
+    return Object.values(state.pdfs || {}).filter(item => {
+      const record = data.pdfRecordInput(records, item.id)
+      return record && pdfCache.digest(data.stableJSON(record)) === item.documentKey
+    }).map(pdfCache.offer)
+  }
+  async function publishPdf(snapshot, input, bytes) {
+    return serial(() => transaction(async () => {
+      await validateWorkspace(snapshot)
+      if (!ArrayBuffer.isView(bytes) || bytes.byteLength > pdfCache.MAX_PDF_BYTES) throw new Error('PDF đồng bộ vượt 24 MB.')
+      const buffer = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+      const entry = { id: input.id, ...await pdfKeys(snapshot, input), sha256: pdfCache.digest(buffer), data: buffer.toString('base64') }
+      pdfCache.putPdf(state.pdfs ||= {}, entry, true)
+      return pdfCache.offer(entry)
+    }))
+  }
+  async function getPdf(snapshot, input) {
+    return serial(async () => {
+      await validateWorkspace(snapshot)
+      const entry = state.pdfs?.[input.id]
+      if (!entry) return null
+      const keys = await pdfKeys(snapshot, input)
+      if (entry.documentKey !== keys.documentKey || entry.compileKey !== keys.compileKey) return null
+      return { ...pdfCache.offer(entry), bytes: pdfCache.validatePdf(entry), shared: !entry.local }
+    })
+  }
+  async function transferPdfs(remote, offers) {
+    if (!Array.isArray(offers) || offers.length > 10000) throw new Error('Danh sách PDF không hợp lệ.')
+    for (const local of await pdfOffers()) {
+      const entry = state.pdfs[local.id]
+      if (!entry.local || offers.some(item => item.id === local.id && item.sha256 === local.sha256)) continue
+      const response = await transport.request(remote.host, remote.port, '/pdf', { requestId: randomUUID(), at: Date.now(), upload: entry }, remote.key, state.deviceId, { signal: lifetime.signal })
+      if (!Array.isArray(response.pdfOffers)) throw new Error('Danh sách PDF không hợp lệ.')
+      offers = response.pdfOffers
+    }
+    for (const item of offers) {
+      if (state.pdfs?.[item.id]?.sha256 === item.sha256) continue
+      const response = await transport.request(remote.host, remote.port, '/pdf', { requestId: randomUUID(), at: Date.now(), id: item.id, sha256: item.sha256 }, remote.key, state.deviceId, { signal: lifetime.signal })
+      if (!response.pdf) continue
+      if (response.pdf.id !== item.id || response.pdf.sha256 !== item.sha256) throw new Error('PDF nhận được không khớp phiên bản yêu cầu.')
+      const eligible = await pdfOffersForEntry(response.pdf)
+      if (!eligible) continue
+      await transaction(async () => { pdfCache.putPdf(state.pdfs ||= {}, response.pdf, false) })
+    }
+  }
+  async function pdfOffersForEntry(entry) {
+    pdfCache.validatePdf(entry)
+    const [data] = await modules
+    const record = data.pdfRecordInput(values(), entry.id)
+    return record && pdfCache.digest(data.stableJSON(record)) === entry.documentKey
+  }
   async function operations(snapshot) {
     await validateWorkspace(snapshot)
     const [data] = await modules
@@ -150,14 +212,20 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
     return { mode: state.mode, deviceId: state.deviceId, name: state.name, port: server?.address()?.port || state.port,
       addresses: Object.values(networkInterfaces()).flat().filter(info => info.family === 'IPv4' && !info.internal && (() => { try { transport.validateEndpoint(info.address, 1); return true } catch { return false } })()).map(info => info.address),
       connected: state.mode === 'host' ? Boolean(server) : state.mode === 'client' && !lastError && Boolean(lastSyncAt),
-      host: state.connection?.host || '', lastSyncAt, error: lastError,
-      peers: Object.entries(state.peers).map(([id, peer]) => ({ id, name: peer.name })),
+      host: state.connection?.host || '', lastSyncAt, error: lastError, pdfError, pdfSupported: state.mode === 'host' || remotePdfVersion === 1,
+      lastPeerSyncAt: peerActivity.size ? new Date(Math.max(...Array.from(peerActivity.values(), item => item.at))).toISOString() : null,
+      peers: Object.entries(state.peers).map(([id, peer]) => ({ id, name: peer.name,
+        lastSeenAt: peerActivity.has(id) ? new Date(peerActivity.get(id).at).toISOString() : null,
+        receivedRevision: peerActivity.get(id)?.revision ?? null,
+        pdfSupported: peerActivity.get(id)?.pdfVersion === 1 || peer.pdfVersion === 1,
+        online: Boolean(server?.listening) && peerActivity.has(id) && now() - peerActivity.get(id).at < 20000,
+      })),
       conflicts: state.conflicts.map(item => ({ id: item.id, key: item.key, title: label(state.records[item.key]?.value || item.value), deviceName: item.deviceName, createdAt: item.createdAt, currentRev: state.records[item.key]?.rev || 0, deleted: item.value === null, current: preview(state.records[item.key]?.value), incoming: preview(item.value) })),
     }
   }
   async function serve(req, res) {
     const end = (code, body = '{}') => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(body) }
-    if (stopped || req.method !== 'POST' || !['/pair', '/exchange', '/resolve'].includes(req.url) || req.headers.origin) return end(403)
+    if (stopped || req.method !== 'POST' || !['/pair', '/exchange', '/resolve', '/pdf'].includes(req.url) || req.headers.origin) return end(403)
     const remote = req.socket.remoteAddress
     const attempt = attempts.get(remote) || { count: 0, at: Date.now() }
     if (Date.now() - attempt.at > 60000) { attempt.count = 0; attempt.at = Date.now() }
@@ -188,18 +256,28 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
           if (invite?.key !== key || invite.expiresAt <= Date.now()) throw new Error('Mã ghép đã hết hạn.')
           if (Object.keys(state.peers).length >= 16 && !state.peers[deviceId]) throw new Error('Nhóm đã có 16 máy.')
           const peerKey = transport.secret()
-          state.peers[deviceId] = { key: peerKey, name: String(body.name || 'Máy mới').slice(0, 100) }
+          state.peers[deviceId] = { key: peerKey, name: String(body.name || 'Máy mới').slice(0, 100), pdfVersion: body.pdfVersion === 1 ? 1 : 0 }
           return { key: peerKey, hostName: state.name }
         }
         // Revocation may have happened while the encrypted body was being read.
         if (state.peers[deviceId]?.key !== key) throw new Error('Máy này đã bị ngắt quyền kết nối.')
+        if (req.url === '/pdf') {
+          if (body.upload) {
+            const accepted = await pdfOffersForEntry(body.upload)
+            if (accepted) pdfCache.putPdf(state.pdfs ||= {}, body.upload, false)
+            return { accepted: Boolean(accepted), pdfOffers: await pdfOffers() }
+          }
+          const available = (await pdfOffers()).some(item => item.id === body.id && item.sha256 === body.sha256)
+          return { pdf: available ? state.pdfs[body.id] : null }
+        }
         if (req.url === '/resolve') await resolveConflict(body.id, body.choice, body.currentRev)
         else await reconcile(body.ops, deviceId, state.peers[deviceId].name)
         const partial = req.url === '/exchange' && Number.isSafeInteger(body.sinceRev) && body.sinceRev >= 0 && body.sinceRev <= state.revision
-        return { records: partial ? Object.fromEntries(Object.entries(state.records).filter(([, entry]) => entry.rev > body.sinceRev)) : state.records, partial, conflicts: state.conflicts, revision: state.revision }
+        return { records: partial ? Object.fromEntries(Object.entries(state.records).filter(([, entry]) => entry.rev > body.sinceRev)) : state.records, partial, conflicts: state.conflicts, revision: state.revision, pdfVersion: 1, pdfOffers: body.pdfVersion === 1 ? await pdfOffers() : [] }
       }
-      const result = await serial(() => req.url === '/exchange' && Array.isArray(body.ops) && body.ops.length === 0 ? operation() : transaction(operation))
+      const result = await serial(() => (req.url === '/exchange' && Array.isArray(body.ops) && body.ops.length === 0) || (req.url === '/pdf' && !body.upload) ? operation() : transaction(operation))
       if (req.url === '/pair') invite = null // one-time invitation
+      else peerActivity.set(deviceId, { at: now(), revision: req.url === '/exchange' && Number.isSafeInteger(body.sinceRev) ? body.sinceRev : peerActivity.get(deviceId)?.revision, pdfVersion: body.pdfVersion === 1 || req.url === '/pdf' ? 1 : 0 })
       end(200, transport.seal({ ...result, requestId: body.requestId }, key, `response:${req.url}`))
     } catch (error) { end(200, transport.seal({ error: error.message, requestId: body.requestId }, key, `response:${req.url}`)) }
   }
@@ -245,6 +323,13 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
       if (state.version !== 1 || !['off', 'host', 'client'].includes(state.mode) || !state.deviceId || !state.peers || !state.baseline || !state.bases || !Array.isArray(state.conflicts)) throw new Error('Hồ sơ đồng bộ không hợp lệ; giữ nguyên tệp để phục hồi.')
       await validateRecords(state.records)
       state.resolved ||= []
+      state.pdfs ||= {}
+      const validPdfs = {}
+      for (const entry of Object.values(state.pdfs)) {
+        try { pdfCache.putPdf(validPdfs, entry, Boolean(entry.local)) }
+        catch { pdfError = 'Đã bỏ cache PDF bị hỏng; bản thảo và kết nối LAN vẫn được giữ.' }
+      }
+      state.pdfs = validPdfs
     } catch (error) {
       if (error.code !== 'ENOENT') throw error
       state = { version: 1, deviceId: randomUUID(), name: String(name).slice(0, 100), mode: 'off', port: 0, peers: {}, connection: null, records: {}, baseline: {}, bases: {}, revision: 0, conflicts: [], resolved: [] }
@@ -265,7 +350,7 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
           const invitation = JSON.parse(Buffer.from(pairingCode.trim().slice(14), 'base64url').toString('utf8'))
           transport.validateEndpoint(invitation.host, invitation.port)
           if (invitation.v !== 1 || !Number.isFinite(invitation.expiresAt) || invitation.expiresAt <= Date.now()) throw new Error('Mã ghép đã hết hạn. Tạo mã mới trên máy chủ.')
-          const result = await transport.request(invitation.host, invitation.port, '/pair', { requestId: randomUUID(), at: Date.now(), name: state.name }, invitation.key, state.deviceId, { signal: lifetime.signal })
+          const result = await transport.request(invitation.host, invitation.port, '/pair', { requestId: randomUUID(), at: Date.now(), name: state.name, pdfVersion: 1 }, invitation.key, state.deviceId, { signal: lifetime.signal })
           state.connection = { host: invitation.host, port: invitation.port, key: result.key, name: result.hostName }
         } else state.connection = null
         if (mode !== state.mode || mode === 'client') {
@@ -274,6 +359,8 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
         state.mode = mode; pending = null; lastError = ''; lastSyncAt = null
         if (mode === 'host') { await reconcile(await operations(snapshot), state.deviceId, state.name); await startServer({ allowNewPort: true }) }
         await persist()
+        peerActivity.clear()
+        remotePdfVersion = 0; pdfError = ''
       } catch (error) {
         await closeServer(); state = previous
         if (state.mode === 'host') await startServer().catch(() => {})
@@ -293,7 +380,7 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
           if (ops.length) await transaction(() => reconcile(ops, state.deviceId, state.name))
         } else {
           const remote = state.connection
-          const result = await transport.request(remote.host, remote.port, '/exchange', { requestId: randomUUID(), at: Date.now(), ops, sinceRev: state.revision }, remote.key, state.deviceId, { signal: lifetime.signal })
+          const result = await transport.request(remote.host, remote.port, '/exchange', { requestId: randomUUID(), at: Date.now(), ops, sinceRev: state.revision, pdfVersion: 1 }, remote.key, state.deviceId, { signal: lifetime.signal })
           const records = result.partial ? { ...state.records, ...result.records } : result.records
           if (!Number.isSafeInteger(result.revision) || result.revision < 0) throw new Error('Phiên bản máy chủ không hợp lệ.')
           await validateRecords(records)
@@ -301,6 +388,11 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
           if (result.revision !== state.revision || hash(result.conflicts) !== hash(state.conflicts)) await transaction(async () => {
             state.records = records; state.conflicts = result.conflicts; state.revision = result.revision
           })
+          remotePdfVersion = result.pdfVersion === 1 ? 1 : 0
+          if (remotePdfVersion) {
+            try { await transferPdfs(remote, result.pdfOffers || []); pdfError = '' }
+            catch (error) { pdfError = `Bản thảo đã nhận; PDF đang chờ đồng bộ: ${error.message}` }
+          }
         }
         const [data] = await modules
         const received = data.recordsWorkspace(values(), snapshot)
@@ -341,13 +433,13 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
       return { code: `vietlatex-lan:${Buffer.from(JSON.stringify({ v: 1, host, port: state.port, ...invite })).toString('base64url')}`, expiresAt: invite.expiresAt }
     })
   }
-  async function revoke(id) { return serial(() => transaction(async () => { delete state.peers[id]; return publicStatus() })) }
+  async function revoke(id) { return serial(() => transaction(async () => { delete state.peers[id]; peerActivity.delete(id); return publicStatus() })) }
   async function stop() {
     stopped = true; lifetime.abort()
     await closeServer(); await queue
     // Queued work (e.g. configure) may have reopened the server meanwhile.
     await closeServer()
   }
-  return { init, status: publicStatus, configure, exchange, acknowledge, resolve, invitation, revoke, stop }
+  return { init, status: publicStatus, configure, exchange, acknowledge, resolve, invitation, revoke, publishPdf, getPdf, stop }
 }
 module.exports = { createLanSync }

@@ -1,5 +1,7 @@
 import { bibliographyStyleName, citationKeys, citationLabel, citationNumbers, citationOccurrences, isAuthorYearStyle, parseBibtex, resolveCitationStyle, shortAuthors, stripLatex } from './Bibliography.js'
 import { bareInlineFormula, normalizeFormulaInput, repairStrippedLatex, standaloneLatexPaste } from '../math-input.js'
+import { normalizeDocumentSpacing } from './DocumentSpacing.js'
+import { normalizeTextColor } from './RichTextFormats.js'
 import { sanitizeSettings } from './DocumentSettings.js'
 import { base64ByteLength } from './ProjectAssets.js'
 import { normalizeCellAlign, normalizeTableStyle } from './TableStyles.js'
@@ -847,7 +849,7 @@ function nodeLatex(node, context = { images: [] }) {
       else if (mark.type === 'superscript') text = String.raw`\textsuperscript{${text}}`
       else if (mark.type === 'subscript') text = String.raw`\textsubscript{${text}}`
       else if (mark.type === 'textStyle') {
-        const color = latexHexColor(mark.attrs?.color)
+        const color = latexHexColor(normalizeTextColor(mark.attrs?.color))
         if (color) text = String.raw`\textcolor[HTML]{${color}}{${text}}`
         const size = latexFontSize(mark.attrs?.fontSize)
         if (size) text = String.raw`{\fontsize{${size}pt}{${(size * 1.2).toFixed(1)}pt}\selectfont ${text}}`
@@ -1408,7 +1410,7 @@ export function toLatex(doc, title, templateSource = defaultDocumentTemplate, do
   const source = String(templateSource || defaultDocumentTemplate)
   const chaptered = /\\documentclass(?:\[[^\]]*\])?\s*\{\s*(?:report|book)\s*\}/iu.test(source)
   const citationStyle = resolveCitationStyle(settings.citationStyle, source)
-  const normalized = normalizeDocumentHeadings(normalizeBibliographyMathNodes(doc))
+  const normalized = normalizeDocumentHeadings(normalizeBibliographyMathNodes(normalizeDocumentSpacing(doc)))
   const hasCitations = citationOccurrences(normalized).some(keys => keys.length > 0)
   const manualCitationReuse = prepareManualCitationReuse(normalized, settings.bibliography, citationStyle)
   const context = { images: [], settings, citationStyle, twoColumn: /IEEEtran|twocolumn/.test(source), chaptered, tableIndex: 0, tableLabels: new Set(), ...manualCitationReuse }

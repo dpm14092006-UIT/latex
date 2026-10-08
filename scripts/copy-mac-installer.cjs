@@ -1,12 +1,12 @@
 const { copyFile, mkdir, readdir, readFile, writeFile } = require('node:fs/promises')
 const { createHash } = require('node:crypto')
-const { tmpdir } = require('node:os')
+const config = require('../electron-builder.config.cjs')
 const { join } = require('node:path')
 const pkg = require('../package.json')
 
 async function main() {
-  const buildDirectory = join(tmpdir(), `VietLatexDesktopBuild-${pkg.version}`)
-  const images = (await readdir(buildDirectory)).filter(name => name.endsWith('.dmg'))
+  const buildDirectory = config.directories.output
+  const images = (await readdir(buildDirectory)).filter(name => name === `Viet-Latex-Studio-${pkg.version}-universal.dmg`)
   if (images.length !== 1) throw new Error(`Cần đúng một bộ cài DMG universal, tìm thấy ${images.length}.`)
 
   const output = join(__dirname, '..', 'release-desktop')

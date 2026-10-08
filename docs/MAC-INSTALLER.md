@@ -1,34 +1,57 @@
-# Bộ cài MacBook
+# Cài Viet LaTeX Studio 0.5.6 trên MacBook
 
-File `.exe` dành cho Windows. Bản cài trực tiếp cho Mac của dự án là `Viet-Latex-Studio-0.5.1-universal.dmg`; bên trong có `Viet Latex Studio.app`. Mục tiêu universal hỗ trợ cả Mac Intel và Apple Silicon.
+Bộ cài: `release-desktop/Viet-Latex-Studio-0.5.6-universal.dmg`.
+Bản universal chứa Electron, backend Go, Pandoc 3.11 và TeX Live 2026 (TinyTeX) cho Apple Silicon và Intel. Cần macOS 26 trở lên. Apple Silicon được kiểm thử trực tiếp; kiến trúc Intel được kiểm tra trong các binary, chưa chạy thử trên máy Intel.
 
-Hiện chưa có file DMG được tạo hoặc kiểm thử trong phiên Windows này. `scripts/build-mac.mjs` và thư viện ghép universal cần chạy trên macOS. Cross-compile backend từ Windows chỉ kiểm tra mã Go tạo được binary Darwin, không thay thế build và chạy ứng dụng Mac. Không đổi đuôi EXE sang DMG.
+Runtime đi kèm: Electron cần macOS 13+, Pandoc cần macOS 15+, Biber arm64 trong TinyTeX 2026.10 cần macOS 26+. Bộ cài universal khai báo macOS 26+ để mọi chức năng đi kèm hoạt động; đã kiểm thử trên macOS 26.5.1 Apple Silicon.
 
-## Tạo trên MacBook
+## Cài và sử dụng
 
-Lấy mã nguồn mới nhất từ GitHub trên MacBook:
+1. Thoát bản cũ bằng **Cmd+Q**.
+2. Mở file DMG.
+3. Kéo **Viet Latex Studio.app** vào **Applications**, thay bản cũ nếu có.
+4. Mở ứng dụng trong Applications, mở lại tài liệu rồi chọn **Cập nhật PDF**.
+
+Không cần cài Node.js, Go, Pandoc hoặc MacTeX riêng để dùng các mẫu có sẵn, xuất PDF và chuyển đổi Word. Mẫu LaTeX tự thêm có thể yêu cầu gói hoặc font chưa có trong bộ TeX gọn. Khi cần dùng bộ TeX khác, có thể đặt `XELATEX_PATH` đến executable của MacTeX/TeX Live trong môi trường khởi chạy.
+
+Ứng dụng tự tìm công cụ khi mở bằng Finder. Cache TeX nằm trong `~/Library/Caches/vn.vietlatex.studio`; cấu hình TeX trong `~/Library/Application Support/vn.vietlatex.studio`. Workspace và sao lưu nằm trong hồ sơ Electron của người dùng, không nằm trong app hoặc DMG. Dùng **Quản lý tài liệu → Sao lưu** để xuất `.vls` khi chuyển máy.
+
+Đóng cửa sổ giữ ứng dụng chạy theo hành vi macOS. **Cmd+Q** thoát ứng dụng sau khi lưu tài liệu và dừng backend/XeLaTeX. Thanh menu hỗ trợ thao tác sửa và cửa sổ theo macOS.
+
+Bản build cục bộ dùng chữ ký ad-hoc, chưa có Apple Developer ID hoặc notarization. Nếu macOS chặn bản tải về, mở **System Settings → Privacy & Security → Open Anyway** cho ứng dụng bạn đã kiểm tra nguồn. Không cần tắt Gatekeeper. Muốn phân phối rộng rãi mà không có bước này, cần ký bằng chứng thư Apple và notarize.
+
+## Build lại trên macOS
+
+Cần Node.js 24 LTS/npm 11, Go 1.26.8+ và Apple Command Line Tools (`xcode-select --install`).
 
 ```bash
-git clone https://github.com/dpm14092006-UIT/latex.git
-cd latex
-```
-
-Nếu đã clone, chạy `git pull --ff-only` trong thư mục repo để cập nhật. Có thể dùng gói `Viet-Latex-Studio-0.5.1-Mac-Build-Source.zip` rồi giải nén khi không dùng Git. Gói này là mã nguồn để tạo bộ cài, không chứa workspace cá nhân, dependency Windows hoặc các bản phát hành cũ.
-
-Cần [Node.js 24 LTS](https://nodejs.org/en/download) với npm 11 và [Go 1.26.8+](https://go.dev/dl/), cùng Command Line Tools của Apple cho lipo. Nếu chưa có Command Line Tools, cài bằng `xcode-select --install` trên Mac. Sau khi môi trường sẵn sàng, chạy trong thư mục repo hoặc thư mục mã nguồn vừa giải nén:
-
-```bash
+unzip Viet-Latex-Studio-0.5.2-Mac-Build-Source.zip
+cd Viet-Latex-Studio-0.5.2
 bash scripts/build-mac.command
 ```
 
-Script cài dependency theo lockfile, tải Pandoc Mac có kiểm tra SHA-256, ghép backend/Pandoc universal, build giao diện, tạo DMG và đối chiếu checksum đầu ra. Không cài Node/Go hoặc thay đổi thiết lập bảo mật macOS tự động.
+Nếu đã clone thì cập nhật bằng `git pull --ff-only` trước khi sửa mã. Các thay đổi trong phiên làm việc này nằm ở checkout cục bộ cho đến khi được commit/push.
 
-Bộ cài được tạo trong `release-desktop`. Sau khi build thành công, mở DMG và kéo `Viet Latex Studio.app` vào Applications. Người chỉ sử dụng bộ cài hoàn chỉnh không cần cài Node.js hoặc Go. Xuất PDF vẫn cần MacTeX/TeX Live trên Mac; Pandoc được đóng gói để chuyển đổi Word.
+Luồng build dùng lockfile npm, tải Pandoc có SHA-256 công bố và TinyTeX v2026.10 có SHA-256 được ghim. Các gói TeX bổ sung được cài từ kho TeX Live qua `tlmgr`, dùng kiểm tra checksum mặc định của TeX Live. Danh sách gói nằm trong `scripts/setup-tex.mjs`; provenance nằm cạnh từng runtime. Font Latin Modern được nạp từ file trong bộ TeX, không cài font vào macOS.
 
-## Tạo qua GitHub Actions
+```bash
+npm ci
+npm run check
+npm run test:go:race
+npm run desktop:build:mac
+```
 
-Mã nguồn dùng repo [dpm14092006-UIT/latex](https://github.com/dpm14092006-UIT/latex). Chọn **Actions → Build Mac installer → Run workflow** nếu muốn dùng runner macOS thay cho MacBook. Workflow riêng nằm tại `.github/workflows/mac-installer.yml`, chạy lint/Go/LAN unit rồi tạo DMG universal và SHA-256. Bước xác minh kiểm tra tính toàn vẹn chữ ký, kiến trúc Intel/Apple Silicon của Electron/backend/Pandoc và chạy kiểm thử đồng bộ bằng chính app đã đóng gói. Khi job thành công, tải artifact `Viet-Latex-Studio-macOS-universal` và giải nén để lấy DMG. Workflow **Quality checks** chạy kiểm thử khi push; bước build/kiểm tra bộ cài Mac chỉ chạy khi bấm **Run workflow**, với artifact `macos-universal-test-installer`. Push mã nguồn không tự tạo hoặc phát hành bộ cài Mac.
+Build chạy xác minh chữ ký, kiến trúc universal, PDF các mẫu/APA, Word round-trip, lưu/khôi phục và đồng bộ hai app đã đóng gói trước khi sao chép DMG sang `release-desktop`. App trung gian nằm trong `artifacts/mac-package/mac-universal`. Build không publish lên GitHub.
 
-Nếu có chứng thư Apple, dùng repository secrets `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` để electron-builder ký/notarize. Khi thay đổi Electron fuses, cấu hình khôi phục chữ ký ad-hoc để kiểm tra app universal; chữ ký này không xác nhận nhà phát hành bằng Apple Developer ID. Nếu không có chứng thư, chưa được coi là bản phát hành có Developer ID và notarize. Kiểm thử chạy app trên runner không thay thế kiểm tra Gatekeeper khi tải và cài trên MacBook. Không tắt Gatekeeper để thay thế việc kiểm thử/ký ứng dụng.
+Kiểm tra file nhận được:
 
-Tài liệu đóng gói: [electron-builder macOS v26](https://www.electron.build/v26/docs/mac/), [build nhiều nền tảng](https://www.electron.build/docs/features/multi-platform-build/).
+```bash
+cd release-desktop
+shasum -a 256 -c Viet-Latex-Studio-0.5.2-universal.dmg.sha256
+```
+
+## GitHub Actions và chữ ký nhà phát hành
+
+Workflow **Build Mac installer** chạy thủ công trên runner macOS. Cấu hình có thể dùng secrets `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` cho ký/notarize. Chưa có các thông tin này trong bản build cục bộ.
+
+Tài liệu: [electron-builder v26 macOS](https://www.electron.build/v26/docs/mac/), [TinyTeX releases](https://github.com/rstudio/tinytex-releases), [MacTeX](https://www.tug.org/mactex/).

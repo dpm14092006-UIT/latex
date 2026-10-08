@@ -5,17 +5,14 @@ import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)))
-const extension = process.platform === 'win32' ? '.exe' : ''
-const executable = join(root, 'build', 'backend', `vietlatex-backend${extension}`)
+const executable = join(root, 'build', 'backend', 'vietlatex-backend')
 
 export async function startGoBackendForTests({ env = {} } = {}) {
   const token = randomBytes(32).toString('hex')
-  // VIETLATEX_TEST_BACKEND=go-run uses `go run` for machines where Windows
-  // Application Control blocks freshly built unsigned binaries.
+  // Optional source-mode backend for development.
   const goRun = process.env.VIETLATEX_TEST_BACKEND === 'go-run'
   const child = spawn(goRun ? 'go' : executable, [...(goRun ? ['-C', 'backend', 'run', './cmd/vietlatex-backend'] : []), '--listen=127.0.0.1:0'], {
     cwd: root,
-    windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, ...env, VIETLATEX_API_TOKEN: token, VIETLATEX_APP_PATH: root },
   })

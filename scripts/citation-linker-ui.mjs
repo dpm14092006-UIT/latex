@@ -1,3 +1,4 @@
+import { primaryKey } from './platform-keys.mjs'
 import assert from 'node:assert/strict'
 import { chromium } from 'playwright'
 import { createServer } from 'vite'
@@ -8,7 +9,7 @@ const server = await createServer({ server: { host: '127.0.0.1', port: 5187, str
 await server.listen()
 let browser
 try {
-  browser = await chromium.launch({ headless: true, channel: 'msedge' })
+  browser = await chromium.launch({ headless: true })
   let page = await browser.newPage({ viewport: { width: 1440, height: 1050 } })
   page.setDefaultTimeout(10000)
   const errors = []
@@ -27,7 +28,7 @@ try {
   await page.goto('http://127.0.0.1:5187')
   await page.locator('.tiptap').waitFor()
   await page.locator('.tiptap').click()
-  await page.keyboard.press('Control+Shift+c')
+  await page.keyboard.press(`${primaryKey}+Shift+c`)
   let dialog = page.getByRole('dialog')
   await dialog.getByRole('tab', { name: 'Quét trích dẫn', exact: true }).click()
   await dialog.getByRole('button', { name: 'Quét tài liệu', exact: true }).click()
@@ -112,7 +113,7 @@ try {
   await page.locator('.tiptap [data-type="citation"]').first().waitFor()
   assert.equal(await page.locator('.tiptap [data-type="citation"]').count(), 5)
   await page.locator('.tiptap').click()
-  await page.keyboard.press('Control+Shift+c')
+  await page.keyboard.press(`${primaryKey}+Shift+c`)
   await dialog.getByRole('tab', { name: /Danh mục/ }).click()
   await dialog.getByLabel('Tên danh mục số gốc khi nhập').fill('Danh mục B')
   await dialog.getByLabel('Dán BibTeX, RIS, DOI (mỗi dòng một) hoặc danh sách tài liệu dạng [1] …, [2] …').fill('[12] A. Brown, “A new reference,” Journal, 2020.\n[15] J. Lee, “Third,” Journal, 2022. doi:10.1000/lee')
@@ -142,7 +143,7 @@ try {
   await page.goto('http://127.0.0.1:5187')
   dialog = page.getByRole('dialog')
   await page.locator('.tiptap').click()
-  await page.keyboard.press('Control+Shift+c')
+  await page.keyboard.press(`${primaryKey}+Shift+c`)
   await dialog.getByRole('tab', { name: 'Quét trích dẫn', exact: true }).click()
   await dialog.getByRole('button', { name: 'Quét tài liệu', exact: true }).click()
   assert.equal(await dialog.locator('.citation-scan-row').count(), 7)
@@ -234,7 +235,7 @@ try {
   }, { version: 1, projects: [mismatchProject], activeProjectId: mismatchProject.id, mode: 'write', activeTab: 'write' })
   await page.goto('http://127.0.0.1:5187')
   await page.locator('.tiptap').click()
-  await page.keyboard.press('Control+Shift+c')
+  await page.keyboard.press(`${primaryKey}+Shift+c`)
   dialog = page.getByRole('dialog')
   await dialog.getByRole('tab', { name: 'Quét trích dẫn', exact: true }).click()
   await dialog.getByRole('button', { name: 'Quét tài liệu', exact: true }).click()

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, Menu, net, protocol, screen, session, shell } = require('electron')
+const { app, BrowserWindow, dialog, ipcMain, Menu, net, powerMonitor, protocol, screen, session, shell } = require('electron')
 const { existsSync, mkdirSync, readFileSync } = require('node:fs')
 const { writeFile } = require('node:fs/promises')
 const { basename, isAbsolute, join, resolve } = require('node:path')
@@ -26,6 +26,10 @@ let backendShutdownPromise
 let allowApplicationQuit = false
 let quitRequested = false
 let lanSync
+let syncTickTimer
+const requestSyncTick = () => {
+  if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) mainWindow.webContents.send('sync:tick')
+}
 
 function configureUserDataPath() {
   if (process.env.VIETLATEX_USER_DATA) {
@@ -65,7 +69,7 @@ let startupComplete = false
 let closeSavePending = false
 let closeSaveTimer
 
-app.setAppUserModelId('vn.vietlatex.studio')
+
 Menu.setApplicationMenu(process.platform === 'darwin' ? Menu.buildFromTemplate([
   { role: 'appMenu' }, { role: 'editMenu' }, { role: 'windowMenu' },
 ]) : null)
@@ -131,6 +135,8 @@ function requestWindowFlush() {
 
 async function shutdownApplication() {
   if (backendShutdownPromise) return backendShutdownPromise
+  clearInterval(syncTickTimer)
+  powerMonitor.removeListener('resume', requestSyncTick)
   for (const controller of compileControllers.values()) controller.abort()
   backendShutdownPromise = Promise.resolve(backendRestartPromise).catch(() => {}).then(async () => {
     // Wait for queued workspace writes (a save can arrive after the close flush)
@@ -146,10 +152,10 @@ async function shutdownApplication() {
 
 function registerNativeActions() {
   const syncAction = action => async (event, ...args) => { assertTrustedSender(event); if (!lanSync) throw new Error('Dịch vụ đồng bộ chưa sẵn sàng.'); return lanSync[action](...args) }
-  for (const [channel, action] of Object.entries({ status: 'status', configure: 'configure', exchange: 'exchange', acknowledge: 'acknowledge', resolve: 'resolve', invitation: 'invitation', revoke: 'revoke' })) ipcMain.handle(`sync:${channel}`, syncAction(action))
+  for (const [channel, action] of Object.entries({ status: 'status', configure: 'configure', exchange: 'exchange', acknowledge: 'acknowledge', resolve: 'resolve', invitation: 'invitation', revoke: 'revoke', 'pdf-publish': 'publishPdf', 'pdf-get': 'getPdf' })) ipcMain.handle(`sync:${channel}`, syncAction(action))
   ipcMain.handle('system:help', (event, topic) => {
     assertTrustedSender(event)
-    const pages = { tex: process.platform === 'darwin' ? 'https://www.tug.org/mactex/' : 'https://miktex.org/download', word: 'https://pandoc.org/installing.html' }
+    const pages = { tex: 'https://www.tug.org/mactex/', word: 'https://pandoc.org/installing.html' }
     if (!pages[topic]) throw new Error('Trang trợ giúp không hợp lệ.')
     return shell.openExternal(pages[topic])
   })
@@ -292,14 +298,13 @@ async function createMainWindow() {
 }
 
 function goBackendExecutable() {
-  const executable = process.platform === 'win32' ? 'vietlatex-backend.exe' : 'vietlatex-backend'
+  const executable = 'vietlatex-backend'
   if (app.isPackaged) return join(process.resourcesPath, 'backend', executable)
   return join(app.getAppPath(), 'build', 'backend', executable)
 }
 
 async function startBackend() {
-  // Dev only: `go run` sidesteps Windows Application Control blocking a
-  // freshly built unsigned backend binary.
+  // Development can run Go directly when inspecting the backend.
   if (!app.isPackaged && process.env.VIETLATEX_DEV_BACKEND === 'go-run') {
     backend = await startGoBackend({
       executable: 'go',
@@ -371,6 +376,11 @@ Bạn vẫn có thể soạn thảo; biên dịch PDF sẽ thử khởi động 
       registerPermissionPolicy()
       startupComplete = true
       await createMainWindow()
+      // Chromium throttles renderer timers in hidden/minimized windows. LAN
+      // polling must keep running while either machine's app is in the background.
+      syncTickTimer = setInterval(requestSyncTick, 5000)
+      syncTickTimer.unref()
+      powerMonitor.on('resume', requestSyncTick)
     } catch (error) {
       dialog.showErrorBox('Không thể mở Viết & Công Thức', error.message || 'Lỗi khởi động ứng dụng.')
       app.quit()
@@ -388,4 +398,7 @@ Bạn vẫn có thể soạn thảo; biên dịch PDF sẽ thử khởi động 
     else void shutdownApplication()
   })
   app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
+  // Terminal/installer shutdown uses the same save-and-stop handshake as Cmd+Q.
+  process.on('SIGTERM', () => app.quit())
+  process.on('SIGINT', () => app.quit())
 }

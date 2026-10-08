@@ -1,0 +1,7 @@
+% Load bundled Latin Modern by filename on macOS; no system font installation.
+\defaultfontfeatures[Latin Modern Roman]{
+  UprightFont=lmroman10-regular.otf,
+  BoldFont=lmroman10-bold.otf,
+  ItalicFont=lmroman10-italic.otf,
+  BoldItalicFont=lmroman10-bolditalic.otf
+}

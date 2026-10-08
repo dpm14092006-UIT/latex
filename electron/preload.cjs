@@ -11,8 +11,16 @@ contextBridge.exposeInMainWorld('desktopAPI', Object.freeze({
   loadWorkspace: () => ipcRenderer.invoke('workspace:load'),
   saveWorkspace: workspace => ipcRenderer.invoke('workspace:save', workspace),
   syncStatus: () => ipcRenderer.invoke('sync:status'),
+  onSyncTick: callback => {
+    if (typeof callback !== 'function') return () => {}
+    const listener = () => callback()
+    ipcRenderer.on('sync:tick', listener)
+    return () => ipcRenderer.removeListener('sync:tick', listener)
+  },
   configureSync: (mode, workspace, code) => ipcRenderer.invoke('sync:configure', mode, workspace, code),
   exchangeSync: workspace => ipcRenderer.invoke('sync:exchange', workspace),
+  publishSyncPdf: (workspace, input, bytes) => ipcRenderer.invoke('sync:pdf-publish', workspace, input, bytes),
+  getSyncPdf: (workspace, input) => ipcRenderer.invoke('sync:pdf-get', workspace, input),
   acknowledgeSync: receipt => ipcRenderer.invoke('sync:acknowledge', receipt),
   resolveSync: (id, choice, currentRev) => ipcRenderer.invoke('sync:resolve', id, choice, currentRev),
   syncInvitation: address => ipcRenderer.invoke('sync:invitation', address),

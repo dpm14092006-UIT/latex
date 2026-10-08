@@ -11,7 +11,7 @@ export async function buildDesktop() {
     await new Promise((done, reject) => {
       const child = spawn(process.execPath, args, {
         cwd: root, env: { ...process.env, BUILD_DESKTOP_APP: 'true' },
-        stdio: 'inherit', windowsHide: true,
+        stdio: 'inherit',
       })
       child.once('error', reject)
       child.once('exit', code => code === 0 ? done() : reject(new Error(`Desktop build failed (${code})`)))

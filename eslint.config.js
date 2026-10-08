@@ -4,7 +4,7 @@ import globals from 'globals'
 import reactHooks from 'eslint-plugin-react-hooks'
 
 export default defineConfig([
-  { ignores: ['dist/**', 'release/**', 'release-desktop/**', 'references/**', 'node_modules/**', 'artifacts/**', 'public/**', 'tools/pandoc/**'] },
+  { ignores: ['dist/**', 'release/**', 'release-desktop/**', 'references/**', 'node_modules/**', 'artifacts/**', 'public/**', 'tools/**'] },
   {
     files: ['**/*.{js,jsx,cjs,mjs}'],
     plugins: { js },

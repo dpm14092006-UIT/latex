@@ -2,13 +2,36 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { toLatex } from '../src/services/DocumentSerializer.js'
 import { isValidDocument } from '../src/services/DocumentData.js'
+import { createProject, createTask, sanitizeWorkspace } from '../src/services/WorkspaceData.js'
 import { importWordAst, readLatexSource, toWordAst, WORD_PAGE_BREAK } from '../src/services/WordDocument.js'
 import { bytesToBase64 } from '../src/services/ProjectAssets.js'
-import { normalizeColor, normalizeFontSize } from '../src/services/RichTextFormats.js'
+import { normalizeColor, normalizeTextColor, normalizeDocumentTextColors, normalizeFontSize } from '../src/services/RichTextFormats.js'
+import { normalizeDocumentSpacing } from '../src/services/DocumentSpacing.js'
 
 const doc = content => ({ type: 'doc', content })
 const para = (content, attrs) => ({ type: 'paragraph', ...(attrs ? { attrs } : {}), content })
 const text = (value, marks) => ({ type: 'text', text: value, ...(marks ? { marks } : {}) })
+
+test('repairs pasted prose NBSP across marks, persists repair, and preserves isolated units and code', () => {
+  const original = doc([
+    para([text('Chỉ\u00a0số\u00a0thực\u00a0vật', [{ type: 'bold' }]), text('\u00a0được\u00a0đo\u00a0theo\u00a0quý.')]),
+    para([text('Độ phân giải 250\u00a0m.')]),
+    { type: 'codeBlock', content: [text('a\u00a0b\u00a0c\u00a0d')] },
+  ])
+  const repaired = normalizeDocumentSpacing(original)
+  assert.equal(repaired.content[0].content[0].text, 'Chỉ số thực vật')
+  assert.deepEqual(repaired.content[0].content[0].marks, [{ type: 'bold' }])
+  assert.equal(repaired.content[1], original.content[1])
+  assert.equal(repaired.content[2], original.content[2])
+  assert.equal(original.content[0].content[0].text, 'Chỉ\u00a0số\u00a0thực\u00a0vật')
+  assert.equal(normalizeDocumentSpacing(repaired), repaired)
+  const task = createTask('Repair', original)
+  assert.deepEqual(task.document, repaired)
+  const project = createProject('Repair', task)
+  project.tasks[0].document = original
+  assert.deepEqual(sanitizeWorkspace({ projects: [project] }).projects[0].tasks[0].document, repaired)
+  assert.match(toLatex(original, 'Repair').latex, /Chỉ số thực vật/)
+})
 
 test('Word export attaches captions to their image figures', () => {
   const image = { type: 'imageBlock', attrs: { src: 'data:image/png;base64,iVBORw==', alt: 'File name', caption: 'Đồ thị vận tốc' } }
@@ -125,4 +148,39 @@ test('LaTeX source import finds images referenced without a file extension', asy
       else globalThis[name] = value
     }
   }
+})
+
+test('dark-theme neutral foregrounds print as automatic text while authored colors survive', () => {
+  for (const color of ['#ffffff', '#FFFFFF', '#f2f2f2', '#e0e0e0', 'rgb(242, 242, 242)', '#fff']) {
+    assert.equal(normalizeTextColor(color), null)
+  }
+  for (const [color, expected] of [['#000000', '#000000'], ['#595959', '#595959'], ['#c62828', '#c62828'], ['#f9a825', '#f9a825'], ['#f8bbd0', '#f8bbd0']]) {
+    assert.equal(normalizeTextColor(color), expected)
+  }
+  const legacy = doc([para([
+    text('trắng', [{ type: 'textStyle', attrs: { color: '#ffffff', fontSize: '14pt' } }, { type: 'bold' }]),
+    text('gần trắng', [{ type: 'textStyle', attrs: { color: '#f2f2f2' } }]),
+    text('đỏ', [{ type: 'textStyle', attrs: { color: '#c62828' } }]),
+    text('tô sáng', [{ type: 'highlight', attrs: { color: '#fff59d' } }]),
+  ])])
+  const before = JSON.stringify(legacy)
+  const repaired = normalizeDocumentTextColors(legacy)
+  assert.equal(JSON.stringify(legacy), before, 'migration must not mutate the saved input')
+  assert.equal(repaired.content[0].content[0].marks[0].attrs.color, null)
+  assert.equal(repaired.content[0].content[0].marks[0].attrs.fontSize, '14pt')
+  assert.equal(repaired.content[0].content[0].marks[1].type, 'bold')
+  assert.equal(repaired.content[0].content[1].marks, undefined)
+  assert.equal(repaired.content[0].content[2].marks[0].attrs.color, '#c62828')
+  assert.equal(repaired.content[0].content[3].marks[0].attrs.color, '#fff59d')
+  assert.equal(normalizeDocumentTextColors(repaired), repaired, 'migration is idempotent')
+  const { latex } = toLatex(legacy, 'T')
+  assert.doesNotMatch(latex, /\\textcolor\[HTML\]\{(?:FFFFFF|F2F2F2)\}/)
+  assert.match(latex, /\\textcolor\[HTML\]\{C62828\}\{đỏ\}/)
+  assert.match(latex, /\\fontsize\{14pt\}/)
+  assert.match(latex, /\\textbf\{\{\\fontsize\{14pt\}/)
+  const task = createTask('Existing task')
+  task.document = legacy
+  const project = createProject('Existing project', task)
+  const workspace = sanitizeWorkspace({ projects: [project], activeProjectId: project.id })
+  assert.deepEqual(workspace.projects[0].tasks[0].document, repaired)
 })

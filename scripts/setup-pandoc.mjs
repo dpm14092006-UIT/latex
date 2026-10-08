@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto'
 import { unzipSync } from 'fflate'
 import { resolve } from 'node:path'
 
-if (!['win32', 'darwin'].includes(process.platform)) throw new Error('Cài Pandoc từ pandoc.org/installing.html hoặc đặt PANDOC_PATH đến bản đã cài.')
+if (process.platform !== 'darwin') throw new Error('Cài Pandoc từ pandoc.org/installing.html hoặc đặt PANDOC_PATH đến bản đã cài.')
 const version = process.env.PANDOC_VERSION || '3.11'
 if (!/^\d+(?:\.\d+)+$/.test(version)) throw new Error('Phiên bản Pandoc không hợp lệ.')
 const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN
@@ -27,19 +27,18 @@ const bytes = new Uint8Array(await download.arrayBuffer())
 const digest = createHash('sha256').update(bytes).digest('hex')
 if (`sha256:${digest}` !== asset.digest) throw new Error('SHA-256 không khớp; dừng cài đặt.')
 const files = unzipSync(bytes)
-const executable = Object.keys(files).find(name => /(?:^|\/)pandoc(?:\.exe)?$/.test(name))
+const executable = Object.keys(files).find(name => /(?:^|\/)pandoc$/.test(name))
 if (!executable) throw new Error('Gói không chứa Pandoc')
 await writeFile(resolve(directory, output), files[executable])
 provenance.push({ version: release.tag_name, source: asset.browser_download_url, sha256: digest })
 for (const [name, data] of Object.entries(files)) if (/copyright|copying|license/i.test(name)) await writeFile(resolve(directory, name.split('/').pop()), data)
 }
-if (process.platform === 'win32') await installAsset(/windows-x86_64\.zip$/, 'pandoc.exe')
-else {
+{
   await installAsset(/arm64-macOS\.zip$/, 'pandoc-arm64')
   await installAsset(/x86_64-macOS\.zip$/, 'pandoc-x64')
   await promisify(execFile)('lipo', ['-create', resolve(directory, 'pandoc-arm64'), resolve(directory, 'pandoc-x64'), '-output', resolve(directory, 'pandoc')])
   await chmod(resolve(directory, 'pandoc'), 0o755)
-  await Promise.all(['pandoc-arm64', 'pandoc-x64', 'pandoc.exe'].map(name => rm(resolve(directory, name), { force: true })))
+  await Promise.all(['pandoc-arm64', 'pandoc-x64'].map(name => rm(resolve(directory, name), { force: true })))
 }
 await writeFile(resolve(directory, 'provenance.json'), JSON.stringify(provenance, null, 2))
 console.log(`Pandoc ready: ${directory}`)

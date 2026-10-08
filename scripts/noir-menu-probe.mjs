@@ -1,3 +1,4 @@
+import { primaryKey } from './platform-keys.mjs'
 /* global document, window */
 import assert from 'node:assert/strict'
 import {chromium} from 'playwright'
@@ -7,7 +8,7 @@ import {createProject,createTask} from '../src/services/WorkspaceData.js'
 const server=await createServer({server:{host:'127.0.0.1',port:0}})
 await server.listen()
 await mkdir('artifacts/noir-audit',{recursive:true})
-const browser=await chromium.launch({channel:'msedge',headless:true})
+const browser=await chromium.launch({headless:true})
 try{
  const page=await browser.newPage({viewport:{width:1366,height:660}})
  page.setDefaultTimeout(10000)
@@ -35,12 +36,12 @@ try{
   }
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth))
   await page.locator('.tiptap').click()
-  await page.keyboard.press('Control+f')
+  await page.keyboard.press(`${primaryKey}+f`)
   await page.getByRole('textbox',{name:'Tìm trong bản thảo',exact:true}).waitFor()
   await page.keyboard.press('Escape')
   assert.equal(await page.getByRole('textbox',{name:'Tìm trong bản thảo',exact:true}).count(),0)
   await page.locator('.tiptap').focus()
-  await page.keyboard.press('Control+f')
+  await page.keyboard.press(`${primaryKey}+f`)
   await page.getByRole('textbox',{name:'Tìm trong bản thảo',exact:true}).waitFor()
   await page.getByRole('button',{name:'Đóng tìm kiếm',exact:true}).click()
   assert.equal(await page.getByRole('textbox',{name:'Tìm trong bản thảo',exact:true}).count(),0)

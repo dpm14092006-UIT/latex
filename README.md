@@ -1,22 +1,24 @@
-# Viet LaTeX Studio 0.5.1
+# Viet LaTeX Studio 0.5.6 — macOS
 
 Ứng dụng desktop soạn tài liệu tiếng Việt, nhập công thức trực quan, chỉnh LaTeX và xem PDF. Bản thảo, tài nguyên, sao lưu và chuyển đổi Word được xử lý trên máy.
 
-## Sử dụng Windows
+Bản 0.5.6 đồng bộ PDF đã biên dịch để máy nhận xem và xuất mà không phải chạy LaTeX. LAN chạy mỗi 5 giây khi cửa sổ bị ẩn, hiển thị trạng thái máy đã ghép và xung đột chưa xử lý. Đã bỏ chức năng đồng bộ cuộn; bản thảo và PDF cuộn độc lập. Giữ sửa chữ bị cắt, tràn lề và cập nhật PDF tự động. Xem [thay đổi 0.5.6](docs/UPGRADE-0.5.6.md).
 
-Phiên bản 0.5.1 sửa lỗi tiêu đề `3.1.1` bị xuất thành `0.0.1` và nhận diện tiêu đề đứng trước nội dung trong cùng đoạn qua Shift+Enter/ngắt dòng khi dán từ Word. Xem [bản sửa 0.5.1](docs/UPGRADE-0.5.1.md) và [đồng bộ LAN 0.5.0](docs/UPGRADE-0.5.0.md). Bản Windows hiện tại là `release-desktop/latest-2026-10-08/Viet-Latex-Studio-0.5.1-Portable.exe`, có manifest và SHA-256 bên cạnh. Thanh tiêu đề phải hiển thị **0.5.1**; chọn **Cập nhật PDF** để biên dịch lại tài liệu. Bộ app gồm Pandoc 3.11; **XeLaTeX cần được cài riêng** bằng MiKTeX hoặc TeX Live. Lần đầu TeX có thể cần mạng để tải gói còn thiếu. **Quản lý tài liệu → Hệ thống** kiểm tra XeLaTeX/Pandoc và xóa cache.
+Bản sửa macOS 0.5.2 ngăn chữ trắng/gần trắng từ nền tối lọt vào PDF, tự sửa định dạng cũ khi mở và giữ các màu chữ/tô sáng đã chọn. Xem [thay đổi 0.5.2](docs/UPGRADE-0.5.2.md).
 
-Bản Portable chưa ký số. Chính EXE 0.5.1 đã qua kiểm thử khởi chạy, nhận diện mục lục và tạo PDF thật bằng XeLaTeX từ bản sao tài liệu hiện tại. Hai EXE 0.5.0 vẫn còn vì cơ chế duyệt thao tác đã chặn việc xóa; chọn đúng file có phiên bản 0.5.1. Xem [báo cáo rà soát và chịu tải](docs/AUDIT-LOAD-2026-10-08.md).
+Phiên bản 0.5.1 giữ đúng số tiêu đề và nhận diện tiêu đề trước ngắt dòng khi dán từ Word hoặc dùng Shift+Enter. Xem [thay đổi 0.5.1](docs/UPGRADE-0.5.1.md).
 
-Trong thư mục dự án, mở `Mở app Electron.cmd` để build backend/giao diện mới nhất rồi mở cửa sổ Electron. Thanh tiêu đề hiển thị phiên bản đang chạy. `npm run desktop:preview` build lại giao diện trước khi mở Electron.
+## Cài trên MacBook
 
-Dữ liệu nằm trong hồ sơ `userData` của Electron, ngoài thư mục cài ứng dụng. Trước khi chuyển máy, dùng **Quản lý tài liệu → Sao lưu** để xuất gói `.vls`.
+Mở `release-desktop/Viet-Latex-Studio-0.5.6-universal.dmg`, kéo **Viet Latex Studio.app** vào **Applications** rồi mở app. Bộ cài universal dành cho macOS 26+, gồm Electron, backend Go, Pandoc và TeX Live gọn. Không cần Node/Go/MacTeX riêng để sử dụng các mẫu có sẵn, PDF và Word. Bản cục bộ có chữ ký ad-hoc, chưa notarize bằng Apple Developer ID.
 
-## Đồng bộ Windows và MacBook
+Chi tiết build/cài và giới hạn: [Bộ cài MacBook](docs/MAC-INSTALLER.md). Các bản EXE/NSIS, launcher CMD và backend riêng Windows đã được loại bỏ khỏi checkout này. Lịch sử kiểm thử Windows trong tài liệu audit là ghi nhận của phiên trước.
 
-Mở **Quản lý tài liệu → Đồng bộ LAN**. Một máy làm máy chủ, tạo mã ghép một lần; máy còn lại dán mã và ghép. Dữ liệu tự kiểm tra mỗi 5 giây, tiếp tục lưu khi offline, giữ cả hai phiên bản khi cùng sửa. Không tự bật chia sẻ khi cài app. Xem [hướng dẫn kết nối, xung đột và build Mac](docs/LAN-SYNC.md).
+Dữ liệu nằm trong hồ sơ `userData` của Electron, ngoài thư mục cài ứng dụng. Trước khi chuyển máy, dùng **Quản lý tài liệu → Sao lưu** để xuất gói `.vls`. Đóng cửa sổ giữ app chạy; **Cmd+Q** lưu tài liệu rồi thoát.
 
-MacBook cần `.app`/`.dmg`, không dùng file EXE Windows. Bản DMG universal phải tạo trên Mac hoặc runner macOS; có script `scripts/build-mac.command` và workflow riêng **Build Mac installer**. Xem [chuẩn bị bộ cài MacBook](docs/MAC-INSTALLER.md). Phiên Windows này chưa tạo hoặc chạy thử DMG.
+## Đồng bộ LAN
+
+Mở **Quản lý tài liệu → Đồng bộ LAN**. Một máy làm máy chủ, tạo mã ghép một lần; máy còn lại dán mã và ghép. Dữ liệu tự kiểm tra mỗi 5 giây, tiếp tục lưu khi offline, giữ cả hai phiên bản khi cùng sửa. Không tự bật chia sẻ khi cài app. Giao thức vẫn đọc workspace từ các bản trước. Xem [hướng dẫn kết nối và xung đột](docs/LAN-SYNC.md).
 
 ## Chức năng
 
@@ -49,48 +51,46 @@ Word không bảo toàn tuyệt đối mọi bố cục: tham chiếu chéo xu�
 
 ## Phát triển và đóng gói
 
-Cần Node.js 22.13+ (khuyến nghị Node 24 LTS theo `.nvmrc`), npm 11+, Go 1.26.8+ để phát triển/đóng gói, và XeLaTeX (Windows: MiKTeX/TeX Live; macOS: MacTeX/TeX Live). `npm ci` dùng lockfile và chế độ kiểm tra `engines` nghiêm ngặt. Người dùng bản desktop đã đóng gói không cần cài Go.
+Cần Node.js 24 LTS, npm 11 và Go 1.26.8+. Dùng macOS để tạo DMG universal; Linux chỉ phục vụ kiểm thử CI. Backend Go dùng thư viện chuẩn, không có module bên thứ ba.
 
-Xuất PDF APA 7th dùng `biblatex-apa`, `csquotes` và `biber`; cài các gói này trong bộ TeX. Xuất Word dùng CSL APA 7th của dự án Citation Style Language (bản cục bộ, giữ thông tin tác giả và giấy phép trong tệp CSL). Docker TeX cần xây lại image sau khi cập nhật Dockerfile để có Biber.
-
-```powershell
+```bash
 npm ci
 npm run setup:pandoc
-npm run backend:build
+npm run setup:tex
 npm run desktop:dev
 ```
 
-Backend Go dùng thư viện chuẩn, không có Go module bên thứ ba. `npm run backend:build` tạo `build/backend/vietlatex-backend` cho máy hiện tại; `npm run desktop:build` tạo helper Windows x64, còn `npm run desktop:build:mac` tạo helper universal bằng lipo. Bản cài gói helper vào `Resources/backend` cạnh Pandoc. Electron chạy helper trên cổng loopback ngẫu nhiên với token riêng; web dev dùng Vite proxy tới API loopback.
-
-Hàng đợi biên dịch mặc định tự chọn số tiến trình theo CPU và RAM trống (tối đa một tiến trình cho mỗi hai luồng logic, tối đa 8; giới hạn bộ nhớ có thể chọn ít hơn), và giữ tối đa 8 yêu cầu chờ. Trong lúc chạy, số worker tự giảm khi RAM trống thấp và tăng dần khi RAM đủ (`VIETLATEX_ADAPTIVE_WORKERS=0` để tắt). Có thể đặt `VIETLATEX_COMPILE_WORKERS` từ 1 đến 8 để cố định. XeLaTeX chỉ được khởi động sẵn sau lượt biên dịch đầu tiên và được giải phóng sau 10 phút không biên dịch (`VIETLATEX_WARM_TEX=eager` để khởi động sẵn ngay khi mở app, `0` để tắt). Tăng số này giúp xử lý nhiều lượt biên dịch đồng thời; không làm một tài liệu XeLaTeX đơn lẻ chạy nhanh hơn.
-
-Vite 8 dùng Rolldown; MathLive và PDF.js được tải lười khi mở các chức năng liên quan. Bản Electron đã đóng gói phục vụ giao diện qua giao thức nội bộ `vietlatex://`; build bật ASAR integrity và tắt `ELECTRON_RUN_AS_NODE`, `NODE_OPTIONS`, debugger CLI cùng đặc quyền bổ sung của `file://`.
-
-`setup:pandoc` tải 3.11 từ GitHub chính thức của Pandoc, đối chiếu SHA-256 công bố, giữ giấy phép và provenance. Trên macOS, ghép hai kiến trúc bằng lipo. Có thể đặt `PANDOC_PATH` khi phát triển.
-
-```powershell
-npm run desktop:build
+```bash
+npm run check
+npm run test:go:race
+npm run desktop:build:mac
 ```
 
-`desktop:build:dir` tạo và sao chép app đầy đủ vào `release-desktop/VietLatex-Studio-<version>`, xác minh phiên bản bên trong ASAR và ghi checksum. `desktop:build` thực hiện bước đó trước khi tạo NSIS và `.sha256`. Bản Windows hiện chưa có chữ ký số nhà phát hành. Trên Mac dùng `desktop:build:mac` tạo universal DMG; cần kiểm thử trên máy Mac và chứng thư ký/notarize khi phát hành.
+`desktop:build` cũng tạo bộ cài Mac. `desktop:build:dir` tạo app universal trong `artifacts/mac-package/mac-universal`; `desktop:verify:mac` kiểm tra app đã đóng gói. DMG và SHA-256 đã qua kiểm tra nằm trong `release-desktop`. Xem [MAC-INSTALLER.md](docs/MAC-INSTALLER.md).
 
-`npm run dev` dựng backend Go rồi chạy trình duyệt cùng API loopback; `npm run preview` cũng chạy API Go với Vite preview. Word và backup hồ sơ là chức năng desktop; trình duyệt dùng localStorage có dung lượng nhỏ hơn. `npm run build` chỉ tạo giao diện web.
+Electron chạy backend trên cổng loopback ngẫu nhiên với token riêng. Backend tự tìm bộ TeX/Pandoc trong Resources; PATH được chuẩn bị cho Finder. Huỷ biên dịch dừng cả nhóm tiến trình trên macOS. Font Latin Modern đi kèm nạp theo tên file, cache sinh ra nằm ngoài app có chữ ký.
+
+Bộ TeX gồm XeLaTeX, BibTeX, Biber, biblatex-apa, csquotes và các gói phục vụ mẫu có sẵn. Mẫu LaTeX tự nhập có thể cần gói/font bổ sung. Word dùng Pandoc 3.11 và CSL APA cục bộ. Giấy phép và provenance đi kèm runtime.
+
+Vite 8 dùng Rolldown; MathLive và PDF.js tải lười. Giao diện đóng gói dùng `vietlatex://`; ASAR integrity bật, các fuse Node/inspector bị tắt. Các bài kiểm thử app đóng gói kết nối debugger renderer trên loopback và không thay fuse.
+
+`npm run dev`/`preview` dựng backend rồi chạy Vite cùng API loopback. Word/backup hồ sơ là chức năng desktop; web dùng localStorage có dung lượng nhỏ hơn. `npm run build` chỉ tạo giao diện web.
 
 ## Docker tùy chọn
 
 Mặc định gọi XeLaTeX trên máy với shell escape tắt; **không phải sandbox hệ điều hành**. Chỉ biên dịch nguồn tin cậy ở chế độ này. Để dùng container, cài/chạy Docker Linux engine:
 
-```powershell
+```bash
 docker build -t vietlatex-tex:local sandbox
-$env:VIETLATEX_SANDBOX = 'docker'
+export VIETLATEX_SANDBOX=docker
 npm run desktop:dev
 ```
 
-Với bản cài, khởi động exe từ môi trường có biến trên. Container không có mạng, filesystem gốc chỉ đọc, bỏ capabilities, giới hạn CPU/RAM/PID và chỉ mount thư mục công việc tạm. Có bước dọn container khi hủy/timeout. Docker runtime chưa được kiểm chứng trên máy hiện tại vì Linux engine chưa hoạt động.
+Với bản cài, khởi động app từ môi trường có biến trên. Container không có mạng, filesystem gốc chỉ đọc, bỏ capabilities, giới hạn CPU/RAM/PID và chỉ mount thư mục công việc tạm. Có bước dọn container khi hủy/timeout. Docker runtime chưa được kiểm chứng trên máy hiện tại vì Linux engine chưa hoạt động.
 
 ## Kiểm tra và giới hạn
 
-```powershell
+```bash
 npm run lint
 npm run check
 npm run check:full
@@ -106,26 +106,17 @@ npm run test:desktop
 npm run test:desktop:dist
 ```
 
-`npm run check` chạy lint, Go vet/unit, backend, LAN sync, XeLaTeX/Word upgrade tests và production build. `npm run check:full` mở rộng sang các smoke/UI/Electron tests, đồng bộ hai cửa sổ desktop, lỗi ghi khi thoát, PDF batching, tải đột biến, stress 64 client × 8 yêu cầu, benchmark có ngưỡng và dependency audit. Các suite chạy tuần tự, lưu log và `report.json` trong `artifacts/full-check`; đặt `FULL_CHECK_OUTPUT` để đổi nơi lưu. Go race detector chạy khi môi trường hỗ trợ; Windows cần C compiler tương thích và `CGO_ENABLED=1`, nếu thiếu sẽ ghi rõ bước bị bỏ qua. Có thể chạy riêng bằng `npm run test:go:race`; CI Linux chạy bước này. Upgrade tests có XeLaTeX/BibTeX thật và DOCX roundtrip kiểm tra OMML. Desktop smoke dùng Playwright với hồ sơ tạm riêng: công thức, cấu hình, backup, source/PDF, tin cậy ZIP, nhân bản, lưu khi đóng/mở lại. `test:desktop:dist` kiểm tra production renderer qua `vietlatex://`; đặt `DESKTOP_EXE` để kiểm tra executable đóng gói. Đặt `DESKTOP_SMOKE_SCREENSHOTS=1` để hiển thị cửa sổ và lưu ảnh trong `artifacts/desktop-smoke`.
+`npm run check` chạy lint, Go vet/unit, backend, LAN sync, XeLaTeX/Word upgrade tests và production build. `npm run check:full` mở rộng sang các smoke/UI/Electron tests, đồng bộ hai cửa sổ desktop, lỗi ghi khi thoát, PDF batching, tải đột biến, stress 64 client × 8 yêu cầu, benchmark có ngưỡng và dependency audit. Các suite chạy tuần tự, lưu log và `report.json` trong `artifacts/full-check`; đặt `FULL_CHECK_OUTPUT` để đổi nơi lưu. Go race detector chạy trên macOS/Linux với C compiler của môi trường phát triển. Có thể chạy riêng bằng `npm run test:go:race`; CI Linux chạy bước này. Upgrade tests có XeLaTeX/BibTeX thật và DOCX roundtrip kiểm tra OMML. Desktop smoke dùng Playwright với hồ sơ tạm riêng: công thức, cấu hình, backup, source/PDF, tin cậy ZIP, nhân bản, lưu khi đóng/mở lại. `test:desktop:dist` kiểm tra production renderer qua `vietlatex://`; đặt `DESKTOP_EXE` để kiểm tra executable đóng gói. Đặt `DESKTOP_SMOKE_SCREENSHOTS=1` để hiển thị cửa sổ và lưu ảnh trong `artifacts/desktop-smoke`.
 
-`test:ui` mặc định dùng Microsoft Edge trên Windows; đặt `UI_TEST_BROWSER=chromium` để dùng Chromium do Playwright quản lý. GitHub Actions chạy Go vet/unit, lint/backend, UI smoke trên Chromium, production build và audit dependency; Dependabot kiểm tra npm và GitHub Actions hằng tuần.
+`test:ui` dùng Chromium do Playwright quản lý; cài bằng `npx playwright install chromium`. GitHub Actions chạy Go vet/unit, lint/backend, UI smoke trên Chromium, production build và audit dependency; Dependabot kiểm tra npm và GitHub Actions hằng tuần.
 
 Sau khi sửa một suite lỗi, có thể chạy lại riêng và cập nhật báo cáo chung bằng `npm run check:full -- --only=test:pdf-batching,test:desktop`; các log và kết quả lần trước được giữ trong `previousAttempts`. Nhánh `@electron/get → global-agent` được ghim override `4.1.3` để bỏ dependency `sprintf-js` có cảnh báo DoS GHSA-hp3w-g68c-fv3c; test proxy loopback xác minh API downloader vẫn hoạt động. Đây là dependency của công cụ đóng gói Electron.
 
-## Dọn đầu ra cũ
-
-`scripts/cleanup-old-versions.ps1` mặc định chỉ lập danh sách; thêm `-Apply` để xóa. Đợt dọn toàn bộ demo và bản cũ dùng `-Thorough`, ghi `docs/cleanup-report.json`. Script xác minh checksum bản Portable mới nhất, giữ mã nguồn hiện tại, dependency phát triển, dữ liệu workspace chính, tài liệu và bằng chứng kiểm tra gần nhất. Kiểm tra đường dẫn và junction/symlink trước khi xóa, bỏ qua tài nguyên đang được tiến trình dùng. Demo giao diện và profile demo riêng đã bỏ; các thư mục cache/build tạm được tạo lại khi cần.
-
-Bằng chứng kiểm thử 19 suite qua, 0 lỗi, 1 Go race skip đã được gộp vào `docs/verification-2026-10-08.zip`, đối chiếu checksum từng file trước khi xóa thư mục `artifacts`. Bản sao mã nguồn trước sửa và các ghi chú phiên bản cũ đã dọn. `npm run check:full` sẽ tạo lại `artifacts/full-check`; chạy full một lần trước khi dùng tùy chọn `--only`.
-
-```powershell
-.\scripts\cleanup-old-versions.ps1 -Thorough
-.\scripts\cleanup-old-versions.ps1 -Thorough -Apply
-```
+## Giới hạn
 
 Biên dịch: tự chọn 1–8 worker theo CPU/RAM + 8 chờ; dưới 256 MiB RAM trống giảm về 1 worker sau hai lần đo liên tiếp, kể cả khi nhiều worker đang chạy; mỗi lượt chương trình 30 giây; cache 32 bản/32 MiB; PDF tối đa 75 MiB. Tra DOI có hàng đợi riêng 4 chạy + 8 chờ; chẩn đoán môi trường 1 chạy + 2 chờ, quá tải trả 503 kèm Retry-After. Shutdown chặn yêu cầu mới, đánh thức hàng đợi, hủy tác vụ và đợi biên dịch/Word cùng tiến trình khởi động sẵn dọn tài nguyên. Source 800 KiB; tài nguyên 100 tệp, 10 MiB/tệp, tổng 24 MiB; bản thảo tối đa 8 ảnh đã tối ưu. Workspace 128 MiB; Word nhập 25 MiB. Tắt cưỡng bức/mất điện có thể mất phần chưa lưu; backup cùng ổ không thay thế sao lưu sang ổ khác.
 
-Có đồng bộ phiên bản qua LAN; chưa có cộng tác gõ đồng thời, cloud sync, tracked changes và tự cập nhật có chữ ký. Windows sạch, macOS, signing/notarization và Docker runtime cần kiểm tra riêng. Xem [ARCHITECTURE.md](ARCHITECTURE.md).
+Có đồng bộ phiên bản qua LAN; chưa có cộng tác gõ đồng thời, cloud sync, tracked changes và tự cập nhật có chữ ký. Chạy trực tiếp trên Intel, Apple Developer ID/notarization và Docker runtime cần kiểm tra riêng. Xem [ARCHITECTURE.md](ARCHITECTURE.md).
 
 
 ### Tab tài liệu và bản tổng hợp

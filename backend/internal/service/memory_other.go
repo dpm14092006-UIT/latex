@@ -1,13 +1,15 @@
-//go:build !windows
+//go:build darwin || linux
 
 package service
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func availableMemoryBytes() uint64 {
@@ -44,10 +46,16 @@ func linuxAvailableMemoryBytes() uint64 {
 }
 
 func darwinAvailableMemoryBytes() uint64 {
-	data, err := exec.Command("vm_stat").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	data, err := exec.CommandContext(ctx, "/usr/bin/vm_stat").Output()
 	if err != nil {
 		return 0
 	}
+	return parseDarwinAvailableMemory(data)
+}
+
+func parseDarwinAvailableMemory(data []byte) uint64 {
 	var pageSize uint64
 	var availablePages uint64
 	for _, line := range strings.Split(string(data), "\n") {

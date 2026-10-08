@@ -14,7 +14,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -471,29 +470,17 @@ func validateWordAST(value any, imageTotal, imageCount *int) error {
 func findPandoc() (string, error) {
 	candidates := []string{os.Getenv("PANDOC_PATH")}
 	if resources := os.Getenv("VIETLATEX_RESOURCES_PATH"); resources != "" {
-		name := "pandoc"
-		if runtime.GOOS == "windows" {
-			name += ".exe"
-		}
-		candidates = append(candidates, filepath.Join(resources, "pandoc", name))
+		candidates = append(candidates, filepath.Join(resources, "pandoc", "pandoc"))
 	}
 	if appPath := os.Getenv("VIETLATEX_APP_PATH"); appPath != "" {
-		name := "pandoc"
-		if runtime.GOOS == "windows" {
-			name += ".exe"
-		}
-		candidates = append(candidates, filepath.Join(appPath, "tools", "pandoc", name))
+		candidates = append(candidates, filepath.Join(appPath, "tools", "pandoc", "pandoc"))
 	}
-	if runtime.GOOS == "windows" {
-		candidates = append(candidates, filepath.Join("tools", "pandoc", "pandoc.exe"))
-	} else {
-		candidates = append(candidates, filepath.Join("tools", "pandoc", "pandoc"))
-	}
+	candidates = append(candidates, filepath.Join("tools", "pandoc", "pandoc"), "/opt/homebrew/bin/pandoc", "/usr/local/bin/pandoc", "/opt/local/bin/pandoc")
 	for _, candidate := range candidates {
 		if candidate == "" {
 			continue
 		}
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0111 != 0 {
 			// Pandoc runs with Dir set to a temp directory, and exec resolves a
 			// relative executable against Dir, not against where it was found.
 			return filepath.Abs(candidate)
@@ -501,13 +488,6 @@ func findPandoc() (string, error) {
 	}
 	if executable, err := exec.LookPath("pandoc"); err == nil {
 		return executable, nil
-	}
-	if runtime.GOOS == "darwin" {
-		for _, candidate := range []string{"/opt/homebrew/bin/pandoc", "/usr/local/bin/pandoc", "/opt/local/bin/pandoc"} {
-			if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0111 != 0 {
-				return candidate, nil
-			}
-		}
 	}
 	return "", fmt.Errorf("Pandoc is not installed")
 }

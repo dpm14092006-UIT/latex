@@ -6,47 +6,17 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 )
-
-// A timed-out command must not leave its child processes running: on Windows
-// they keep the work directory busy, so it can no longer be removed.
-func TestCommandTimeoutStopsChildProcesses(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("process-tree cleanup is Windows-specific")
-	}
-	system := filepath.Join(os.Getenv("SystemRoot"), "System32")
-	directory := filepath.Join(t.TempDir(), "work")
-	if err := os.Mkdir(directory, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	_, err := runCommand(context.Background(), filepath.Join(system, "cmd.exe"), []string{"/c", filepath.Join(system, "PING.EXE"), "-n", "30", "127.0.0.1"}, directory, 300*time.Millisecond)
-	var command *commandError
-	if !errors.As(err, &command) || !command.timeout {
-		t.Fatalf("expected timeout, got %v", err)
-	}
-	deadline := time.Now().Add(3 * time.Second)
-	for {
-		err := os.Remove(directory)
-		if err == nil {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("child process still holds the work directory: %v", err)
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-}
 
 // startIdleProcess starts a long-running stand-in for a prestarted warm
 // XeLaTeX whose working directory is directory.
 func startIdleProcess(t *testing.T, directory string) *warmTeX {
 	t.Helper()
-	command := exec.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "PING.EXE"), "-n", "30", "127.0.0.1")
+	command := exec.Command("sleep", "30")
 	command.Dir = directory
-	hideCommandWindow(command)
+	configureCommand(command)
 	stdin, err := command.StdinPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -55,7 +25,7 @@ func startIdleProcess(t *testing.T, directory string) *warmTeX {
 		t.Fatal(err)
 	}
 	warm := &warmTeX{cmd: command, stdin: stdin, stdout: &limitedBuffer{}, stderr: &limitedBuffer{}, directory: directory, started: time.Now(), exited: make(chan struct{})}
-	warm.kill = func() { _ = command.Process.Kill() }
+	warm.kill = func() { _ = killCommandGroup(command) }
 	go func() {
 		warm.waitErr = command.Wait()
 		close(warm.exited)
@@ -66,22 +36,25 @@ func startIdleProcess(t *testing.T, directory string) *warmTeX {
 // A failed or cancelled multi-pass compile still holds the prestarted next
 // pass. Cleanup must stop it before removing the directory it runs in.
 func TestTexRunCleanupRemovesDirectoryOfPrestartedPass(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("only Windows refuses to remove a live process's working directory")
-	}
 	directory, err := os.MkdirTemp(t.TempDir(), "viet-latex-")
 	if err != nil {
 		t.Fatal(err)
 	}
-	run := &texRun{directory: directory, next: startIdleProcess(t, directory)}
+	warm := startIdleProcess(t, directory)
+	run := &texRun{directory: directory, next: warm}
 	run.cleanup()
+	select {
+	case <-warm.exited:
+	case <-time.After(3 * time.Second):
+		t.Fatal("prestarted process survived cleanup")
+	}
 	if _, err := os.Stat(directory); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("work directory survived cleanup: %v", err)
 	}
 }
 
 // TeX tokenizes the main file name, so the cold path must not pass an
-// absolute path that may contain "~" (8.3 short TEMP paths) or "%".
+// absolute path that may contain "~" or "%".
 func TestColdXeLatexRunsInDirectoryWithTeXSpecialCharacters(t *testing.T) {
 	if testing.Short() {
 		t.Skip("runs XeLaTeX")

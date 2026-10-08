@@ -1,5 +1,6 @@
 const { randomBytes } = require('node:crypto')
 const { spawn } = require('node:child_process')
+const { backendEnvironment } = require('./macos-environment.cjs')
 const { setTimeout: delay } = require('node:timers/promises')
 const SHUTDOWN_REQUEST_TIMEOUT_MS = 1000
 
@@ -120,10 +121,9 @@ function startGoBackend({ executable, cwd, appPath, resourcesPath, args = ['--li
   const token = randomBytes(32).toString('hex')
   const child = spawn(executable, args, {
     cwd,
-    windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
     env: {
-      ...process.env,
+      ...backendEnvironment({ appPath, resourcesPath }),
       VIETLATEX_API_TOKEN: token,
       // The backend shuts down on its own if Electron dies without stopping it.
       VIETLATEX_PARENT_PID: String(process.pid),
@@ -172,10 +172,6 @@ function startGoBackend({ executable, cwd, appPath, resourcesPath, args = ['--li
     }
 
     function onError(error) {
-      if (process.platform === 'win32' && ['UNKNOWN', 'EPERM', 'EACCES'].includes(error.code)) {
-        finish(new Error(`Windows Application Control không cho chạy backend Go tại ${executable}. Hãy dùng bản backend được quản trị viên cho phép hoặc ký số theo chính sách máy. (${error.code})`))
-        return
-      }
       finish(new Error(`Không chạy được backend Go (${executable}): ${error.message}`))
     }
 

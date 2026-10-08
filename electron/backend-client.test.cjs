@@ -18,7 +18,7 @@ const HANGING_SHUTDOWN_BACKEND = FAKE_BACKEND.replace(
 )
 
 function fakeBackendArgs(script = FAKE_BACKEND) {
-  // Base64 avoids Windows command-line quoting mangling the inline script.
+  // Base64 preserves the fixture script exactly across subprocess arguments.
   return ['-e', `eval(Buffer.from('${Buffer.from(script).toString('base64')}', 'base64').toString())`]
 }
 

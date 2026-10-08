@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { primaryKey } from './platform-keys.mjs'
 import { chromium } from 'playwright'
 import { createServer } from 'vite'
 import { createTask, createProject } from '../src/services/WorkspaceData.js'
@@ -14,7 +15,7 @@ const server = await createServer({ server: { host: '127.0.0.1', port: 0 } })
 await server.listen()
 let browser
 try {
-  browser = await chromium.launch({ headless: true, channel: 'msedge' })
+  browser = await chromium.launch({ headless: true, ...(process.env.UI_TEST_BROWSER ? { channel: process.env.UI_TEST_BROWSER } : {}) })
   const page = await browser.newPage()
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
@@ -39,9 +40,9 @@ try {
   assert.equal(await captions.nth(1).inputValue(), '')
   await captions.nth(1).fill('Hình mới')
   await page.waitForFunction(() => JSON.parse(localStorage.getItem('latex-workspace-v1')).projects[0].tasks[0].document.content.filter(node => node.type === 'imageBlock').some(node => node.attrs.caption === 'Hình mới'))
-  await captions.nth(1).press('Control+z')
+  await captions.nth(1).press(`${primaryKey}+z`)
   assert.equal(await captions.nth(1).inputValue(), '')
-  await captions.nth(1).press('Control+Shift+z')
+  await captions.nth(1).press(`${primaryKey}+Shift+z`)
   assert.equal(await captions.nth(1).inputValue(), 'Hình mới')
   assert.deepEqual(errors, [])
   console.log('Image captions: existing image, upload, editing and reload passed.')

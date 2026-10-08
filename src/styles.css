@@ -163,6 +163,7 @@ textarea.field { font-family: var(--font-mono); font-size: 12px; line-height: 1.
 .studio-statusbar { display: flex; height: 24px; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 12px; padding: 0 12px; border-top: var(--rule); font-size: 11px; font-variant-numeric: tabular-nums; }
 .studio-statusbar > span { display: inline-flex; min-width: 0; align-items: center; gap: 8px; overflow: hidden; white-space: nowrap; }
 .studio-statusbar b { font-weight: 600; }
+.studio-lan-status { color: inherit; background: none; border: 0; padding: 0 8px; cursor: pointer; font: inherit; text-decoration: underline; text-underline-offset: 2px; }
 
 /* ---------- Ribbon ---------- */
 .studio-ribbon { position: relative; z-index: 15; flex: 0 0 auto; border-bottom: var(--rule); background: var(--bg); }
@@ -286,12 +287,12 @@ textarea.field { font-family: var(--font-mono); font-size: 12px; line-height: 1.
 .ProseMirror .selectedCell { outline: 2px solid var(--fg); outline-offset: -3px; }
 .ProseMirror p.is-editor-empty:first-child::before { float: left; height: 0; content: attr(data-placeholder); opacity: .5; pointer-events: none; }
 .ProseMirror mark { padding: 0 1px; color: inherit; }
-:root[data-theme='dark'] .ProseMirror mark { color: #000; }
+:root[data-theme='dark'] .ProseMirror mark { color: #000 !important; }
 :root[data-theme='dark'] .mono-root .studio-paper .ProseMirror :is(
   [style*='color: #000000'], [style*='color:#000000'], [style*='color: #000'], [style*='color:#000'],
   [style*='color: black'], [style*='color:black'], [style*='color: rgb(0, 0, 0)'],
   [style*='color: rgb(0,0,0)'], [style*='color: rgba(0, 0, 0, 1)']
-) { color: var(--fg) !important; }
+):not(mark, mark *) { color: var(--fg) !important; }
 .academic-reference { padding: 0 3px; border: var(--rule); border-radius: 3px; font-size: .9em; }
 .academic-citation { padding: 0 1px; border: 0; border-radius: 2px; cursor: pointer; }
 .academic-citation:hover, .academic-citation.ProseMirror-selectednode { background: var(--accent-soft); }
@@ -362,7 +363,7 @@ textarea.field { font-family: var(--font-mono); font-size: 12px; line-height: 1.
 .studio-pdf-modes button:first-child { border-left: 0; }
 .studio-pdf-modes button[aria-pressed=true] { color: var(--bg); background: var(--fg); }
 .studio-pdf-canvas { position: relative; min-height: 0; flex: 1; overflow: auto; padding: 22px 20px; scroll-behavior: smooth; overscroll-behavior: contain; }
-.studio-pdf-page-stack { display: flex; min-width: 100%; flex-direction: column; align-items: center; gap: 20px; }
+.studio-pdf-page-stack { display: flex; width: max-content; min-width: 100%; flex-direction: column; align-items: center; gap: 20px; }
 /* The rendered PDF is the document itself; only its frame follows the interface. */
 .studio-pdf-page { position: relative; flex: 0 0 auto; border: 1px solid var(--fg); background: #fff; }
 .studio-pdf-page canvas { display: block; margin: 0 auto; background: #fff; }

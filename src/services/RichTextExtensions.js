@@ -1,11 +1,15 @@
-import { mergeAttributes, Node as TiptapNode } from '@tiptap/core'
+import { Extension, mergeAttributes, Node as TiptapNode } from '@tiptap/core'
 import Subscript from '@tiptap/extension-subscript'
 import Superscript from '@tiptap/extension-superscript'
 import Highlight from '@tiptap/extension-highlight'
 import { OrderedList } from '@tiptap/extension-list'
 import { Color, FontSize, TextStyle } from '@tiptap/extension-text-style'
 
-import { normalizeColor, normalizeFontSize } from './RichTextFormats.js'
+import { Plugin } from '@tiptap/pm/state'
+import { Fragment, Slice } from '@tiptap/pm/model'
+import { normalizeDocumentSpacing } from './DocumentSpacing.js'
+
+import { normalizeColor, normalizeTextColor, normalizeFontSize } from './RichTextFormats.js'
 
 export { TEXT_COLORS, HIGHLIGHT_COLORS, FONT_SIZES, TEXT_SYMBOLS, MATH_SYMBOLS } from './RichTextFormats.js'
 
@@ -35,7 +39,7 @@ function normalizeGlobalAttribute(groups, name, normalize) {
 }
 
 const SafeColor = Color.extend({
-  addGlobalAttributes() { return normalizeGlobalAttribute(this.parent?.() || [], 'color', normalizeColor) },
+  addGlobalAttributes() { return normalizeGlobalAttribute(this.parent?.() || [], 'color', normalizeTextColor) },
 })
 const SafeFontSize = FontSize.extend({
   addGlobalAttributes() { return normalizeGlobalAttribute(this.parent?.() || [], 'fontSize', normalizeFontSize) },
@@ -54,7 +58,22 @@ export const ManualOrderedList = OrderedList.extend({
   addInputRules() { return [] },
 })
 
+const PastedProseSpacing = Extension.create({
+  name: 'pastedProseSpacing',
+  addProseMirrorPlugins() {
+    const schema = this.editor.schema
+    return [new Plugin({ props: {
+      transformPasted(slice) {
+        const nodes = []
+        slice.content.forEach(node => nodes.push(schema.nodeFromJSON(normalizeDocumentSpacing(node.toJSON()))))
+        return new Slice(Fragment.fromArray(nodes), slice.openStart, slice.openEnd)
+      },
+    } })]
+  },
+})
+
 export const richTextExtensions = [
+  PastedProseSpacing,
   ManualOrderedList,
   Subscript,
   Superscript,

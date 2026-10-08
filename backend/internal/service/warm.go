@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// MiKTeX/TeX Live spend a large share of a small compile just starting the
+// TeX Live spend a large share of a small compile just starting the
 // process and loading the format. A warm XeLaTeX has already done that and is
 // parked at TeX's "**" prompt; handing it the file name starts typesetting
 // immediately. Warm processes always run with -no-pdf; xdvipdfmx follows.
@@ -78,7 +78,7 @@ func spawnWarmXeLatex(directory string) (*warmTeX, error) {
 	args := []string{"-interaction=nonstopmode", "-halt-on-error", "-file-line-error", "-no-shell-escape", "-no-pdf", "-output-directory", directory}
 	command := exec.Command(executable, args...)
 	command.Dir = directory
-	hideCommandWindow(command)
+	configureCommand(command)
 	stdin, err := command.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -89,7 +89,7 @@ func spawnWarmXeLatex(directory string) (*warmTeX, error) {
 	if err := command.Start(); err != nil {
 		return nil, err
 	}
-	warm.kill = func() { _ = command.Process.Kill() }
+	warm.kill = func() { _ = killCommandGroup(command) }
 	go func() {
 		warm.waitErr = command.Wait()
 		close(warm.exited)

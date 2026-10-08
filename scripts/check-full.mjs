@@ -15,11 +15,12 @@ await mkdir(output, { recursive: true })
 // and performance budgets need an otherwise idle test machine.
 const suites = [
   { name: 'check' },
-  { name: 'test:go:race', skip: process.platform === 'win32' && process.env.CGO_ENABLED !== '1' ? 'Windows race detector needs CGO_ENABLED=1 and a compatible C compiler.' : '' },
+  { name: 'test:go:race' },
   { name: 'smoke:math-paste' },
   { name: 'smoke:latex' },
   { name: 'smoke:serializer' },
   { name: 'test:ui' },
+  { name: 'image-captions-ui', args: ['scripts/image-captions-ui.mjs'] },
   { name: 'test:project-tabs' },
   { name: 'test:project-pdf' },
   { name: 'test:pdf-batching' },
@@ -31,6 +32,7 @@ const suites = [
   { name: 'test:quit-failure' },
   { name: 'test:desktop:dist' },
   { name: 'test:headings' },
+  { name: 'test:dark-text' },
   { name: 'test:load', env: { VIETLATEX_COMPILE_WORKERS: '4' } },
   { name: 'test:stress', env: { STRESS_CLIENTS: '64', STRESS_REQUESTS: '8', VIETLATEX_COMPILE_WORKERS: '4' } },
   { name: 'test:bench', env: { BENCH_ENFORCE: '1', BENCH_ROUNDS: '5', BENCH_OUTPUT: join(output, 'benchmark.json'), VIETLATEX_COMPILE_WORKERS: '4' } },
@@ -74,7 +76,7 @@ for (const suite of suites.filter(suite => !only || only.includes(suite.name))) 
     const log = createWriteStream(logPath)
     const result = await new Promise(done => {
       const child = spawn(process.execPath, suite.args || [npmCli, 'run', suite.name], {
-        cwd: root, env: { ...process.env, ...suite.env }, windowsHide: true,
+        cwd: root, env: { ...process.env, ...suite.env },
         stdio: ['ignore', 'pipe', 'pipe'],
       })
       child.stdout.pipe(log, { end: false })

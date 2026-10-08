@@ -1,3 +1,4 @@
+import { primaryKey } from './platform-keys.mjs'
 import assert from 'node:assert/strict'
 import { chromium } from 'playwright'
 import { createServer } from 'vite'
@@ -16,7 +17,7 @@ const server = await createServer({ server: { host: '127.0.0.1', port: 5193, str
 await server.listen()
 let browser
 try {
-  browser = await chromium.launch({ headless: true, channel: 'msedge' })
+  browser = await chromium.launch({ headless: true })
   const page = await browser.newPage({ viewport: { width: 1500, height: 1000 } })
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
@@ -27,7 +28,7 @@ try {
   await page.goto('http://127.0.0.1:5193')
   const editor = page.locator('.tiptap')
   await editor.click()
-  await page.keyboard.press('Control+Shift+c')
+  await page.keyboard.press(`${primaryKey}+Shift+c`)
   const dialog = page.getByRole('dialog')
   await dialog.getByRole('tab', { name: 'Quét trích dẫn', exact: true }).click()
   await dialog.getByRole('button', { name: 'Quét tài liệu', exact: true }).click()

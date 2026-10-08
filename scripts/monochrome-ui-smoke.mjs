@@ -1,3 +1,4 @@
+import { primaryKey, documentEndKey } from './platform-keys.mjs'
 import assert from 'node:assert/strict'
 import { mkdir } from 'node:fs/promises'
 import { chromium } from 'playwright'
@@ -28,7 +29,7 @@ await server.listen()
 let browser
 let initialPageCount
 try {
-  const browserName = process.env.UI_TEST_BROWSER || 'msedge'
+  const browserName = process.env.UI_TEST_BROWSER || 'chromium'
   browser = await chromium.launch({ headless: true, ...(browserName === 'chromium' ? {} : { channel: browserName }) })
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } })
   page.setDefaultTimeout(10000)
@@ -80,7 +81,7 @@ try {
   assert.match(await page.locator('.cm-content').innerText(), /\\documentclass\[12pt,a4paper\]\{report\}/)
   assert.match(await page.locator('.cm-content').innerText(), /\\chapter\{Phương pháp nghiên cứu\}/)
   const sourceEditor = page.locator('.cm-content')
-  await sourceEditor.press('Control+End')
+  await sourceEditor.press(documentEndKey)
   assert.match(await sourceEditor.innerText(), /\\chapter\{Nội dung hiện có \(chưa sắp xếp\)\}/)
   assert.match(await sourceEditor.innerText(), /\\chapter\{Đạo hàm và ứng dụng\}/)
   await page.getByRole('button', { name: 'Soạn + PDF', exact: true }).click()
@@ -102,7 +103,7 @@ try {
   await page.getByRole('searchbox', { name: 'Tìm theo tên tài liệu', exact: true }).fill('')
   await page.locator('.mono-outline button').first().click()
   await page.waitForFunction(() => document.querySelector('.tiptap h1')?.contains(getSelection()?.anchorNode))
-  await page.keyboard.press('Control+k')
+  await page.keyboard.press(`${primaryKey}+k`)
   await page.getByRole('textbox', { name: 'Tìm lệnh', exact: true }).fill('tao tai lieu')
   await page.keyboard.press('Enter')
   await page.getByRole('dialog').getByRole('textbox', { name: 'Tên tab', exact: true }).fill('Tài liệu kiểm tra')
@@ -162,7 +163,7 @@ try {
   assert.equal(darkEditorText.themeButtonBackground, 'rgba(0, 0, 0, 0)')
   await page.screenshot({ path: `${output}/dark.png` })
   await page.getByRole('button', { name: 'Nền trắng', exact: true }).click()
-  await page.keyboard.press('Control+k')
+  await page.keyboard.press(`${primaryKey}+k`)
   await page.screenshot({ path: `${output}/commands.png` })
   await page.keyboard.press('Escape')
   await page.getByRole('button', { name: 'Chế độ tập trung', exact: true }).click()
@@ -177,7 +178,7 @@ try {
   await articleSource.waitFor()
   assert.match(await articleSource.innerText(), /\\section\{Introduction\}/)
   assert.match(await articleSource.innerText(), /\\section\{Literature Review\}/)
-  await articleSource.press('Control+End')
+  await articleSource.press(documentEndKey)
   assert.match(await articleSource.innerText(), /\\subsection\{Data and Sample\}/)
   assert.doesNotMatch(await articleSource.innerText(), /Nội dung hiện có \(chưa sắp xếp\)/)
   await page.getByRole('button', { name: 'Soạn + PDF', exact: true }).click()
@@ -215,7 +216,7 @@ ER  -`
   await referencesDialog.getByRole('button', { name: 'Đóng', exact: true }).click()
   const articleEditor = page.locator('.tiptap')
   await articleEditor.click()
-  await page.keyboard.press('Control+f')
+  await page.keyboard.press(`${primaryKey}+f`)
   const findInput = page.getByRole('textbox', { name: 'Tìm trong bản thảo', exact: true })
   await findInput.waitFor()
   assert.equal(await findInput.evaluate(element => element === document.activeElement), true, 'opening find should focus its input')

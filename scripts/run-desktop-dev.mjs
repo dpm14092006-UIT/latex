@@ -3,7 +3,7 @@ import { resolve, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)))
-const build = spawn(process.execPath, [join(root, 'scripts', 'build-backend.mjs')], { cwd: root, stdio: 'inherit', windowsHide: true })
+const build = spawn(process.execPath, [join(root, 'scripts', 'build-backend.mjs')], { cwd: root, stdio: 'inherit' })
 const buildCode = await new Promise((done, reject) => {
   build.once('error', reject)
   build.once('exit', code => done(code ?? 1))
@@ -12,7 +12,7 @@ if (buildCode !== 0) process.exit(buildCode)
 
 const children = new Set()
 function start(command, args) {
-  const child = spawn(command, args, { cwd: root, stdio: 'inherit', windowsHide: true, env: process.env })
+  const child = spawn(command, args, { cwd: root, stdio: 'inherit', env: process.env })
   children.add(child)
   child.once('exit', () => children.delete(child))
   return child
@@ -37,4 +37,3 @@ vite.once('exit', code => {
 })
 process.once('SIGINT', () => stop())
 process.once('SIGTERM', () => stop())
-if (process.platform === 'win32') process.once('SIGBREAK', () => stop())

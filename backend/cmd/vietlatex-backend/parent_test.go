@@ -2,7 +2,6 @@ package main
 
 import (
 	"os/exec"
-	"runtime"
 	"strconv"
 	"testing"
 	"time"
@@ -17,12 +16,7 @@ func TestParentExitedIgnoresMissingOrInvalidPID(t *testing.T) {
 }
 
 func TestParentExitedFiresWhenParentExits(t *testing.T) {
-	var command *exec.Cmd
-	if runtime.GOOS == "windows" {
-		command = exec.Command("ping", "-n", "30", "127.0.0.1")
-	} else {
-		command = exec.Command("sleep", "30")
-	}
+	command := exec.Command("sleep", "30")
 	if err := command.Start(); err != nil {
 		t.Skipf("cannot start stand-in parent: %v", err)
 	}

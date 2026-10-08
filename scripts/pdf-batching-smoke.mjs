@@ -11,7 +11,7 @@ try {
   backend = await startGoBackendForTests()
   server = await createServer({ server: { host: '127.0.0.1', port: 0 } })
   await server.listen()
-  browser = await chromium.launch({ channel: process.env.PDF_SMOKE_BROWSER || 'msedge', headless: true })
+  browser = await chromium.launch({ ...(process.env.PDF_SMOKE_BROWSER && process.env.PDF_SMOKE_BROWSER !== 'chromium' ? { channel: process.env.PDF_SMOKE_BROWSER } : {}), headless: true })
   const context = await browser.newContext({ acceptDownloads: true, viewport: { width: 1440, height: 1000 } })
   const page = await context.newPage()
   page.setDefaultTimeout(20000)

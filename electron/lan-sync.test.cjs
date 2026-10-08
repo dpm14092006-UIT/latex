@@ -17,7 +17,7 @@ async function setup(t) {
   const directory = await mkdtemp(join(tmpdir(), 'vietlatex-lan-test-'))
   const services = []
   t.after(async () => { for (const service of services) await service.stop(); await rm(directory, { recursive: true, force: true }) })
-  const create = async name => { const service = createLanSync({ directory: join(directory, name), name }); await service.init(); services.push(service); return service }
+  const create = async (name, options = {}) => { const service = createLanSync({ directory: join(directory, name), name, ...options }); await service.init(); services.push(service); return service }
   const host = await create('host'), client = await create('client')
   let a = workspace('a', 'Alpha'), b = workspace('b', 'Beta')
   await host.configure('host', a)
@@ -62,7 +62,7 @@ test('two LAN services merge independent projects, preserve IDs/assets/templates
 
 test('concurrent edits survive retries and restart; keep-both produces an editable copy', async t => {
   const { directory, host, client, a, b, sync, create } = await setup(t)
-  task(a, 'task-a').document = doc('Windows edit')
+  task(a, 'task-a').document = doc('MacBook A edit')
   task(b, 'task-a').document = doc('Mac edit')
   await sync(host, a)
   // Do not acknowledge to simulate a crash after the host commits the request.
@@ -77,7 +77,7 @@ test('concurrent edits survive retries and restart; keep-both produces an editab
   await restarted.resolve(conflict.id, 'both', conflict.currentRev)
   const merged = await sync(restarted, b)
   const texts = merged.projects.flatMap(project => project.tasks).map(item => JSON.stringify(item.document))
-  assert.ok(texts.some(text => text.includes('Windows edit')))
+  assert.ok(texts.some(text => text.includes('MacBook A edit')))
   assert.ok(texts.some(text => text.includes('Mac edit')))
   const persisted = JSON.parse(await readFile(join(directory, 'host', 'lan-sync-v1.json'), 'utf8'))
   assert.equal(persisted.conflicts.length, 0)
@@ -95,6 +95,43 @@ test('offline edits reconnect after host restart on its saved port', async t => 
   assert.match(JSON.stringify(task(merged, 'task-b').document), /Edited offline/)
   const hostView = await sync(restarted, a)
   assert.match(JSON.stringify(task(hostView, 'task-b').document), /Edited offline/)
+})
+
+test('host status distinguishes a listening server from recent peer contact, including old clients', async t => {
+  const { directory, host, b, client, create, sync } = await setup(t)
+  await host.stop()
+  let clock = Date.now()
+  const restarted = await create('host', { now: () => clock })
+  assert.equal(restarted.status().connected, true, 'server is listening')
+  assert.equal(restarted.status().peers[0].online, false, 'listening is not proof a peer is online')
+  assert.equal(restarted.status().lastPeerSyncAt, null)
+  const next = await sync(client, b)
+  assert.equal(restarted.status().peers[0].online, true)
+  assert.ok(restarted.status().peers[0].receivedRevision > 0)
+  const contact = restarted.status().lastPeerSyncAt
+  clock += 21000
+  await sync(restarted, next)
+  assert.equal(restarted.status().peers[0].online, false, 'local polling does not refresh peer activity')
+  assert.equal(restarted.status().lastPeerSyncAt, contact)
+  const profile = JSON.parse(await readFile(join(directory, 'client', 'lan-sync-v1.json'), 'utf8'))
+  const result = await request(profile.connection.host, profile.connection.port, '/exchange', { requestId: randomUUID(), at: Date.now(), ops: [], sinceRev: profile.revision }, profile.connection.key, profile.deviceId)
+  assert.equal(result.revision, profile.revision, 'unchanged v1 request used by Windows still works')
+  assert.deepEqual(result.pdfOffers, [], 'old clients never receive PDF payloads')
+  assert.equal(restarted.status().peers[0].online, true)
+  await restarted.revoke(profile.deviceId)
+  assert.deepEqual(restarted.status().peers, [])
+  assert.equal(restarted.status().lastPeerSyncAt, null)
+})
+
+test('LAN messages do not report successful delivery while conflicts or disconnected peers remain', async () => {
+  const { lanSyncLabel, lanSyncResultMessage } = await import('../src/services/LanSyncStatus.js')
+  assert.match(lanSyncLabel({ mode: 'host', peers: [{ online: false }] }), /chờ máy/)
+  assert.match(lanSyncResultMessage({ mode: 'host', peers: [{ online: false }] }), /Chưa có máy khác/)
+  assert.match(lanSyncLabel({ mode: 'client', connected: true, conflicts: [{}] }), /1 xung đột/)
+  assert.match(lanSyncResultMessage({ mode: 'client', connected: true, conflicts: [{}] }), /chưa đồng bộ/)
+  assert.match(lanSyncLabel({ mode: 'client', connected: true, error: 'Offline' }), /mất kết nối/)
+  assert.equal(lanSyncResultMessage({ mode: 'client', connected: true, conflicts: [] }), 'Đã đồng bộ và lưu trên máy.')
+  assert.equal(lanSyncResultMessage({ mode: 'client', connected: true, pdfError: 'PDF pending' }), 'PDF pending')
 })
 
 test('tombstones propagate deletion without resurrecting unchanged offline copies', async t => {
@@ -219,7 +256,9 @@ test('pairing rejects oversized bodies before reading them and readBody enforces
     req.on('error', reject)
     send(req)
   })
-  assert.equal(await responseStatus({ 'Content-Length': 1024 * 1024 }, req => req.end(Buffer.alloc(1024 * 1024))), 413)
+  // Send headers without uploading the oversized body: the server must reject
+  // immediately. Writing it concurrently can race a closed socket on macOS.
+  assert.equal(await responseStatus({ 'Content-Length': 1024 * 1024 }, req => req.flushHeaders()), 413)
   // A chunked request cannot be rejected from its headers; overflowing while
   // reading must keep the socket alive long enough to deliver the 413 response.
   assert.equal(await responseStatus({}, req => { req.write(Buffer.alloc(64 * 1024)); req.end(Buffer.alloc(1)) }), 413)
@@ -260,4 +299,62 @@ test('startup removes only stale sync-profile temp files', async t => {
   await service.init()
   await assert.rejects(access(stale), { code: 'ENOENT' })
   await access(recent)
+})
+
+test('compiled PDFs transfer both directions, survive restart and never grant source trust', async t => {
+  const { host, client, a, b, sync, create } = await setup(t)
+  const input = { id: 'task-a', source: '\\documentclass{article} Alpha', images: [], assets: [] }
+  const bytes = Buffer.from('%PDF-1.7\ncompiled Alpha\n%%EOF')
+  await host.publishPdf(a, input, bytes)
+  const remote = await sync(client, b)
+  const downloaded = await client.getPdf(remote, input)
+  assert.deepEqual(downloaded.bytes, bytes)
+  assert.equal(downloaded.shared, true)
+  assert.equal(task(remote, 'task-a').sourceTrusted, false)
+  assert.equal(await client.getPdf(remote, { ...input, source: 'different source' }), null)
+  assert.equal(await client.getPdf(remote, { ...input, assets: [{ filename: 'data.csv', data: 'changed' }] }), null)
+  const edited = structuredClone(remote); task(edited, 'task-a').document = doc('New manuscript')
+  assert.equal(await client.getPdf(edited, input), null)
+  await client.stop()
+  const restarted = await create('client')
+  assert.deepEqual((await restarted.getPdf(remote, input)).bytes, bytes)
+  const bInput = { ...input, id: 'task-b', source: 'Beta source' }, bBytes = Buffer.from('%PDF-1.7\ncompiled Beta\n%%EOF')
+  await restarted.publishPdf(remote, bInput, bBytes)
+  await sync(restarted, remote)
+  const hostView = await sync(host, a)
+  assert.deepEqual((await host.getPdf(hostView, bInput)).bytes, bBytes)
+  assert.equal((await host.getPdf(hostView, bInput)).shared, true)
+  await assert.rejects(host.publishPdf(a, input, Buffer.from('not a PDF')), /PDF/)
+})
+
+test('stale PDF is not offered after a remote manuscript edit; damaged cache preserves LAN documents', async t => {
+  const { directory, host, client, a, b, sync, create } = await setup(t)
+  const input = { id: 'task-a', source: 'original', images: [], assets: [] }
+  await host.publishPdf(a, input, Buffer.from('%PDF-1.7\noriginal\n%%EOF'))
+  task(a, 'task-a').document = doc('changed')
+  const current = await sync(host, a), remote = await sync(client, b)
+  assert.equal(await client.getPdf(remote, input), null)
+  await host.stop()
+  const file = join(directory, 'host', 'lan-sync-v1.json')
+  const saved = JSON.parse(await readFile(file, 'utf8')); saved.pdfs['task-a'].data = 'corrupt'
+  await writeFile(file, JSON.stringify(saved))
+  const restarted = await create('host')
+  assert.equal(restarted.status().mode, 'host')
+  assert.match(restarted.status().pdfError, /hỏng/)
+  assert.equal(await restarted.getPdf(current, input), null)
+  assert.match(JSON.stringify((await sync(restarted, current)).projects), /changed/)
+})
+
+test('PDF upload verifies digest before mutation and idle PDF downloads do not rewrite the profile', async t => {
+  const { directory, host, a } = await setup(t)
+  const input = { id: 'task-a', source: 'source', images: [], assets: [] }
+  const bytes = Buffer.from('%PDF-1.7\nverified\n%%EOF')
+  const published = await host.publishPdf(a, input, bytes)
+  const clientProfile = JSON.parse(await readFile(join(directory, 'client', 'lan-sync-v1.json'), 'utf8'))
+  const send = body => request(clientProfile.connection.host, clientProfile.connection.port, '/pdf', { requestId: randomUUID(), at: Date.now(), ...body }, clientProfile.connection.key, clientProfile.deviceId)
+  await assert.rejects(send({ upload: { ...published, data: Buffer.from('%PDF-1.7\ntampered').toString('base64') } }), /SHA-256/)
+  assert.deepEqual((await host.getPdf(a, input)).bytes, bytes)
+  const file = join(directory, 'host', 'lan-sync-v1.json'), before = await readFile(file, 'utf8')
+  assert.equal((await send({ id: input.id, sha256: published.sha256 })).pdf.data, bytes.toString('base64'))
+  assert.equal(await readFile(file, 'utf8'), before, 'viewing an already shared PDF never writes the profile')
 })

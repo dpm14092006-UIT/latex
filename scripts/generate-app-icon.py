@@ -32,7 +32,7 @@ draw.polygon([xy(point) for point in paper], fill=(246, 245, 238, 255))
 draw.polygon([xy(point) for point in [(319, 78), (319, 134), (374, 134)]], fill=(220, 219, 210, 255))
 draw.line([xy(point) for point in [(319, 78), (319, 134), (374, 134)]], fill=(206, 204, 193, 255), width=3 * SCALE, joint="curve")
 
-font_path = Path(r"C:\Windows\Fonts\seguisym.ttf")
+font_path = Path("/System/Library/Fonts/Supplemental/Arial.ttf")
 symbol_font = ImageFont.truetype(str(font_path), 184 * SCALE)
 bbox = draw.textbbox((0, 0), "Σ", font=symbol_font, stroke_width=0)
 symbol_width = bbox[2] - bbox[0]
@@ -46,7 +46,7 @@ draw.line([xy(point) for point in [(197, 356), (285, 356)]], fill=(190, 192, 188
 draw.line([xy(point) for point in [(197, 388), (258, 388)]], fill=(112, 151, 141, 255), width=11 * SCALE)
 draw.ellipse(xy((325, 368, 353, 396)), fill=(112, 151, 141, 255))
 
-image = image.resize((SIZE, SIZE), Image.Resampling.LANCZOS)
+image = image.resize((1024, 1024), Image.Resampling.LANCZOS)
 image.save(ROOT / "build" / "app-icon.png")
-image.save(ROOT / "build" / "app-icon.ico", format="ICO", sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
-print("Wrote app icons to the build folder.")
+image.save(ROOT / "build" / "app-icon.icns", format="ICNS")
+print("Wrote macOS app icons to the build folder.")

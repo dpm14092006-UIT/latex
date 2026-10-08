@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict'
-import { _electron as electron, chromium } from 'playwright'
+import { chromium } from 'playwright'
 import { spawn } from 'node:child_process'
+import { createRequire } from 'node:module'
 import { createServer as createPortServer } from 'node:net'
 import { mkdtemp, rm, writeFile, mkdir, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createProject, createTask } from '../src/services/WorkspaceData.js'
+import { toLatex } from '../src/services/DocumentSerializer.js'
 import { buildDesktop } from './build-desktop.mjs'
 import { createServer, request as forwardRequest } from 'node:http'
 
@@ -20,18 +22,19 @@ const fixture = (name, text) => {
   const project = createProject(name, task)
   return { version: 1, projects: [project], activeProjectId: project.id, customTemplates: [], documentTemplates: [] }
 }
-const a = fixture('Máy Windows', 'Nội dung ban đầu Windows'), b = fixture('Máy MacBook', 'Nội dung ban đầu MacBook')
+const a = fixture('MacBook A', 'Nội dung ban đầu MacBook A'), b = fixture('Máy MacBook', 'Nội dung ban đầu MacBook')
 async function launch(name, value) {
   const userData = join(directory, name); await mkdir(userData, { recursive: true })
   if (value) await writeFile(join(userData, 'workspace-v1.json'), JSON.stringify(value))
   const env = { ...process.env, VIETLATEX_USER_DATA: userData, VIETLATEX_TEST_PACKAGED_RENDERER: 'true', VIETLATEX_TEST_HIDE_WINDOW: 'true' }; delete env.ELECTRON_RUN_AS_NODE
   let app
-  if (process.env.DESKTOP_EXE) {
+  {
     // Release fuses disable the Node inspector used by Playwright's Electron driver.
     // Attach to Chromium's loopback debugger instead; do not weaken the release fuses.
     const allocator = createPortServer(); await new Promise(resolve => allocator.listen(0, '127.0.0.1', resolve))
     const port = allocator.address().port; await new Promise(resolve => allocator.close(resolve))
-    const child = spawn(process.env.DESKTOP_EXE, [`--remote-debugging-port=${port}`, '--disable-background-timer-throttling', '--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding'], { env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
+    const executable = process.env.DESKTOP_EXE || createRequire(import.meta.url)('electron')
+    const child = spawn(executable, [...(process.env.DESKTOP_EXE ? [] : ['.']), `--remote-debugging-port=${port}`], { env, stdio: ['ignore', 'pipe', 'pipe'] })
     let diagnostics = '', browser
     child.stderr.on('data', chunk => { diagnostics = (diagnostics + chunk.toString()).slice(-5000) })
     child.stdout.resume()
@@ -45,17 +48,31 @@ async function launch(name, value) {
     if (!page) { await browser.close(); child.kill(); throw new Error(`Không tìm thấy renderer đóng gói: ${diagnostics}`) }
     app = { process: () => child, windows: () => [page], firstWindow: async () => page, close: async () => {
       await page.evaluate(() => window.close()).catch(() => {})
+      if (process.platform === 'darwin') child.kill('SIGTERM')
       const deadline = Date.now() + 20000
-      while (child.exitCode === null && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 100))
-      if (child.exitCode === null) child.kill()
+      while (child.exitCode === null && child.signalCode === null && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 100))
+      if (child.exitCode === null && child.signalCode === null) { child.kill('SIGKILL'); throw new Error(`App không thoát sau khi lưu và dừng backend: ${diagnostics}`) }
       await browser.close().catch(() => {})
     } }
-  } else app = await electron.launch({ args: ['.'], env, timeout: 45000 })
+  }
   running.add(app)
-  if (!process.env.DESKTOP_EXE) await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().forEach(window => { window.webContents.setBackgroundThrottling(false); window.hide() }))
   const page = await app.firstWindow()
   page.on('pageerror', error => errors.push(error.message))
   await page.getByRole('textbox', { name: 'Tên tài liệu' }).waitFor()
+  // Simulate a suspended five-second renderer timer. Neither hidden app may
+  // rely on renderer intervals or test-only Chromium unthrottling switches.
+  await page.addInitScript(() => {
+    const original = window.setInterval.bind(window)
+    window.setInterval = (callback, delay, ...args) => original(delay === 5000 ? () => {} : callback, delay, ...args)
+    const create = URL.createObjectURL.bind(URL)
+    URL.createObjectURL = blob => { const url = create(blob); if (blob.type === 'application/pdf') window.lanTestPdfUrl = url; return url }
+  })
+  await page.reload()
+  await page.getByRole('textbox', { name: 'Tên tài liệu' }).waitFor()
+  await page.evaluate(() => {
+    window.lanNativeTicks = 0
+    window.desktopAPI.onSyncTick(() => { window.lanNativeTicks++ })
+  })
   return { app, page, userData }
 }
 async function close(instance) {
@@ -66,7 +83,7 @@ async function panel(page) {
   if (!await page.getByRole('dialog').count()) await page.getByRole('button', { name: 'Quản lý tài liệu', exact: true }).click()
   await page.getByRole('button', { name: 'Đồng bộ LAN', exact: true }).click()
 }
-async function sync(page) { await panel(page); await page.getByRole('button', { name: 'Đồng bộ ngay', exact: true }).click(); await page.getByText('Đã đồng bộ và lưu trên máy.', { exact: true }).waitFor() }
+async function sync(page) { await panel(page); await page.getByRole('button', { name: 'Đồng bộ ngay', exact: true }).click(); await page.getByText(/^(Đã đồng bộ và lưu trên máy\.|Đã lưu trên máy\. Còn \d+ xung đột)/, { exact: false }).waitFor() }
 async function edit(page, text) { if (await page.getByRole('dialog').count()) await page.getByRole('button', { name: 'Đóng', exact: true }).click(); await page.locator('.tiptap').fill(text) }
 async function waitSnapshot(page, predicate) {
   const deadline = Date.now() + 30000
@@ -111,23 +128,63 @@ try {
   await client.page.getByLabel('Mã ghép từ máy chủ').fill(relayCode)
   await client.page.getByRole('button', { name: 'Ghép với máy chủ', exact: true }).click()
   await client.page.getByText(/Đã ghép máy/).waitFor()
-  await sync(host.page)
-  const received = await host.page.evaluate(() => window.desktopAPI.loadWorkspace())
+  const received = await waitSnapshot(host.page, snapshot => snapshot.projects.some(project => project.id === b.projects[0].id))
   assert.equal(received.projects.length, 2)
   assert.ok(received.projects.some(project => project.id === b.projects[0].id))
-  await edit(client.page, 'Sửa trên máy MacBook rồi gửi tới Windows')
-  await sync(client.page)
-  await sync(host.page)
+  await edit(client.page, 'Sửa trên máy MacBook rồi gửi tới MacBook A')
+  await waitSnapshot(host.page, snapshot => JSON.stringify(snapshot.projects).includes('Sửa trên máy MacBook rồi gửi tới MacBook A'))
+  await edit(host.page, 'Tự động gửi từ máy chủ trong nền')
+  await waitSnapshot(client.page, snapshot => JSON.stringify(snapshot.projects).includes('Tự động gửi từ máy chủ trong nền'))
+  assert.ok(await host.page.evaluate(() => window.lanNativeTicks) >= 2, 'main-process clock polls the hidden host')
+  assert.ok(await client.page.evaluate(() => window.lanNativeTicks) >= 2, 'main-process clock polls the hidden client')
+  assert.equal(await host.page.getByRole('button', { name: 'Đồng bộ cuộn bản thảo và PDF', exact: true }).count(), 0)
+  await panel(host.page)
   await host.page.getByRole('button', { name: 'Tài liệu', exact: true }).click()
   await host.page.getByRole('dialog').getByRole('button', { name: /^Máy MacBook/ }).click()
   await host.page.waitForFunction(() => document.querySelector('.tiptap')?.textContent.includes('Sửa trên máy MacBook'))
   await host.page.getByRole('button', { name: 'Tin cậy và biên dịch', exact: true }).waitFor()
+  // The received manuscript stays untrusted, but the sender's compiled PDF
+  // must render without running LaTeX on the receiver.
+  if (await client.page.getByRole('dialog').count()) await client.page.getByRole('button', { name: 'Đóng', exact: true }).click()
+  await client.page.getByRole('button', { name: 'Cập nhật PDF', exact: true }).click()
+  await client.page.waitForFunction(() => Boolean(window.lanTestPdfUrl), { timeout: 45000 })
+  await client.page.locator('.studio-panel-status[data-tone="ready"]').waitFor({ timeout: 45000 })
+  await host.page.locator('.studio-panel-status').filter({ hasText: 'Đã nhận qua LAN' }).waitFor({ timeout: 45000 })
+  await host.page.locator('.studio-pdf-page canvas').first().waitFor()
+  assert.equal(await host.page.getByRole('button', { name: 'Tin cậy và biên dịch', exact: true }).count(), 1)
+  assert.equal(await host.page.getByRole('button', { name: 'Xuất PDF', exact: true }).isEnabled(), true)
+  const pdfBytes = async page => page.evaluate(async () => Array.from(new Uint8Array(await (await fetch(window.lanTestPdfUrl)).arrayBuffer())))
+  assert.deepEqual(await pdfBytes(host.page), await pdfBytes(client.page), 'receiver renders exactly the sender PDF bytes')
+  const pdfWorkspace = await host.page.evaluate(() => window.desktopAPI.loadWorkspace())
+  assert.equal(pdfWorkspace.projects.flatMap(project => project.tasks).find(task => task.id === b.projects[0].tasks[0].id).sourceTrusted, false)
+  await sync(client.page)
+  // A fresh compile may produce new PDF bytes with unchanged source (fonts,
+  // engine, timestamps). The receiver must replace its already displayed PDF.
+  const senderWorkspace = await client.page.evaluate(() => window.desktopAPI.loadWorkspace())
+  const senderTask = senderWorkspace.projects.flatMap(project => project.tasks).find(task => task.id === b.projects[0].tasks[0].id)
+  const generated = toLatex(senderTask.document, senderTask.title, undefined, senderTask.settings)
+  const replacement = [...await pdfBytes(client.page), ...Buffer.from('\n% LAN PDF revision test\n')]
+  await client.page.evaluate(async ({ workspace, input, bytes }) => window.desktopAPI.publishSyncPdf(workspace, input, new Uint8Array(bytes)), {
+    workspace: senderWorkspace, input: { id: senderTask.id, source: generated.latex, images: generated.images, assets: [] }, bytes: replacement,
+  })
+  let replacedBytes
+  const pdfDeadline = Date.now() + 30000
+  while (Date.now() < pdfDeadline) {
+    replacedBytes = await pdfBytes(host.page).catch(() => [])
+    if (replacedBytes.length === replacement.length) break
+    await host.page.waitForTimeout(100)
+  }
+  assert.deepEqual(replacedBytes, replacement, 'a new PDF replaces the previous PDF even when source is unchanged')
+  await sync(client.page)
   // Both editors now refer to the same stable task ID.
-  await edit(host.page, 'Bản Windows cạnh tranh')
+  await edit(host.page, 'Bản MacBook A cạnh tranh')
   await edit(client.page, 'Bản MacBook cạnh tranh')
   await sync(host.page)
-  await sync(client.page)
+  await panel(client.page)
   await client.page.getByRole('heading', { name: /Xung đột cần xử lý/ }).waitFor()
+  await sync(client.page)
+  assert.equal(await client.page.getByText('Đã đồng bộ và lưu trên máy.', { exact: true }).count(), 0, 'conflicts never display a delivery-success message')
+  await client.page.getByText(/Còn \d+ xung đột chưa đồng bộ/).waitFor()
   await client.page.screenshot({ path: join(output, 'conflict.png') })
   // A user's conflict choice must wait for an in-flight automatic exchange.
   exchangeDelay = 2000
@@ -138,7 +195,7 @@ try {
   const both = await waitSnapshot(client.page, snapshot => JSON.stringify(snapshot.projects).includes('bản xung đột'))
   exchangeDelay = 250
   const texts = JSON.stringify(both.projects)
-  assert.match(texts, /Bản Windows cạnh tranh/); assert.match(texts, /Bản MacBook cạnh tranh/)
+  assert.match(texts, /Bản MacBook A cạnh tranh/); assert.match(texts, /Bản MacBook cạnh tranh/)
   await panel(client.page)
   const started = nextExchange()
   await client.page.getByRole('button', { name: 'Đồng bộ ngay', exact: true }).click()
@@ -150,11 +207,16 @@ try {
   await sync(host.page)
   const liveTyping = await host.page.evaluate(() => window.desktopAPI.loadWorkspace())
   assert.match(JSON.stringify(liveTyping.projects), /Tiếp tục gõ trong lúc/)
+  await sync(client.page)
   await close(host)
+  // The prior success result must change when a later background exchange fails.
+  await client.page.getByText(/ECONNREFUSED|Không kết nối được|socket hang up|lỗi 503/).first().waitFor({ timeout: 35000 })
+  assert.equal(await client.page.getByText('Đã đồng bộ và lưu trên máy.', { exact: true }).count(), 0, 'a prior success message cannot survive an automatic network failure')
   await edit(client.page, 'Nội dung offline chờ máy chủ mở lại')
   await panel(client.page)
   await client.page.getByRole('button', { name: 'Đồng bộ ngay', exact: true }).click()
   await client.page.getByText(/ECONNREFUSED|Không kết nối được|socket hang up|lỗi 503/).first().waitFor({ timeout: 35000 })
+  await waitSnapshot(client.page, snapshot => JSON.stringify(snapshot.projects).includes('Nội dung offline chờ máy chủ mở lại'))
   const saved = JSON.parse(await readFile(join(client.userData, 'workspace-v1.json'), 'utf8'))
   assert.match(JSON.stringify(saved), /Nội dung offline/)
   host = await launch('host')
@@ -164,7 +226,7 @@ try {
   assert.match(JSON.stringify(final), /Nội dung offline/)
   await client.page.screenshot({ path: join(output, 'connected.png') })
   assert.deepEqual(errors, [])
-  console.log('Two-desktop LAN passed: pairing, stable IDs, remote edits, trust gate, conflict keep-both during automatic sync, typing during network I/O, offline save and host restart.')
+  console.log('Two-desktop LAN passed: native background transfer both directions, exact compiled PDF displayed/exportable without granting source trust, pairing, stable IDs, truthful conflicts, concurrent typing, offline save and restart.')
 } catch (error) {
   for (const app of running) {
     const page = app.windows()[0]

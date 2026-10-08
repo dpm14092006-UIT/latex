@@ -11,6 +11,8 @@ import Mathematics from '@tiptap/extension-mathematics'
 import { TableRow, TableCell, TableHeader } from '@tiptap/extension-table'
 import TextAlign from '@tiptap/extension-text-align'
 import { AcademicAttributes, AcademicTable, Citation, CrossReference, Footnote } from './services/AcademicNodes.js'
+import { normalizeDocumentContent } from './services/RichTextFormats.js'
+import { lanSyncLabel } from './services/LanSyncStatus.js'
 import { richTextExtensions } from './services/RichTextExtensions.js'
 import { sanitizeSettings } from './services/DocumentSettings.js'
 import { assetBudgetError, base64ByteLength, validateAssetFileBatch, validateAssets, bytesToBase64 } from './services/ProjectAssets.js'
@@ -354,12 +356,17 @@ function App({ initialWorkspace }) {
   const [exporting, setExporting] = useState(false)
   const [pdfUrl, setPdfUrl] = useState('')
   const pdfBlobRef = useRef(null)
+  const publishPdfRef = useRef(null), sharedPdfCaptureRef = useRef(null)
+  const [sharedPdfRevision, setSharedPdfRevision] = useState(0)
+  const [pdfShared, setPdfShared] = useState(false)
+  const [pdfCached, setPdfCached] = useState(false)
   const pdfSchedulerRef = useRef(null)
   const [pdfStale, setPdfStale] = useState(false)
   const [editorPageCount, setEditorPageCount] = useState(1)
   const [pdfMode, setPdfMode] = useState(() => {
-    const value = store.readText('latex-pdf-batch-mode', '2')
-    return ['manual', '1', '2'].includes(value) ? value : '2'
+    const value = store.readText('latex-pdf-batch-mode', 'live')
+    if (store.readText('latex-pdf-live-default-v1', '0') !== '1') return value === 'manual' ? 'manual' : 'live'
+    return ['manual', 'live', '1', '2'].includes(value) ? value : 'live'
   })
   const [compileState, setCompileState] = useState('waiting')
   const [compileError, setCompileError] = useState('')
@@ -368,7 +375,7 @@ function App({ initialWorkspace }) {
   const [customTemplates, setCustomTemplates] = useState(() => sanitizeFormulaTemplates(restoredWorkspace?.customTemplates ?? store.readJson('latex-custom-templates', [])))
   const [docData, setDocData] = useState(() => {
     const storedDocument = activeTask.document
-    return normalizeDocumentHeadings(normalizeDocumentDelimiters(isValidDocument(storedDocument) ? storedDocument : starter))
+    return normalizeDocumentHeadings(normalizeDocumentDelimiters(isValidDocument(storedDocument) ? normalizeDocumentContent(storedDocument) : starter))
   })
   const docSnapshotTimerRef = useRef(0)
   const docSnapshotVersionRef = useRef(0)
@@ -463,7 +470,7 @@ function App({ initialWorkspace }) {
     docSnapshotVersionRef.current += 1
     window.clearTimeout(docSnapshotTimerRef.current)
     docSnapshotTimerRef.current = 0
-    editor.chain().setMeta('compilationLoad', true).setContent(activeTask.document, { emitUpdate: false }).run()
+    editor.chain().setMeta('compilationLoad', true).setContent(normalizeDocumentContent(activeTask.document), { emitUpdate: false }).run()
     editorTaskIdRef.current = activeTask.id
   // The task ID guard prevents replacing the live editor when its persisted document snapshot changes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -518,8 +525,8 @@ function App({ initialWorkspace }) {
         docSnapshotVersionRef.current += 1
         window.clearTimeout(docSnapshotTimerRef.current)
         docSnapshotTimerRef.current = 0
-        editor.commands.setContent(result.document, { emitUpdate: false })
-        setDocData(result.document)
+        editor.commands.setContent(normalizeDocumentContent(result.document), { emitUpdate: false })
+        setDocData(normalizeDocumentContent(result.document))
         if (result.title) setTitle(result.title)
         setSettings(current => {
           const metadata = result.metadata
@@ -613,7 +620,7 @@ function App({ initialWorkspace }) {
     window.clearTimeout(docSnapshotTimerRef.current)
     docSnapshotTimerRef.current = 0
     setTitle(task.title)
-    setDocData(normalizeDocumentHeadings(normalizeDocumentDelimiters(isValidDocument(task.document) ? task.document : starter)))
+    setDocData(normalizeDocumentHeadings(normalizeDocumentDelimiters(isValidDocument(task.document) ? normalizeDocumentContent(task.document) : starter)))
     setSourceDraft(task.sourceDraft)
     sourceDraftRef.current = task.sourceDraft
     setSourceSyncStatus({ kind: 'idle', text: '' })
@@ -626,11 +633,8 @@ function App({ initialWorkspace }) {
     setSourceTrusted(task.sourceTrusted !== false)
     setSaved(true)
     setImageError('')
-    setPdfUrl('')
-    setCompileError('')
-    setCompileLog('')
-    setCompileErrorLine(null)
-    setCompileState('waiting')
+    // The scheduler owns PDF lifecycle. A LAN merge of another document may
+    // reload this unchanged task; clearing its URL would hide a valid PDF.
   }
   const switchToTask = (projectId, taskId) => {
     saveCurrentTaskSnapshot()
@@ -902,6 +906,8 @@ function App({ initialWorkspace }) {
     const scheduler = new PdfCompileScheduler({
       compile: (...args) => compiler.compile(...args),
       onState: state => {
+        setPdfShared(state.shared)
+        setPdfCached(state.cached)
         setCompileState(state.status)
         setCompileError(state.error)
         setCompileLog(state.log)
@@ -910,6 +916,7 @@ function App({ initialWorkspace }) {
         if (pdfBlobRef.current !== state.blob) {
           pdfBlobRef.current = state.blob
           setPdfUrl(state.blob ? URL.createObjectURL(state.blob) : '')
+          if (state.status === 'ready' && state.blob && !state.cached) void publishPdfRef.current?.(state.blob, state.input)
         }
       },
     })
@@ -919,10 +926,26 @@ function App({ initialWorkspace }) {
   useEffect(() => {
     pdfSchedulerRef.current?.setMode(pdfMode)
     store.writeText('latex-pdf-batch-mode', pdfMode)
+    store.writeText('latex-pdf-live-default-v1', '1')
   }, [pdfMode, store])
   useEffect(() => {
     pdfSchedulerRef.current?.update(captureCompileInput())
   }, [captureCompileInput, effectiveLatex, sourceEdited])
+  useEffect(() => {
+    if (!window.desktopAPI?.getSyncPdf) return undefined
+    let disposed = false
+    const timer = window.setTimeout(async () => {
+      const input = latestCompileCaptureRef.current()
+      const scheduler = pdfSchedulerRef.current
+      try {
+        const cached = await window.desktopAPI.getSyncPdf(sharedPdfCaptureRef.current(), input)
+        if (disposed || !cached || !sameCompileInput(input, latestCompileCaptureRef.current())) return
+        if (sameCompileInput(scheduler?.result?.input, input) && (!cached.shared || scheduler.result.sha256 === cached.sha256)) return
+        scheduler.receiveShared(input, new Blob([cached.bytes], { type: 'application/pdf' }), { shared: cached.shared, sha256: cached.sha256 })
+      } catch (error) { console.error('Không nhận được PDF đồng bộ:', error) }
+    }, 150)
+    return () => { disposed = true; window.clearTimeout(timer) }
+  }, [captureCompileInput, sharedPdfRevision])
   useEffect(() => {
     if (consumedRetryRef.current === compileRetry) return
     consumedRetryRef.current = compileRetry
@@ -1094,7 +1117,7 @@ function App({ initialWorkspace }) {
     } catch (error) { setImageError(error.message || 'Không thể chèn ảnh.') }
   }
   const exportPdf = async () => {
-    if (exporting || !sourceTrusted || compileAssetError) return
+    if (exporting || ((!sourceTrusted || compileAssetError) && !(pdfCached && !pdfStale))) return
     const scheduler = pdfSchedulerRef.current
     const documentId = activeTask.id
     setExporting(true)
@@ -1109,7 +1132,7 @@ function App({ initialWorkspace }) {
         blob = await scheduler.request(input)
         const latest = latestCompileCaptureRef.current()
         if (latest.id !== documentId) throw new DOMException('Đã chuyển tài liệu.', 'AbortError')
-        if (latest.blocked) throw new Error(latest.blocked)
+        if (latest.blocked && !scheduler.result?.cached) throw new Error(latest.blocked)
         current = sameCompileInput(scheduler.result?.input, latest)
       } while (!current)
       if (window.desktopAPI?.savePdf) {
@@ -1224,6 +1247,27 @@ function App({ initialWorkspace }) {
     // Also refresh when the active id stays the same (rename or restored settings).
     editor?.chain().setMeta('compilationLoad', true).setContent(task.document, { emitUpdate: false }).run()
   }
+  const captureForSync = () => {
+    const latest = latestWorkspaceRef.current, current = workspaceRef.current
+    const next = !summaryModeRef.current ? updateWorkspaceTask(current, latest.activeProjectId, latest.activeTaskId, {
+      title: latest.title, document: editor && editorTaskIdRef.current === latest.activeTaskId ? editor.getJSON() : latest.document,
+      sourceDraft: latest.sourceDraft, sourceEdited: latest.sourceEdited, sourceDraftBackup: latest.sourceDraftBackup,
+      activeDocumentTemplateId: latest.activeDocumentTemplateId, settings: latest.settings, assets: latest.assets, sourceTrusted: latest.sourceTrusted,
+    }) : current
+    return { ...latest, projects: next.projects, activeProjectId: next.activeProjectId, version: 1 }
+  }
+  sharedPdfCaptureRef.current = captureForSync
+  publishPdfRef.current = async (blob, input) => {
+    if (!window.desktopAPI?.publishSyncPdf || !sameCompileInput(input, latestCompileCaptureRef.current())) return
+    try {
+      const bytes = new Uint8Array(await blob.arrayBuffer())
+      if (!sameCompileInput(input, latestCompileCaptureRef.current())) return
+      const published = await window.desktopAPI.publishSyncPdf(captureForSync(), input, bytes)
+      const result = pdfSchedulerRef.current?.result
+      if (result?.blob === blob) result.sha256 = published.sha256
+      void syncActionRef.current?.('auto')
+    } catch (error) { setWorkspaceNotice(`Bản PDF đã biên dịch; chưa đưa vào đồng bộ LAN: ${error.message}`) }
+  }
   syncCanApplyRef.current = !formulaOpen && !mathScanOpen && !libraryOpen && !tableLibraryOpen && !documentTemplatesOpen && !workspaceDialogType && !referencesDialog
   syncActionRef.current = async (action, value) => {
     if (action === 'auto' && !syncCanApplyRef.current) return
@@ -1240,15 +1284,6 @@ function App({ initialWorkspace }) {
       setSyncStatus(status)
       if (action === 'auto' && status.mode === 'off') return
       if (!await persistWorkspaceRef.current?.(action !== 'auto')) throw new Error('Chưa lưu được dữ liệu; lượt đồng bộ đã dừng để bảo vệ bản thảo.')
-      const captureForSync = () => {
-        const latest = latestWorkspaceRef.current, current = workspaceRef.current
-        const next = !summaryModeRef.current ? updateWorkspaceTask(current, latest.activeProjectId, latest.activeTaskId, {
-          title: latest.title, document: editor && editorTaskIdRef.current === latest.activeTaskId ? editor.getJSON() : latest.document,
-          sourceDraft: latest.sourceDraft, sourceEdited: latest.sourceEdited, sourceDraftBackup: latest.sourceDraftBackup,
-          activeDocumentTemplateId: latest.activeDocumentTemplateId, settings: latest.settings, assets: latest.assets, sourceTrusted: latest.sourceTrusted,
-        }) : current
-        return { ...latest, projects: next.projects, activeProjectId: next.activeProjectId, version: 1 }
-      }
       const submitted = captureForSync()
       if (action === 'invite') return await window.desktopAPI.syncInvitation(value)
       if (action === 'host' || action === 'join' || action === 'off') {
@@ -1280,9 +1315,12 @@ function App({ initialWorkspace }) {
         activateWorkspace(accepted, true)
       }
       if (apply && !(await window.desktopAPI.saveWorkspace(accepted))?.saved) throw new Error('Không lưu được dữ liệu vừa đồng bộ.')
-      setSyncStatus(await window.desktopAPI.acknowledgeSync(result.receipt))
+      const completedStatus = await window.desktopAPI.acknowledgeSync(result.receipt)
+      setSyncStatus(completedStatus)
+      setSharedPdfRevision(value => value + 1)
       if (rebased.recovered + final.recovered) setWorkspaceNotice('Đã giữ bản sửa trong lúc đồng bộ thành bản sao. Kiểm tra các tab có tên “bản sửa trong lúc đồng bộ”.')
-      else if (result.status.conflicts.length) setWorkspaceNotice(`Có ${result.status.conflicts.length} xung đột. Mở Quản lý tài liệu → Đồng bộ LAN để xử lý.`)
+      else setWorkspaceNotice(current => /^Có \d+ xung đột\./.test(current) ? '' : current)
+      return completedStatus
     } catch (error) {
       setSyncStatus(current => ({ ...current, error: error.message }))
       if (action !== 'auto') throw error
@@ -1292,9 +1330,10 @@ function App({ initialWorkspace }) {
     if (!window.desktopAPI?.syncStatus) return
     void window.desktopAPI.syncStatus().then(setSyncStatus).catch(error => setSyncStatus({ mode: 'off', error: error.message }))
     const tick = () => { void syncActionRef.current?.('auto') }
-    const timer = window.setInterval(tick, 5000)
+    const unsubscribeTick = window.desktopAPI.onSyncTick?.(tick)
+    const timer = unsubscribeTick ? null : window.setInterval(tick, 5000)
     window.addEventListener('online', tick)
-    return () => { window.clearInterval(timer); window.removeEventListener('online', tick) }
+    return () => { unsubscribeTick?.(); window.clearInterval(timer); window.removeEventListener('online', tick) }
   }, [])
   const workspaceAction = async (action, projectId, taskId, name) => {
     if (action.startsWith('delete-')) await snapshotWorkspace()
@@ -1382,6 +1421,7 @@ function App({ initialWorkspace }) {
     onRestoreSourceDraft={restoreSourceDraft}
   />
   const previewPane = <PdfPreviewPane
+    pdfShared={pdfShared}
     collapsibleTools
     compileState={compileState}
     pdfStale={pdfStale}
@@ -1463,7 +1503,7 @@ function App({ initialWorkspace }) {
         onOpenManager={() => openManager()} title={title} projectName={activeProject.name}
         onTitleChange={event => { if (!summaryMode) setTitle(event.target.value) }} saved={saved} theme={theme}
         onToggleTheme={() => setTheme(value => value === 'dark' ? 'light' : 'dark')}
-        exporting={exporting} canExport={sourceTrusted && !compileAssetError} onExport={exportPdf}
+        exporting={exporting} canExport={(sourceTrusted && !compileAssetError) || (pdfCached && !pdfStale)} onExport={exportPdf}
         mode={currentView} onModeChange={changeView} onToggleFocus={toggleFocusMode}
         onToggleNav={toggleNavigation} navOpen={navOpen} isCompact={isCompact}
       /> : <div className="studio-focus-strip">
@@ -1472,8 +1512,9 @@ function App({ initialWorkspace }) {
         <span className="studio-save studio-focus-save" role="status" data-saving={!saved}>{saved ? 'Đã lưu' : 'Đang lưu…'}</span>
       </div>}
 
-      {!sourceTrusted && <div className="studio-trust-banner" role="status"><span>Tài liệu, source hoặc tài nguyên nhập từ ngoài chưa được biên dịch. XeLaTeX cục bộ có thể đọc tệp trên máy; chỉ tiếp tục khi bạn tin cậy tài liệu.</span><button type="button" onClick={() => { setSourceTrusted(true); setCompileRetry(value => value + 1) }}>Tin cậy và biên dịch</button></div>}
+      {!sourceTrusted && <div className="studio-trust-banner" role="status"><span>Tài liệu, source hoặc tài nguyên nhập từ ngoài chưa được xác nhận để biên dịch trên máy này. XeLaTeX cục bộ có thể đọc tệp trên máy; chỉ tiếp tục khi bạn tin cậy tài liệu.</span><button type="button" onClick={() => { setSourceTrusted(true); setCompileRetry(value => value + 1) }}>Tin cậy và biên dịch</button></div>}
       {workspaceNotice && <div className="studio-trust-banner" role="status"><span>{workspaceNotice}</span><button type="button" onClick={() => setWorkspaceNotice('')}>Đã hiểu</button></div>}
+      {(syncStatus?.error || syncStatus?.conflicts?.length > 0) && <div className="studio-trust-banner" role="status"><span>{syncStatus.error || `Đồng bộ LAN: ${syncStatus.conflicts.length} xung đột cần chọn phiên bản.`}</span><button type="button" onClick={() => { setManagerContext({ tab: 'sync' }); setManagerOpen(true) }}>Mở Đồng bộ LAN</button></div>}
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <main className="studio-workspace">
@@ -1502,7 +1543,7 @@ function App({ initialWorkspace }) {
             </div>
 
             {!focusMode && <footer className="studio-statusbar" role="status">
-              <span><span><b>{wordCount.toLocaleString('vi-VN')}</b> từ</span><span>/</span><span><b>{formulaCount}</b> công thức</span><span>/</span><span><b>{imageSummary.count}</b> ảnh</span></span><span>Lưu trên máy · Tiếng Việt</span>            </footer>}
+              <span><span><b>{wordCount.toLocaleString('vi-VN')}</b> từ</span><span>/</span><span><b>{formulaCount}</b> công thức</span><span>/</span><span><b>{imageSummary.count}</b> ảnh</span></span><span>{window.desktopAPI?.exchangeSync && <button type="button" className="studio-lan-status" aria-label="Mở trạng thái đồng bộ LAN" onClick={() => { setManagerContext({ tab: 'sync' }); setManagerOpen(true) }}>{lanSyncLabel(syncStatus)}</button>}Lưu trên máy · Tiếng Việt</span>            </footer>}
         </main>
       </div>
 

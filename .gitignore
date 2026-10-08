@@ -21,3 +21,5 @@ docs/verification-*.zip
 __pycache__/
 *.pyc
 .DS_Store
+
+tools/tex/

@@ -6,9 +6,10 @@ import { useTrackpadZoom } from '../hooks/useTrackpadZoom.js'
 const PdfPageCanvas = memo(function PdfPageCanvas({ pdf, pageNumber, width, zoom, shouldRender, onRendered, onError }) {
   const canvasRef = useRef(null)
   const [rendering, setRendering] = useState(true)
+  const [pageSize, setPageSize] = useState({ width: 595.28, height: 841.89 })
 
   useEffect(() => {
-    if (!pdf || !width || !shouldRender) return undefined
+    if (!pdf || !width) return undefined
     let disposed = false
     let renderTask
     setRendering(true)
@@ -18,6 +19,8 @@ const PdfPageCanvas = memo(function PdfPageCanvas({ pdf, pageNumber, width, zoom
         page = await pdf.getPage(pageNumber)
         if (disposed) return
         const base = page.getViewport({ scale: 1 })
+        setPageSize(current => current.width === base.width && current.height === base.height ? current : { width: base.width, height: base.height })
+        if (!shouldRender) return
         const scale = Math.max(.1, Math.min((width - 40) / base.width, 1.5)) * zoom
         const viewport = page.getViewport({ scale })
         const ratio = Math.min(window.devicePixelRatio || 1, 2)
@@ -42,12 +45,12 @@ const PdfPageCanvas = memo(function PdfPageCanvas({ pdf, pageNumber, width, zoom
     return () => { disposed = true; renderTask?.cancel() }
   }, [pdf, pageNumber, width, zoom, shouldRender, onRendered, onError])
 
-  if (!shouldRender) {
-    const placeholderWidth = Math.max(1, (width - 40) * zoom)
-    return <div className="studio-pdf-page studio-pdf-page-placeholder" data-pdf-page={pageNumber} style={{ width: placeholderWidth, aspectRatio: '0.707' }} aria-label={`Trang ${pageNumber}`} />
-  }
+  const scale = Math.max(.1, Math.min((width - 40) / pageSize.width, 1.5)) * zoom
+  const size = { width: pageSize.width * scale, height: pageSize.height * scale, boxSizing: 'content-box' }
 
-  return <div className="studio-pdf-page" data-pdf-page={pageNumber} aria-busy={rendering}>
+  if (!shouldRender) return <div className="studio-pdf-page studio-pdf-page-placeholder" data-pdf-page={pageNumber} style={size} aria-label={`Trang ${pageNumber}`} />
+
+  return <div className="studio-pdf-page" data-pdf-page={pageNumber} style={size} aria-busy={rendering}>
     <canvas ref={canvasRef} aria-label={`Trang ${pageNumber} của tài liệu PDF`} />
     {rendering && <span className="studio-pdf-page-loading"><LoaderCircle size={14} className="animate-spin" />Đang hiển thị trang {pageNumber}…</span>}
   </div>
@@ -67,11 +70,12 @@ async function findLastImagePage(pdf, imageOperators) {
 }
 
 function PdfViewer({ src, imageCount, imageFocusKey, imageSyncWarning, controlsCollapsed = false }) {
+  const savedScrollRef = useRef(0)
   const containerRef = useRef(null)
   const canvasStageRef = useRef(null)
   const pageStackRef = useRef(null)
   const pendingImagePageRef = useRef(null)
-  const focusedImageKeyRef = useRef(null)
+  const focusedImageKeyRef = useRef(imageFocusKey)
   const imageFocusRequestRef = useRef({ imageCount, imageFocusKey })
   imageFocusRequestRef.current = { imageCount, imageFocusKey }
   const [pdf, setPdf] = useState(null)
@@ -126,6 +130,7 @@ function PdfViewer({ src, imageCount, imageFocusKey, imageSyncWarning, controlsC
   useEffect(() => {
     let disposed = false
     let task
+    const stage = canvasStageRef.current
     const controller = new AbortController()
     const { imageCount: imageCountAtLoad, imageFocusKey: imageFocusKeyAtLoad } = imageFocusRequestRef.current
     const shouldFocusImage = imageCountAtLoad > 0 && focusedImageKeyRef.current !== imageFocusKeyAtLoad
@@ -177,8 +182,14 @@ function PdfViewer({ src, imageCount, imageFocusKey, imageSyncWarning, controlsC
       } catch (cause) { if (!disposed) { setError(cause.message); setRendering(false) } }
     }
     load()
-    return () => { disposed = true; loadedPdfRef.current = null; controller.abort(); task?.destroy() }
+    return () => { savedScrollRef.current = stage?.scrollTop || 0; disposed = true; loadedPdfRef.current = null; controller.abort(); task?.destroy() }
   }, [src])
+
+  useEffect(() => {
+    if (!pdf || !savedScrollRef.current || pendingImagePageRef.current !== null) return undefined
+    const frame = requestAnimationFrame(() => canvasStageRef.current?.scrollTo({ top: savedScrollRef.current, behavior: 'instant' }))
+    return () => cancelAnimationFrame(frame)
+  }, [pdf])
 
   useEffect(() => {
     const pageNumberToShow = pendingImagePageRef.current
@@ -250,6 +261,7 @@ export default function PdfPreviewPane({
   collapsibleTools = false,
   compileState,
   pdfStale,
+  pdfShared = false,
   pdfMode,
   onPdfModeChange,
   compileBlocked,
@@ -275,7 +287,7 @@ export default function PdfPreviewPane({
     try { localStorage.setItem('noir-pdf-tools-expanded', next ? '0' : '1') } catch { /* Keep the session preference if storage is unavailable. */ }
     setControlsCollapsed(next)
   }
-  const statusLabel = compileState === 'ready' ? 'Đã cập nhật' : compileState === 'error' ? 'Cần kiểm tra' : compileState === 'blocked' ? 'Chờ xác nhận' : compileState === 'compiling' ? 'Đang cập nhật' : 'Chưa cập nhật'
+  const statusLabel = compileState === 'ready' ? (pdfShared ? 'Đã nhận qua LAN' : 'Đã cập nhật') : compileState === 'error' ? 'Cần kiểm tra' : compileState === 'blocked' ? 'Chờ xác nhận' : compileState === 'compiling' ? 'Đang cập nhật' : 'Chưa cập nhật'
   const statusTone = compileState === 'ready' ? 'ready' : compileState === 'error' ? 'error' : compileState === 'compiling' ? 'busy' : 'idle'
   const loadingTitle = compileState === 'error' ? 'Chưa tạo được PDF' : compileState === 'compiling' ? 'Đang tạo PDF' : 'PDF chưa được tạo'
   const loadingDescription = compileState === 'error'
@@ -291,7 +303,8 @@ export default function PdfPreviewPane({
           <span className="studio-panel-status" data-tone={statusTone} role="status">{statusLabel}</span>
         </div>
         <div className="studio-panel-actions">
-          <select className="studio-panel-select" aria-label="Chế độ cập nhật PDF" value={pdfMode} onChange={event => onPdfModeChange(event.target.value)} title={pdfMode === 'manual' ? 'PDF chỉ cập nhật khi bạn yêu cầu hoặc xuất tệp.' : 'Đợi ngừng gõ 5 giây; các lượt tự động cách nhau ít nhất 30 giây. Sửa ít trong cùng trang được cập nhật sau 60 giây. Source riêng ước lượng theo độ dài LaTeX; số trang PDF có thể khác bản thảo.'}>
+          <select className="studio-panel-select" aria-label="Chế độ cập nhật PDF" value={pdfMode} onChange={event => onPdfModeChange(event.target.value)} title={pdfMode === 'manual' ? 'PDF chỉ cập nhật khi bạn yêu cầu hoặc xuất tệp.' : pdfMode === 'live' ? 'PDF tự cập nhật sau khi ngừng gõ khoảng 1 giây; mỗi lượt cách nhau ít nhất 2 giây.' : 'Đợi ngừng gõ 5 giây; các lượt tự động cách nhau ít nhất 30 giây. Sửa ít trong cùng trang được cập nhật sau 60 giây. Source riêng ước lượng theo độ dài LaTeX; số trang PDF có thể khác bản thảo.'}>
+            <option value="live">Tự động · theo bản thảo</option>
             <option value="2">Tự động · 2 trang</option>
             <option value="1">Tự động · 1 trang</option>
             <option value="manual">Thủ công</option>

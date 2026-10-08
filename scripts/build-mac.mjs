@@ -4,17 +4,21 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
-if (process.platform !== 'darwin') throw new Error('Tạo bộ cài DMG universal trên macOS. Windows vẫn chạy được backend cross-compile, nhưng không thay thế kiểm thử bộ cài Mac.')
+if (process.platform !== 'darwin') throw new Error('Tạo bộ cài DMG universal trên macOS.')
 const run = (command, args, env = process.env) => new Promise((resolve, reject) => {
   const child = spawn(command, args, { cwd: root, env, stdio: 'inherit' })
   child.once('error', reject)
-  child.once('exit', code => code === 0 ? resolve() : reject(new Error(`${command} thất bại (${code}).`)))
+  child.once('exit', (code, signal) => code === 0 ? resolve() : reject(new Error(`${command} thất bại (${code ?? signal}).`)))
 })
-const pandoc = join(root, 'tools', 'pandoc', 'pandoc')
-try { await access(pandoc) } catch { await run(process.execPath, [join(root, 'scripts', 'setup-pandoc.mjs')]) }
-await run('/usr/bin/lipo', [pandoc, '-verify_arch', 'x86_64', 'arm64'])
-await run(process.execPath, [join(root, 'scripts', 'build-backend.mjs'), '--universal'])
+const node = (script, args = []) => run(process.execPath, [join(root, 'scripts', script), ...args])
+try { await access(join(root, 'tools', 'pandoc', 'pandoc')) } catch { await node('setup-pandoc.mjs') }
+await node('setup-tex.mjs')
+for (const binary of ['tools/pandoc/pandoc', 'tools/tex/bin/universal-darwin/xetex']) {
+  await run('/usr/bin/lipo', [join(root, binary), '-verify_arch', 'x86_64', 'arm64'])
+}
+await node('build-backend.mjs', ['--universal'])
 await run('/usr/bin/lipo', [join(root, 'build', 'backend', 'vietlatex-backend'), '-verify_arch', 'x86_64', 'arm64'])
 await run(process.execPath, [join(root, 'node_modules', 'vite', 'bin', 'vite.js'), 'build'], { ...process.env, BUILD_DESKTOP_APP: 'true' })
-await run(process.execPath, [join(root, 'node_modules', 'electron-builder', 'cli.js'), '--config', 'electron-builder.config.cjs', '--mac', 'dmg', '--universal', '--publish', 'never'])
-await run(process.execPath, [join(root, 'scripts', 'copy-mac-installer.cjs')])
+await run(process.execPath, [join(root, 'node_modules', 'electron-builder', 'cli.js'), '--config', 'electron-builder.config.cjs', '--mac', ...(process.argv.includes('--dir') ? ['--dir'] : ['dmg']), '--universal', '--publish', 'never'])
+await node('verify-mac-package.mjs')
+if (!process.argv.includes('--dir')) await node('copy-mac-installer.cjs')

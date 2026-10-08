@@ -41,20 +41,22 @@ export class PdfCompileScheduler {
   }
 
   setMode(mode) {
-    this.mode = ['manual', '1', '2'].includes(mode) ? mode : '2'
+    this.mode = ['manual', 'live', '1', '2'].includes(mode) ? mode : '2'
     this.schedule()
   }
 
   publish() {
     if (this.disposed || !this.input) return
     const ready = sameCompileInput(this.result?.input, this.input)
-    const error = this.input.blocked || this.failure?.error
+    const sharedReady = ready && this.result?.cached
+    const error = sharedReady ? '' : this.input.blocked || this.failure?.error
     this.onState({
-      status: this.input.blocked ? 'blocked' : this.active ? 'compiling' : error ? 'error' : ready ? 'ready' : 'dirty',
+      status: sharedReady ? 'ready' : this.input.blocked ? 'blocked' : this.active ? 'compiling' : error ? 'error' : ready ? 'ready' : 'dirty',
       error: typeof error === 'string' ? error : error?.message || '',
       log: this.failure?.error?.log || '', line: this.failure?.error?.line || null,
       blob: this.result?.blob || null,
       stale: Boolean(this.result && !ready),
+      input: this.result?.input || null, shared: Boolean(this.result?.shared), cached: Boolean(this.result?.cached),
     })
   }
 
@@ -69,6 +71,11 @@ export class PdfCompileScheduler {
       ? Math.abs((this.input.pageCount || 1) - (this.result.input.pageCount || 1))
       : this.input.source.trim() ? Number(this.mode) : 0
     const large = pagesSinceCompile >= Number(this.mode)
+    if (this.mode === 'live') {
+      const deadline = Math.max(this.lastChanged + 900, this.lastStarted + 2000)
+      this.timer = this.setTimer(() => { void this.run() }, Math.max(0, deadline - this.now()))
+      return
+    }
     const deadline = Math.max(
       this.lastChanged + PDF_BATCH_POLICY.idleMs,
       this.lastStarted + PDF_BATCH_POLICY.intervalMs,
@@ -80,6 +87,7 @@ export class PdfCompileScheduler {
   request(input, { fresh = false } = {}) {
     if (this.disposed) return Promise.reject(cancelled())
     this.update(input)
+    if (!fresh && sameCompileInput(this.result?.input, input) && this.result?.cached) return Promise.resolve(this.result.blob)
     if (input.blocked) return Promise.reject(new Error(input.blocked))
     if (!fresh && sameCompileInput(this.result?.input, input)) return Promise.resolve(this.result.blob)
     const pending = new Promise((resolve, reject) => this.waiters.push({ resolve, reject }))
@@ -133,6 +141,16 @@ export class PdfCompileScheduler {
   }
 
   rejectWaiters(error) { for (const waiter of this.waiters.splice(0)) waiter.reject(error) }
+
+  receiveShared(input, blob, { shared = true, sha256 } = {}) {
+    if (this.disposed || this.active || !sameCompileInput(this.input, input)) return false
+    this.result = { input, blob, shared, cached: true, sha256 }
+    this.failure = null; this.dirtySince = null; this.forced = false
+    this.clearTimer(this.timer)
+    for (const waiter of this.waiters.splice(0)) waiter.resolve(blob)
+    this.publish()
+    return true
+  }
 
   dispose() {
     this.disposed = true

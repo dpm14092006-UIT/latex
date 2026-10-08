@@ -7,8 +7,7 @@ import { fileURLToPath } from 'node:url'
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const preview = process.argv.includes('--preview')
-const extension = process.platform === 'win32' ? '.exe' : ''
-const backendExecutable = join(root, 'build', 'backend', `vietlatex-backend${extension}`)
+const backendExecutable = join(root, 'build', 'backend', 'vietlatex-backend')
 const token = randomBytes(32).toString('hex')
 const env = { ...process.env, VIETLATEX_API_TOKEN: token, VIETLATEX_APP_PATH: root }
 const children = new Set()
@@ -17,7 +16,7 @@ let stopping = false
 await access(backendExecutable).catch(() => { throw new Error('Chưa có backend Go. Chạy npm run backend:build trước.') })
 
 function spawnChild(command, args, childEnv = env) {
-  const child = spawn(command, args, { cwd: root, env: childEnv, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+  const child = spawn(command, args, { cwd: root, env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] })
   children.add(child)
   child.stdout.pipe(process.stdout)
   child.stderr.pipe(process.stderr)
@@ -47,9 +46,7 @@ try {
 } catch (error) {
   clearTimeout(startupTimeout)
   backend.kill()
-  if (process.platform === 'win32' && ['UNKNOWN', 'EPERM', 'EACCES'].includes(error.code)) {
-    throw new Error(`Windows Application Control không cho chạy backend Go tại ${backendExecutable}. Hãy dùng bản backend được quản trị viên cho phép hoặc ký số theo chính sách máy.`, { cause: error })
-  }
+
   throw error
 }
 if (ready?.event !== 'ready' || ready.address !== '127.0.0.1:4317') throw new Error('Backend Go trả về địa chỉ không hợp lệ.')
@@ -82,5 +79,3 @@ backend.once('exit', code => {
     process.exitCode = code || 1
   }
 })
-
-if (process.platform === 'win32') process.once('SIGBREAK', () => { void stop() })
