@@ -14,7 +14,7 @@ const output = resolve('artifacts/lan-sync-desktop')
 await mkdir(output, { recursive: true })
 const directory = await mkdtemp(join(tmpdir(), 'vietlatex-sync-desktop-'))
 const running = new Set(), errors = []
-let proxy, exchangeStarted
+let proxy, exchangeStarted, exchangeDelay = 250
 const fixture = (name, text) => {
   const task = createTask(name, { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] })
   const project = createProject(name, task)
@@ -77,6 +77,13 @@ async function waitSnapshot(page, predicate) {
   }
   throw new Error('Dữ liệu đồng bộ chưa được ghi vào workspace sau 30 giây.')
 }
+function nextExchange() {
+  let timer
+  return new Promise((resolve, reject) => {
+    exchangeStarted = () => { clearTimeout(timer); resolve() }
+    timer = setTimeout(() => { exchangeStarted = null; reject(new Error('Lượt kiểm tra mạng chưa bắt đầu sau 15 giây.')) }, 15000)
+  })
+}
 try {
   let host = await launch('host', a)
   const client = await launch('client', b)
@@ -92,7 +99,7 @@ try {
   proxy = createServer((req, res) => {
     const forward = forwardRequest({ hostname: inviteData.host, port: inviteData.port, path: req.url, method: req.method, headers: req.headers }, response => {
       res.writeHead(response.statusCode, response.headers)
-      setTimeout(() => response.pipe(res), req.url === '/exchange' ? 250 : 0)
+      setTimeout(() => response.pipe(res), req.url === '/exchange' ? exchangeDelay : 0)
     })
     forward.on('error', () => { res.writeHead(503); res.end('{}') })
     req.pipe(forward)
@@ -122,13 +129,18 @@ try {
   await sync(client.page)
   await client.page.getByRole('heading', { name: /Xung đột cần xử lý/ }).waitFor()
   await client.page.screenshot({ path: join(output, 'conflict.png') })
+  // A user's conflict choice must wait for an in-flight automatic exchange.
+  exchangeDelay = 2000
+  const automaticExchange = nextExchange()
+  await client.page.evaluate(() => window.dispatchEvent(new Event('online')))
+  await automaticExchange
   await client.page.getByRole('button', { name: 'Giữ cả hai', exact: true }).first().click()
   const both = await waitSnapshot(client.page, snapshot => JSON.stringify(snapshot.projects).includes('bản xung đột'))
+  exchangeDelay = 250
   const texts = JSON.stringify(both.projects)
   assert.match(texts, /Bản Windows cạnh tranh/); assert.match(texts, /Bản MacBook cạnh tranh/)
   await panel(client.page)
-  let startTimer
-  const started = new Promise((resolve, reject) => { exchangeStarted = () => { clearTimeout(startTimer); resolve() }; startTimer = setTimeout(() => reject(new Error('Lượt kiểm tra mạng chưa bắt đầu sau 15 giây.')), 15000) })
+  const started = nextExchange()
   await client.page.getByRole('button', { name: 'Đồng bộ ngay', exact: true }).click()
   await started
   await edit(client.page, 'Tiếp tục gõ trong lúc phản hồi mạng đang chờ')
@@ -152,7 +164,7 @@ try {
   assert.match(JSON.stringify(final), /Nội dung offline/)
   await client.page.screenshot({ path: join(output, 'connected.png') })
   assert.deepEqual(errors, [])
-  console.log('Two-desktop LAN passed: pairing, stable IDs, remote edits, trust gate, conflict keep-both, typing during network I/O, offline save and host restart.')
+  console.log('Two-desktop LAN passed: pairing, stable IDs, remote edits, trust gate, conflict keep-both during automatic sync, typing during network I/O, offline save and host restart.')
 } catch (error) {
   for (const app of running) {
     const page = app.windows()[0]

@@ -342,7 +342,7 @@ function App({ initialWorkspace }) {
   const [referencesDialog, setReferencesDialog] = useState(null)
   const [workspaceNotice, setWorkspaceNotice] = useState(initialWorkspace?.recoveryMessage || '')
   const [syncStatus, setSyncStatus] = useState(null)
-  const syncBusyRef = useRef(false)
+  const syncBusyRef = useRef(null)
   const syncCanApplyRef = useRef(true)
   const syncActionRef = useRef(null)
   const [compileLog, setCompileLog] = useState('')
@@ -1221,9 +1221,14 @@ function App({ initialWorkspace }) {
   syncCanApplyRef.current = !formulaOpen && !mathScanOpen && !libraryOpen && !documentTemplatesOpen && !workspaceDialogType && !referencesDialog
   syncActionRef.current = async (action, value) => {
     if (action === 'auto' && !syncCanApplyRef.current) return
-    if (syncBusyRef.current) { if (action === 'auto') return; throw new Error('Đang có một lượt đồng bộ. Chờ lượt này hoàn tất.') }
+    if (syncBusyRef.current) {
+      if (action === 'auto') return
+      await syncBusyRef.current
+      return syncActionRef.current?.(action, value)
+    }
     if (!window.desktopAPI?.exchangeSync) return
-    syncBusyRef.current = true
+    let finishSync
+    syncBusyRef.current = new Promise(resolve => { finishSync = resolve })
     try {
       let status = await window.desktopAPI.syncStatus()
       setSyncStatus(status)
@@ -1275,7 +1280,7 @@ function App({ initialWorkspace }) {
     } catch (error) {
       setSyncStatus(current => ({ ...current, error: error.message }))
       if (action !== 'auto') throw error
-    } finally { syncBusyRef.current = false }
+    } finally { syncBusyRef.current = null; finishSync() }
   }
   useEffect(() => {
     if (!window.desktopAPI?.syncStatus) return
