@@ -5,6 +5,9 @@ const packageBuild = pkg.build
 
 module.exports = {
   ...packageBuild,
+  electronFuses: process.platform === 'darwin'
+    ? { ...packageBuild.electronFuses, resetAdHocDarwinSignature: true }
+    : packageBuild.electronFuses,
   extraResources: packageBuild.extraResources.map(resource => process.platform === 'darwin'
     ? { ...resource, filter: resource.to === 'backend' ? ['vietlatex-backend'] : ['**/*', '!**/*.exe'] }
     : resource),

@@ -28,6 +28,7 @@
     "desktop:build:dir": "node scripts/build-desktop.mjs && electron-builder --config electron-builder.config.cjs --dir && node scripts/copy-desktop-installer.cjs --app-only",
     "desktop:build": "npm run desktop:build:dir && electron-builder --config electron-builder.config.cjs --win nsis && node scripts/copy-desktop-installer.cjs",
     "desktop:build:mac": "node scripts/build-mac.mjs",
+    "desktop:verify:mac": "node scripts/verify-mac-package.mjs",
     "test:sync": "node --test electron/lan-sync.test.cjs",
     "test:sync:desktop": "node scripts/lan-sync-desktop.mjs",
     "test:quit-failure": "node scripts/quit-failure-desktop.mjs",

@@ -72,6 +72,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Verify and test packaged Mac app
+        run: npm run desktop:verify:mac
       - uses: actions/upload-artifact@v4
         with:
           name: macos-universal-test-installer
