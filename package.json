@@ -72,7 +72,7 @@
     "fflate": "^0.8.3",
     "katex": "^0.18.9",
     "lucide-react": "^1.48.0",
-    "mathlive": "^0.110.0",
+    "mathlive": "^0.111.0",
     "pdfjs-dist": "^6.3.289",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
