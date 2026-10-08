@@ -32,22 +32,39 @@ function localAddress(host) {
 function validateEndpoint(host, port) {
   if (!localAddress(host) || !Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Chỉ kết nối địa chỉ IPv4 trong mạng nội bộ.')
 }
-async function readBody(stream) {
-  let size = 0
+// `budget` ({ used, max }) is shared by concurrent readers so several large
+// bodies cannot together exhaust memory before they are authenticated.
+async function readBody(stream, limit = MAX_WIRE_BYTES, budget) {
+  let size = 0, reserved = 0
   const chunks = []
-  for await (const chunk of stream) {
-    size += chunk.length
-    if (size > MAX_WIRE_BYTES) throw new Error('Gói đồng bộ vượt giới hạn.')
-    chunks.push(chunk)
-  }
+  // Returning early from a normal Readable async iterator destroys the stream,
+  // which also closes its socket before the caller can send the 413/503 reply.
+  const source = typeof stream.iterator === 'function' ? stream.iterator({ destroyOnReturn: false }) : stream
+  try {
+    for await (const chunk of source) {
+      size += chunk.length
+      if (size > limit) {
+        stream.resume?.()
+        throw Object.assign(new Error('Gói đồng bộ vượt giới hạn.'), { status: 413 })
+      }
+      if (budget) {
+        budget.used += chunk.length; reserved += chunk.length
+        if (budget.used > budget.max) {
+          stream.resume?.()
+          throw Object.assign(new Error('Máy chủ đồng bộ đang bận.'), { status: 503 })
+        }
+      }
+      chunks.push(chunk)
+    }
+  } finally { if (budget) budget.used -= reserved }
   return Buffer.concat(chunks).toString('utf8')
 }
-function request(host, port, path, payload, key, deviceId) {
+function request(host, port, path, payload, key, deviceId, { signal } = {}) {
   validateEndpoint(host, port)
   const wire = seal(payload, key, `request:${path}`)
   if (Buffer.byteLength(wire) > MAX_WIRE_BYTES) return Promise.reject(new Error('Gói đồng bộ vượt giới hạn.'))
   return new Promise((resolve, reject) => {
-    const req = http.request({ hostname: host, port, path, method: 'POST', agent: false, headers: {
+    const req = http.request({ hostname: host, port, path, method: 'POST', agent: false, signal, headers: {
       'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(wire), 'X-Vietlatex-Device': deviceId,
     } }, async response => {
       try {

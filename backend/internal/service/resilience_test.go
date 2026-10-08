@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestAlreadyCancelledQueueRequestDoesNotAcquireSlot(t *testing.T) {
@@ -430,5 +431,56 @@ func BenchmarkDecodeLargeAsset(b *testing.B) {
 				}
 			}
 		})
+	}
+}
+
+// A compile cut short by shutdown must not look like an empty successful PDF.
+func TestCompileInterruptedByShutdownReturns503(t *testing.T) {
+	s := New("tok")
+	started := make(chan struct{})
+	s.latex.compileFn = func(ctx context.Context, _ string, _ []fileAsset) ([]byte, error) {
+		close(started)
+		<-ctx.Done()
+		return nil, errClientCancelled
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/compile", strings.NewReader(`{"latex":"x"}`))
+	request.Header.Set("X-Vietlatex-Token", "tok")
+	recorder := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		s.Handler().ServeHTTP(recorder, request)
+		close(done)
+	}()
+	<-started
+	s.CancelActiveCompiles()
+	<-done
+	if recorder.Code != http.StatusServiceUnavailable || recorder.Body.Len() == 0 {
+		t.Fatalf("status %d body %q, want 503 with an error", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestLogTailKeepsEndOnRuneBoundary(t *testing.T) {
+	log := strings.Repeat("ơ", 20_000) + "! Undefined control sequence."
+	tail := logTail(log)
+	if len(tail) > 32_000 || !utf8.ValidString(tail) || !strings.HasSuffix(tail, "! Undefined control sequence.") {
+		t.Fatalf("bad tail: len=%d valid=%v", len(tail), utf8.ValidString(tail))
+	}
+	if logTail("short") != "short" {
+		t.Fatal("short logs must be kept whole")
+	}
+}
+
+// Documents whose cross-references or citations are read back from .aux
+// must get a second XeLaTeX pass, otherwise the PDF shows "??" or "[?]".
+func TestRerunPatternDetectsCommonReferenceCommands(t *testing.T) {
+	for _, source := range []string{`\ref{a}`, `\pageref{LastPage}`, `\eqref{e}`, `\autoref{a}`, `\cref{a}`, `\Cref{a}`, `\nameref{a}`, `\hyperref[a]{x}`, `\cite{k}`, `\citep{k}`, `\citet*{k}`, `\parencite{k}`, `\textcite{k}`, `\tableofcontents`, `\listoffigures`, `\listoftables`, `\bibliography{refs}`} {
+		if !rerunPattern.MatchString(source) {
+			t.Errorf("%s should trigger a rerun", source)
+		}
+	}
+	for _, source := range []string{`\href{https://x}{y}`, `\section{Ref}`, `\label{a}`, `\bibliographystyle{plain}`, `\referencing`} {
+		if rerunPattern.MatchString(source) {
+			t.Errorf("%s should not trigger a rerun", source)
+		}
 	}
 }

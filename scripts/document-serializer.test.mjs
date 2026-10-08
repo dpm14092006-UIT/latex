@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { builtInDocumentTemplates, normalizeDocumentDelimiters, normalizeDocumentHeadings, starter, textIn, toLatex } from '../src/services/DocumentSerializer.js'
+import { builtInDocumentTemplates, normalizeDocumentDelimiters, normalizeDocumentHeadings, reconcileEditorImagesIntoLatexSource, starter, textIn, toLatex } from '../src/services/DocumentSerializer.js'
 import { sanitizeSettings } from '../src/services/DocumentSettings.js'
+
+test('image captions are escaped and kept in generated and managed LaTeX', () => {
+  const document = { type: 'doc', content: [{ type: 'imageBlock', attrs: { src: 'data:image/png;base64,iVBORw==', caption: 'Đồ thị A_B & 50%' } }] }
+  const output = toLatex(document, 'Caption')
+  assert.match(output.latex, /\\textit\{Đồ thị A\\_B \\& 50\\%\}/u)
+  assert.equal(output.images[0].caption, 'Đồ thị A_B & 50%')
+  const source = reconcileEditorImagesIntoLatexSource('\\documentclass{article}\n\\begin{document}\n\\end{document}', output.images, output.imageAnchors).source
+  assert.match(source, /\\textit\{Đồ thị A\\_B \\& 50\\%\}/u)
+})
 
 test('abstract frame preserves order and safely escapes content across every built-in template', () => {
   for (const template of [undefined, ...builtInDocumentTemplates.map(item => item.source)]) {
@@ -470,4 +479,13 @@ test('bare DOI links use breakable URL text and avoid boxing the full URL with u
   assert.match(latex, /\\urlstyle\{rm\}/)
   assert.match(latex, /\\hypersetup\{pdfborder=\{0 0 0\}\}/)
   assert.doesNotMatch(latex, /\\underline\{[^}]*\\href/)
+})
+
+test('bare URLs with percent-encoding or fragments stay inside the href argument', () => {
+  const href = 'https://vi.wikipedia.org/wiki/L%E1%BB%8Bch_s%E1%BB%AD#Ngu%E1%BB%93n'
+  const link = marks => ({ type: 'paragraph', content: [{ type: 'text', text: href, marks: [{ type: 'link', attrs: { href } }, ...marks] }] })
+  const { latex } = toLatex({ type: 'doc', content: [link([]), link([{ type: 'underline' }])] }, 'T')
+  const escaped = String.raw`L\%E1\%BB\%8Bch\_s\%E1\%BB\%AD\#Ngu\%E1\%BB\%93n`
+  assert.ok(latex.includes(String.raw`\href{https://vi.wikipedia.org/wiki/` + escaped + String.raw`}{\nolinkurl{https://vi.wikipedia.org/wiki/` + escaped.replace(String.raw`\_`, '_') + '}}'))
+  assert.ok(latex.includes(String.raw`\underline{\nolinkurl{L\%E1\%BB\%8Bch_}}`))
 })

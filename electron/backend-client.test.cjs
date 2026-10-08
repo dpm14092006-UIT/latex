@@ -39,6 +39,19 @@ test('startGoBackend parses ready signal and reports dead backend clearly', asyn
   }
 })
 
+test('a process error after startup does not throw out of the main process', async () => {
+  const client = await startGoBackend({ executable: process.execPath, cwd: __dirname, appPath: __dirname, args: fakeBackendArgs() })
+  const originalError = console.error
+  console.error = () => {}
+  try {
+    assert.doesNotThrow(() => client.child.emit('error', Object.assign(new Error('kill failed'), { code: 'EPERM' })))
+  } finally {
+    console.error = originalError
+    client.child.kill()
+    await client.exitPromise
+  }
+})
+
 test('stop kills a backend that never answers its shutdown request', async () => {
   const client = await startGoBackend({ executable: process.execPath, cwd: __dirname, appPath: __dirname, args: fakeBackendArgs(HANGING_SHUTDOWN_BACKEND) })
   try {

@@ -5,12 +5,16 @@ import { downloadBlob } from './ArchiveService.js'
 import { MAX_DOCUMENT_IMAGES, MAX_LATEX_SOURCE_BYTES, MAX_WORD_DOCUMENT_BYTES } from './DocumentLimits.js'
 import { isValidBase64, matchesImageSignature } from './ProjectAssets.js'
 
+const PANDOC_ALIGNMENTS = { AlignLeft: 'left', AlignCenter: 'center', AlignRight: 'right' }
+
 const attr = ['', [], []]
 const wordMarks = { Strong: 'bold', Emph: 'italic', Strikeout: 'strike', Underline: 'underline', Superscript: 'superscript', Subscript: 'subscript' }
 const markWords = Object.fromEntries(Object.entries(wordMarks).map(([word, mark]) => [mark, word]))
 // The backend accepts exactly this raw block; Pandoc has no page-break node.
 export const WORD_PAGE_BREAK = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>'
 const paragraph = content => ({ type: 'paragraph', ...(content.length ? { content } : {}) })
+// Matches the footnote limit of isValidDocument.
+const MAX_FOOTNOTE_CHARS = 5000
 function plain(inlines = []) { return inlines.map(item => item.t === 'Str' ? item.c : ['Space', 'SoftBreak', 'LineBreak'].includes(item.t) ? ' ' : Array.isArray(item.c) ? plain(item.c) : '').join('') }
 export function dataUrlToBlob(url) {
   const match = /^data:([^;,]*)((?:;[^;,]*)*?)(;base64)?,(.*)$/s.exec(String(url || ''))
@@ -27,12 +31,13 @@ export async function importWordAst(ast) {
   async function inline(items, marks = []) {
     const result = []
     for (const item of items || []) {
-      const text = value => result.push({ type: 'text', text: value, ...(marks.length ? { marks } : {}) })
+      // ProseMirror rejects empty text nodes, which Pandoc can emit (`\texttt{}`, empty Str).
+      const text = value => { if (value) result.push({ type: 'text', text: value, ...(marks.length ? { marks } : {}) }) }
       if (item.t === 'Str') text(item.c)
       else if (['Space', 'SoftBreak'].includes(item.t)) text(' ')
       else if (item.t === 'LineBreak') result.push({ type: 'hardBreak' })
       else if (wordMarks[item.t]) result.push(...await inline(item.c, [...marks, { type: wordMarks[item.t] }]))
-      else if (item.t === 'Code') result.push({ type: 'text', text: item.c[1], marks: [...marks, { type: 'code' }] })
+      else if (item.t === 'Code') { if (item.c[1]) result.push({ type: 'text', text: item.c[1], marks: [...marks, { type: 'code' }] }) }
       else if (item.t === 'Math') result.push({ type: item.c[0].t === 'DisplayMath' ? 'blockMath' : 'inlineMath', attrs: { latex: item.c[1] } })
       else if (item.t === 'Link') result.push(...await inline(item.c[1], [...marks, { type: 'link', attrs: { href: item.c[2][0] } }]))
       else if (item.t === 'Image') {
@@ -41,7 +46,11 @@ export async function importWordAst(ast) {
         const blob = dataUrlToBlob(item.c[2][0])
         const src = await encoder.encode(blob)
         result.push({ type: 'imageBlock', attrs: { src, alt: plain(item.c[1]), filename: '' } })
-      } else if (item.t === 'Note') result.push({ type: 'footnote', attrs: { text: item.c.map(block => plain(block.c)).join(' ') } })
+      } else if (item.t === 'Note') {
+        const note = item.c.map(block => plain(block.c)).join(' ')
+        if (note.length > MAX_FOOTNOTE_CHARS) warnings.add(`Chú thích dài hơn ${MAX_FOOTNOTE_CHARS} ký tự đã được rút gọn.`)
+        result.push({ type: 'footnote', attrs: { text: note.slice(0, MAX_FOOTNOTE_CHARS) } })
+      }
       else if (item.t === 'Span') result.push(...await inline(item.c[1], item.c[0][1]?.includes('mark') ? [...marks, { type: 'highlight', attrs: { color: null } }] : marks))
       else if (item.t === 'Quoted') { text('“'); result.push(...await inline(item.c[1], marks)); text('”') }
       else if (item.t === 'Cite') {
@@ -72,13 +81,30 @@ export async function importWordAst(ast) {
       else if (item.t === 'Div') result.push(...await blocks(item.c[1]))
       else if (item.t === 'Table') {
         const rows = [...item.c[3][1].map(row => [row, true]), ...item.c[4].flatMap(body => [...body[2], ...body[3]].map(row => [row, false])), ...item.c[5][1].map(row => [row, false])]
-        const content = await Promise.all(rows.map(async ([row, header]) => ({ type: 'tableRow', content: await Promise.all(row[1].map(async cell => ({ type: header ? 'tableHeader' : 'tableCell', attrs: { rowspan: cell[2], colspan: cell[3] }, content: await blocks(cell[4]) }))) })))
+        // Cell alignment wins; a row without merged cells falls back to the column alignment.
+        const columnAligns = (item.c[2] || []).map(spec => PANDOC_ALIGNMENTS[spec?.[0]?.t] || null)
+        const cellAlign = (row, cell, index) => PANDOC_ALIGNMENTS[cell[1]?.t] || (row[1].length === columnAligns.length ? columnAligns[index] : null)
+        const content = await Promise.all(rows.map(async ([row, header]) => ({ type: 'tableRow', content: await Promise.all(row[1].map(async (cell, index) => {
+          const align = cellAlign(row, cell, index)
+          return { type: header ? 'tableHeader' : 'tableCell', attrs: { rowspan: cell[2], colspan: cell[3], ...(align ? { align } : {}) }, content: await blocks(cell[4]) }
+        })) })))
         const caption = item.c[1][1].map(block => plain(block.c)).join(' ').trim()
         const requestedLabel = item.c[0][0] || ''
         const label = /^[A-Za-z0-9:._-]{1,100}$/.test(requestedLabel) ? requestedLabel : ''
         if (caption.length > 500) warnings.add('Chú thích bảng dài hơn 500 ký tự đã được rút gọn.')
         result.push({ type: 'table', attrs: { caption: caption.slice(0, 500), label }, content })
-      } else if (item.t === 'Figure') { warnings.add('Chú thích hình được chuyển thành đoạn văn.'); result.push(...await blocks(item.c[2])) }
+      } else if (item.t === 'Figure') {
+        const caption = Array.isArray(item.c[1]?.[1]) ? item.c[1][1] : []
+        const contents = await blocks(item.c[2])
+        if (contents.length === 1 && contents[0].type === 'imageBlock') {
+          const text = caption.map(block => plain(block.c)).join(' ').trim()
+          if (text.length > 500) warnings.add('Chú thích hình dài hơn 500 ký tự đã được rút gọn.')
+          contents[0].attrs.caption = text.slice(0, 500)
+          result.push(...contents)
+        } else {
+          result.push(...contents, ...(caption.length ? await blocks(caption) : []))
+        }
+      }
       else warnings.add(`Thành phần Word chưa chuyển được: ${item.t}`)
     }
     return result.length ? result : [paragraph([])]
@@ -125,6 +151,9 @@ export function toWordAst(doc, title, settings = {}, templateSource = '') {
     if (node.type === 'codeBlock') return { t: 'CodeBlock', c: [attr, children.map(child => child.text || '').join('')] }
     if (node.type === 'horizontalRule') return { t: 'HorizontalRule' }
     if (node.type === 'pageBreak') return { t: 'RawBlock', c: ['openxml', WORD_PAGE_BREAK] }
+    if (node.type === 'imageBlock' && String(node.attrs?.caption || '').trim()) {
+      return { t: 'Figure', c: [attr, [null, [{ t: 'Plain', c: inline({ type: 'text', text: node.attrs.caption.trim() }) }]], [{ t: 'Plain', c: inline(node) }]] }
+    }
     if (node.type === 'table') {
       const span = (cell, key) => {
         const value = cell.attrs?.[key] ?? 1
@@ -143,14 +172,29 @@ export function toWordAst(doc, title, settings = {}, templateSource = '') {
         }
         cols = Math.max(cols, rowColumns)
       }
-      const rows = children.map(row => [attr, (row.content || []).map(cell => [attr, { t: 'AlignDefault' }, span(cell, 'rowspan'), span(cell, 'colspan'), (cell.content || []).map(block)])])
+      const pandocAlign = cell => ({ t: { left: 'AlignLeft', center: 'AlignCenter', right: 'AlignRight' }[cell.attrs?.align] || 'AlignDefault' })
+      // Column alignment follows the alignment most single cells of the column use.
+      const columnVotes = Array.from({ length: cols }, () => new Map())
+      const occupied = []
+      children.forEach((row, rowIndex) => {
+        let column = 0
+        for (const cell of row.content || []) {
+          while ((occupied[column] || 0) > rowIndex) column++
+          const colspan = span(cell, 'colspan')
+          if (colspan === 1 && column < cols) columnVotes[column].set(pandocAlign(cell).t, (columnVotes[column].get(pandocAlign(cell).t) || 0) + 1)
+          for (let offset = 0; offset < colspan; offset++) occupied[column + offset] = rowIndex + span(cell, 'rowspan')
+          column += colspan
+        }
+      })
+      const columnSpecs = columnVotes.map(votes => [{ t: [...votes].sort((a, b) => b[1] - a[1])[0]?.[0] || 'AlignDefault' }, { t: 'ColWidthDefault' }])
+      const rows = children.map(row => [attr, (row.content || []).map(cell => [attr, pandocAlign(cell), span(cell, 'rowspan'), span(cell, 'colspan'), (cell.content || []).map(block)])])
       let headCount = 0
       for (const row of children) {
         if (!(row.content || []).some(cell => cell.type === 'tableHeader')) break
         headCount++
       }
       const caption = String(node.attrs?.caption || '').trim()
-      return { t: 'Table', c: [[node.attrs?.label || '', [], []], [null, caption ? [{ t: 'Plain', c: inline({ type: 'text', text: caption }) }] : []], Array.from({ length: cols }, () => [{ t: 'AlignDefault' }, { t: 'ColWidthDefault' }]), [attr, rows.slice(0, headCount)], [[attr, 0, [], rows.slice(headCount)]], [attr, []]] }
+      return { t: 'Table', c: [[node.attrs?.label || '', [], []], [null, caption ? [{ t: 'Plain', c: inline({ type: 'text', text: caption }) }] : []], columnSpecs, [attr, rows.slice(0, headCount)], [[attr, 0, [], rows.slice(headCount)]], [attr, []]] }
     }
     return { t: 'Para', c: node.type === 'paragraph' ? children.flatMap(inline) : inline(node) }
   }
@@ -226,6 +270,8 @@ export async function readLatexSource(source, editorImages = [], assets = []) {
     const path = sourceImageKey(filename)
     knownImages.set(path, image)
     knownImages.set(path.split('/').pop(), image)
+    // \includegraphics{figures/plot} usually omits the extension; the first matching file wins, as in TeX.
+    for (const key of [path, path.split('/').pop()].map(value => value.replace(/\.(?:png|jpe?g)$/u, ''))) if (!knownImages.has(key)) knownImages.set(key, image)
   }
   hydrateLatexImages(ast, knownImages)
   const result = await importWordAst(ast)

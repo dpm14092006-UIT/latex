@@ -23,6 +23,10 @@ func main() {
 	if len(token) < 32 {
 		log.Fatal("VIETLATEX_API_TOKEN must contain at least 32 characters")
 	}
+	// Child processes (XeLaTeX, BibTeX, Pandoc, docker) inherit the
+	// environment and must not learn the API token.
+	_ = os.Unsetenv("VIETLATEX_API_TOKEN")
+	parentGone := parentExited(os.Getenv("VIETLATEX_PARENT_PID"))
 
 	listener, err := net.Listen("tcp", *listenAddress)
 	if err != nil {
@@ -59,7 +63,12 @@ func main() {
 		log.Printf("received %s; stopping backend", signalValue)
 	case <-api.ShutdownRequested():
 		log.Print("received local shutdown request")
+	case <-parentGone:
+		log.Print("parent process exited; stopping backend")
 	case serveErr := <-serveResult:
+		// Still stop compiles, warm XeLaTeX processes and their temp
+		// directories; os.Exit below skips any deferred cleanup.
+		api.CancelActiveCompiles()
 		if serveErr != nil && serveErr != http.ErrServerClosed {
 			log.Printf("HTTP server stopped: %v", serveErr)
 			os.Exit(1)

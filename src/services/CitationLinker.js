@@ -29,6 +29,8 @@ function narrativeAuthor(prefix, years, authorIndex) {
   const starts = [...tail.matchAll(/(?<![\p{L}\p{M}])(?:\p{Lu}|(?:de|da|dos|van|von|der|den|di|del)\b)/gu)]
   for (const match of starts) {
     const author = tail.slice(match.index)
+    // Brackets belong to another citation ("[@Smith] and Jones (2020)"); a row must not swallow them.
+    if (/[()[\]]/u.test(author)) continue
     if (years.some(year => authorIndex.has(`${normalizeName(author)}|${year.toLowerCase()}`))) return { author, start: before.length - tail.length + match.index }
   }
   // Unknown authors still need a source picker. Only recognize a bounded surname/author-pair suffix.

@@ -1,10 +1,45 @@
 const assert = require('node:assert/strict')
-const { mkdtemp, rm, writeFile, utimes, access } = require('node:fs/promises')
+const { mkdtemp, rm, writeFile, utimes, access, readFile, readdir } = require('node:fs/promises')
 const { tmpdir } = require('node:os')
 const { join } = require('node:path')
 const { randomUUID } = require('node:crypto')
 const test = require('node:test')
-const { createWorkspaceStore } = require('./workspace-store.cjs')
+const { createWorkspaceStore, renameWithRetry } = require('./workspace-store.cjs')
+
+test('shutdown can wait for saves queued before and during the wait', async t => {
+  const userData = await mkdtemp(join(tmpdir(), 'vietlatex-workspace-idle-'))
+  t.after(() => rm(userData, { recursive: true, force: true }))
+  const store = createWorkspaceStore({ getPath: () => userData })
+  const first = store.save({ version: 1, projects: [{ id: 'first' }] })
+  const idle = store.whenIdle()
+  // A save IPC that lands after shutdown began waiting must still reach disk.
+  const second = store.save({ version: 1, projects: [{ id: 'second' }] })
+  await idle
+  assert.deepEqual(JSON.parse(await readFile(join(userData, 'workspace-v1.json'), 'utf8')).projects, [{ id: 'second' }])
+  await Promise.all([first, second])
+  assert.deepEqual((await readdir(userData)).filter(name => name.endsWith('.tmp')), [])
+})
+
+test('atomic rename retries transient Windows locks but not other failures', async () => {
+  let calls = 0
+  const flaky = async () => { if (++calls < 3) throw Object.assign(new Error('locked'), { code: 'EPERM' }) }
+  await renameWithRetry('a', 'b', { renameFile: flaky, platform: 'win32' })
+  assert.equal(calls, 3)
+
+  calls = 0
+  await assert.rejects(renameWithRetry('a', 'b', { renameFile: flaky, platform: 'linux' }), { code: 'EPERM' })
+  assert.equal(calls, 1)
+
+  calls = 0
+  const missing = async () => { calls++; throw Object.assign(new Error('gone'), { code: 'ENOENT' }) }
+  await assert.rejects(renameWithRetry('a', 'b', { renameFile: missing, platform: 'win32' }), { code: 'ENOENT' })
+  assert.equal(calls, 1)
+
+  calls = 0
+  const stuck = async () => { calls++; throw Object.assign(new Error('locked'), { code: 'EBUSY' }) }
+  await assert.rejects(renameWithRetry('a', 'b', { renameFile: stuck, platform: 'win32', attempts: 4 }), { code: 'EBUSY' })
+  assert.equal(calls, 4)
+})
 
 test('invalid saves preserve the last readable workspace and allow subsequent writes', async t => {
   const userData = await mkdtemp(join(tmpdir(), 'vietlatex-workspace-invalid-'))

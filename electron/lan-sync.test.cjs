@@ -1,11 +1,13 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { mkdtemp, rm, readFile } = require('node:fs/promises')
+const { mkdtemp, rm, readFile, writeFile, utimes, access } = require('node:fs/promises')
+const http = require('node:http')
+const net = require('node:net')
 const { join } = require('node:path')
 const { tmpdir } = require('node:os')
 const { randomUUID } = require('node:crypto')
 const { createLanSync } = require('./lan-sync.cjs')
-const { seal, unseal, secret, request, validateEndpoint } = require('./lan-sync-transport.cjs')
+const { seal, unseal, secret, request, validateEndpoint, readBody } = require('./lan-sync-transport.cjs')
 
 const doc = text => ({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] })
 const workspace = (prefix, text) => ({ version: 1, projects: [{ id: `project-${prefix}`, name: prefix, activeTaskId: `task-${prefix}`, tasks: [{ id: `task-${prefix}`, title: prefix, document: doc(text), sourceDraft: '', sourceEdited: false, sourceTrusted: true, assets: [], settings: {} }] }], activeProjectId: `project-${prefix}`, customTemplates: [], documentTemplates: [] })
@@ -176,4 +178,86 @@ test('idle polls send no documents and do not rewrite the persistent sync profil
   await sync(host, a)
   assert.equal(await readFile(hostFile, 'utf8'), beforeHost)
   assert.equal(await readFile(clientFile, 'utf8'), beforeClient)
+})
+
+test('stop aborts a request to an unreachable host instead of waiting for its timeout', async t => {
+  const { host, client, b } = await setup(t)
+  const port = host.status().port
+  await host.stop()
+  // Accepts connections but never answers, like a host that went to sleep mid-request.
+  const sockets = new Set()
+  const blackHole = net.createServer(socket => { sockets.add(socket); socket.on('error', () => {}) })
+  await new Promise(resolve => blackHole.listen(port, '127.0.0.1', resolve))
+  t.after(() => { for (const socket of sockets) socket.destroy(); return new Promise(resolve => blackHole.close(resolve)) })
+  const pending = client.exchange(b)
+  pending.catch(() => {})
+  await new Promise(resolve => setTimeout(resolve, 200))
+  const startedAt = Date.now()
+  await client.stop()
+  assert.ok(Date.now() - startedAt < 3000, 'stop must not wait for the 30 s request timeout')
+  await assert.rejects(pending)
+})
+
+test('replay protection covers requests stamped ahead of the host clock', async t => {
+  const { directory } = await setup(t)
+  const persisted = JSON.parse(await readFile(join(directory, 'client', 'lan-sync-v1.json'), 'utf8'))
+  const send = payload => request(persisted.connection.host, persisted.connection.port, '/exchange', payload, persisted.connection.key, persisted.deviceId)
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() })
+  const ahead = { requestId: randomUUID(), at: Date.now() + 4.5 * 60000, ops: [], sinceRev: persisted.revision }
+  await send(ahead)
+  t.mock.timers.tick(6 * 60000)
+  // Any later request prunes the replay cache.
+  await send({ requestId: randomUUID(), at: Date.now(), ops: [], sinceRev: persisted.revision })
+  await assert.rejects(send(ahead), /hết hạn|ngắt quyền/)
+})
+
+test('pairing rejects oversized bodies before reading them and readBody enforces a shared budget', async t => {
+  const { host } = await setup(t)
+  await host.invitation('127.0.0.1')
+  const responseStatus = (headers, send) => new Promise((resolve, reject) => {
+    const req = http.request({ hostname: '127.0.0.1', port: host.status().port, path: '/pair', method: 'POST', agent: false, headers: { ...headers, 'X-Vietlatex-Device': randomUUID() } }, response => { response.resume(); resolve(response.statusCode) })
+    req.on('error', reject)
+    send(req)
+  })
+  assert.equal(await responseStatus({ 'Content-Length': 1024 * 1024 }, req => req.end(Buffer.alloc(1024 * 1024))), 413)
+  // A chunked request cannot be rejected from its headers; overflowing while
+  // reading must keep the socket alive long enough to deliver the 413 response.
+  assert.equal(await responseStatus({}, req => { req.write(Buffer.alloc(64 * 1024)); req.end(Buffer.alloc(1)) }), 413)
+
+  const budget = { used: 0, max: 10 }
+  const chunks = async function* (sizes) { for (const size of sizes) yield Buffer.alloc(size, 97) }
+  await assert.rejects(readBody(chunks([6, 6]), 100, budget), { status: 503 })
+  assert.equal(budget.used, 0, 'a failed read releases its reservation')
+  await assert.rejects(readBody(chunks([6, 6]), 8), { status: 413 })
+  assert.equal(await readBody(chunks([4, 4]), 100, budget), 'aaaaaaaa')
+  assert.equal(budget.used, 0)
+})
+
+test('a host whose saved port is taken reports disconnected and can be re-enabled on a new port', async t => {
+  const { host, a, create } = await setup(t)
+  const port = host.status().port
+  await host.stop()
+  const blocker = net.createServer()
+  await new Promise(resolve => blocker.listen(port, '0.0.0.0', resolve))
+  t.after(() => new Promise(resolve => blocker.close(resolve)))
+  const restarted = await create('host')
+  assert.equal(restarted.status().connected, false)
+  await assert.rejects(restarted.invitation('127.0.0.1'), /Bật máy chủ/)
+  await restarted.configure('host', a)
+  assert.equal(restarted.status().connected, true)
+  assert.notEqual(restarted.status().port, port)
+})
+
+test('startup removes only stale sync-profile temp files', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'vietlatex-lan-temp-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const stale = join(directory, `lan-sync-v1.json.${randomUUID()}.tmp`), recent = join(directory, `lan-sync-v1.json.${randomUUID()}.tmp`)
+  await Promise.all([writeFile(stale, 'partial'), writeFile(recent, 'in progress')])
+  const old = new Date(Date.now() - 48 * 60 * 60 * 1000)
+  await utimes(stale, old, old)
+  const service = createLanSync({ directory, name: 'temp' })
+  t.after(() => service.stop())
+  await service.init()
+  await assert.rejects(access(stale), { code: 'ENOENT' })
+  await access(recent)
 })

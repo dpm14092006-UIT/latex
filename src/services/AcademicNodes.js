@@ -1,8 +1,9 @@
 import { Node, Extension } from '@tiptap/core'
-import { Table } from '@tiptap/extension-table'
+import { Table, TableView } from '@tiptap/extension-table'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import { citationKeys, citationLabel, citationNumbers, describeEntry } from './Bibliography.js'
+import { isValidTableStyleAttribute, normalizeTableStyle, TABLE_STYLE_DEFAULTS } from './TableStyles.js'
 export const AcademicAttributes = Extension.create({
   name: 'academicAttributes',
   addGlobalAttributes() { return [{ types: ['heading', 'blockMath'], attributes: { label: { default: '', parseHTML: element => element.getAttribute('data-label') || '', renderHTML: attrs => attrs.label ? { 'data-label': attrs.label } : {} } } }] },
@@ -19,10 +20,53 @@ function referenceNode(name, attribute, prefix) {
 export const CrossReference = referenceNode('crossReference', 'target', '[↗ ')
 export const Footnote = referenceNode('footnote', 'text', '[Chú thích: ')
 
+// Table style attributes default to null so documents saved before the table
+// library keep their JSON; the serializer and the view fall back to defaults.
+const tableStyleAttributes = Object.fromEntries(Object.keys(TABLE_STYLE_DEFAULTS).map(name => {
+  const attribute = `data-${name.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)}`
+  return [name, {
+    default: null,
+    parseHTML: element => {
+      const raw = element.getAttribute(attribute)
+      const value = name === 'headerBold' ? (raw === 'true' ? true : raw === 'false' ? false : null) : raw
+      return value !== null && isValidTableStyleAttribute(name, value) ? value : null
+    },
+    renderHTML: attributes => attributes[name] === null || attributes[name] === undefined ? {} : { [attribute]: String(attributes[name]) },
+  }]
+}))
+
+function applyTableStyle(table, node) {
+  const style = normalizeTableStyle(node.attrs)
+  table.dataset.tableStyle = style.tableStyle
+  table.dataset.tableFont = style.fontSize
+  table.dataset.tableSpacing = style.rowSpacing
+  table.dataset.tableWidth = style.tableWidth
+  table.dataset.headerBold = String(style.headerBold)
+}
+
+// The resizable table view builds its own <table> and never re-applies
+// attributes, so the style is mirrored on every update for the draft preview.
+export class StyledTableView extends TableView {
+  constructor(node, cellMinWidth, view, HTMLAttributes) {
+    super(node, cellMinWidth, view, HTMLAttributes)
+    applyTableStyle(this.table, node)
+  }
+
+  update(node) {
+    if (!super.update(node)) return false
+    applyTableStyle(this.table, node)
+    return true
+  }
+}
+
 export const AcademicTable = Table.extend({
+  addOptions() {
+    return { ...this.parent?.(), View: StyledTableView }
+  },
   addAttributes() {
     return {
       ...this.parent?.(),
+      ...tableStyleAttributes,
       caption: {
         default: '',
         parseHTML: element => element.getAttribute('data-caption') || '',
@@ -42,15 +86,32 @@ export const AcademicTable = Table.extend({
 export const citationPluginKey = new PluginKey('citationNumbers')
 export const CITATION_REFRESH = 'citationRefresh'
 
-function citationDecorations(doc, storage) {
-  const occurrences = []
+function citationPositions(doc) {
   const positions = []
   doc.descendants((node, pos) => {
-    if (node.type.name !== 'citation') return
-    const keys = citationKeys(node.attrs.key)
-    occurrences.push(keys)
-    positions.push({ pos, size: node.nodeSize, keys, mode: node.attrs.mode })
+    if (node.type.name === 'citation') positions.push({ pos, size: node.nodeSize, key: node.attrs.key, mode: node.attrs.mode })
   })
+  return positions
+}
+
+const citationSignature = positions => positions.map(({ key, mode }) => `${key}|${mode}`).join('\n')
+
+// Labels depend only on the ordered citation keys, so ordinary typing maps the previous decorations instead of
+// re-deriving every label (the full rebuild costs tens of milliseconds per keystroke with hundreds of citations).
+function citationState(doc, storage, previous = null, mapping = null) {
+  const positions = citationPositions(doc)
+  const signature = citationSignature(positions)
+  if (previous && mapping && previous.signature === signature) {
+    const decorations = previous.decorations.map(mapping, doc)
+    const mapped = decorations.find().map(decoration => decoration.from).sort((a, b) => a - b)
+    if (mapped.length === positions.length && mapped.every((from, index) => from === positions[index].pos)) return { decorations, signature }
+  }
+  return { decorations: citationDecorations(doc, storage, positions), signature }
+}
+
+function citationDecorations(doc, storage, citations) {
+  const positions = citations.map(item => ({ ...item, keys: citationKeys(item.key) }))
+  const occurrences = positions.map(item => item.keys)
   const entries = storage.entries || []
   const byKey = new Map(entries.map(entry => [entry.key, entry]))
   const numbers = citationNumbers(occurrences, entries, storage.style)
@@ -85,11 +146,12 @@ export const Citation = Node.create({
     return [new Plugin({
       key: citationPluginKey,
       state: {
-        init: (_, state) => citationDecorations(state.doc, storage),
-        apply: (tr, value) => tr.docChanged || tr.getMeta(CITATION_REFRESH) ? citationDecorations(tr.doc, storage) : value,
+        init: (_, state) => citationState(state.doc, storage),
+        apply: (tr, value) => tr.getMeta(CITATION_REFRESH) ? citationState(tr.doc, storage)
+          : tr.docChanged ? citationState(tr.doc, storage, value, tr.mapping) : value,
       },
       props: {
-        decorations: state => citationPluginKey.getState(state),
+        decorations: state => citationPluginKey.getState(state).decorations,
         handleClickOn: (view, pos, node) => {
           if (node.type.name !== 'citation' || !storage.onOpen) return false
           storage.onOpen({ pos, keys: citationKeys(node.attrs.key), mode: node.attrs.mode, node })

@@ -1,12 +1,17 @@
 const http = require('node:http')
 const { hostname, networkInterfaces } = require('node:os')
 const { randomUUID, createHash } = require('node:crypto')
-const { mkdir, readFile, open, rename, rm, stat } = require('node:fs/promises')
+const { mkdir, readFile, readdir, open, lstat, rm, stat } = require('node:fs/promises')
 const { join } = require('node:path')
 const { pathToFileURL } = require('node:url')
 const transport = require('./lan-sync-transport.cjs')
+const { renameWithRetry, syncDirectory } = require('./workspace-store.cjs')
 const MAX_STATE = 512 * 1024 * 1024
 const MAX_RECORDS = 10000
+const MAX_PAIR_BYTES = 64 * 1024
+const REQUEST_WINDOW_MS = 5 * 60000
+const STALE_TEMP_MS = 24 * 60 * 60 * 1000
+const TEMP_PATTERN = /^lan-sync-v1\.json\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/
 const hash = value => createHash('sha256').update(JSON.stringify(value ?? null)).digest('hex')
 const clone = value => structuredClone(value)
 const label = value => value?.title || value?.name || 'Mục đã xóa'
@@ -15,6 +20,10 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
   let state, server, invite, pending, stopped = false, lastError = '', lastSyncAt = null
   let queue = Promise.resolve()
   const replay = new Map(), attempts = new Map()
+  // Bounds memory held by request bodies that are still being read.
+  const bodyBudget = { used: 0, max: 2 * transport.MAX_WIRE_BYTES }
+  // Aborted by stop() so quitting never waits for an unreachable host's timeout.
+  const lifetime = new AbortController()
   const file = join(directory, 'lan-sync-v1.json')
   const modules = Promise.all(['LanSyncData', 'WorkspaceData', 'DocumentData'].map(module => import(pathToFileURL(join(appPath, 'src', 'services', `${module}.js`)).href)))
   const serial = work => { const result = queue.then(work); queue = result.catch(() => {}); return result }
@@ -28,7 +37,8 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
     try {
       handle = await open(temp, 'wx', 0o600)
       await handle.writeFile(data, 'utf8'); await handle.sync(); await handle.close(); handle = null
-      await rename(temp, file)
+      await renameWithRetry(temp, file)
+      await syncDirectory(directory)
     } finally { await handle?.close().catch(() => {}); await rm(temp, { force: true }).catch(() => {}) }
   }
   async function transaction(work) {
@@ -157,16 +167,21 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
     const deviceId = req.headers['x-vietlatex-device']
     const key = req.url === '/pair' ? invite?.expiresAt > Date.now() && invite.key : state.peers[deviceId]?.key
     if (!key) return end(401)
+    // Pairing bodies are tiny and readable by anyone holding a live invitation.
+    const limit = req.url === '/pair' ? MAX_PAIR_BYTES : transport.MAX_WIRE_BYTES
+    if (Number(req.headers['content-length']) > limit) { req.resume(); return end(413) }
     let body
     try {
-      body = transport.unseal(await transport.readBody(req), key, `request:${req.url}`)
-      if (!body || typeof body.requestId !== 'string' || body.requestId.length > 100 || typeof deviceId !== 'string' || !/^[a-f0-9-]{36}$/.test(deviceId) || !Number.isFinite(body.at) || Math.abs(Date.now() - body.at) > 5 * 60000) return end(401)
+      body = transport.unseal(await transport.readBody(req, limit, bodyBudget), key, `request:${req.url}`)
+      if (!body || typeof body.requestId !== 'string' || body.requestId.length > 100 || typeof deviceId !== 'string' || !/^[a-f0-9-]{36}$/.test(deviceId) || !Number.isFinite(body.at) || Math.abs(Date.now() - body.at) > REQUEST_WINDOW_MS) return end(401)
       const replayKey = `${deviceId}:${body.requestId}`
       if (replay.has(replayKey)) return end(401)
       replay.set(replayKey, Date.now())
-      for (const [id, at] of replay) if (Date.now() - at > 5 * 60000) replay.delete(id)
+      // A request stamped up to one window ahead stays acceptable for two
+      // windows after it arrives, so remember it at least that long.
+      for (const [id, at] of replay) if (Date.now() - at > 2 * REQUEST_WINDOW_MS) replay.delete(id)
       if (replay.size > 4096) replay.delete(replay.keys().next().value)
-    } catch { return end(401) }
+    } catch (error) { return end(error?.status || 401) }
     try {
       const operation = async () => {
         if (req.url === '/pair') {
@@ -188,11 +203,19 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
       end(200, transport.seal({ ...result, requestId: body.requestId }, key, `response:${req.url}`))
     } catch (error) { end(200, transport.seal({ error: error.message, requestId: body.requestId }, key, `response:${req.url}`)) }
   }
-  async function startServer() {
-    server = http.createServer((req, res) => { void serve(req, res).catch(() => { if (!res.headersSent) res.writeHead(500); res.end() }) })
-    server.requestTimeout = 30000; server.headersTimeout = 10000; server.maxConnections = 16
-    server.on('error', error => { lastError = `Không mở được cổng đồng bộ: ${error.message}` })
-    await new Promise((resolve, reject) => { server.once('error', reject); server.listen(state.port || 0, '0.0.0.0', () => { server.off('error', reject); resolve() }) })
+  async function startServer({ allowNewPort = false } = {}) {
+    const candidate = http.createServer((req, res) => { void serve(req, res).catch(() => { if (!res.headersSent) res.writeHead(500); res.end() }) })
+    candidate.requestTimeout = 30000; candidate.headersTimeout = 10000; candidate.maxConnections = 16
+    const listen = port => new Promise((resolve, reject) => { candidate.once('error', reject); candidate.listen(port, '0.0.0.0', () => { candidate.off('error', reject); resolve() }) })
+    try { await listen(state.port || 0) } catch (error) {
+      // Paired machines expect the saved port, but if another program now holds
+      // it an explicit "host" request must still be able to open a new one.
+      if (!allowNewPort || !state.port || error.code !== 'EADDRINUSE') throw error
+      await listen(0)
+    }
+    candidate.on('error', error => { lastError = `Không mở được cổng đồng bộ: ${error.message}` })
+    // Only a listening server counts as running (status, invitations, stop).
+    server = candidate
     state.port = server.address().port
   }
   async function closeServer() {
@@ -202,7 +225,20 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
     old.closeAllConnections()
     await new Promise(resolve => old.close(resolve))
   }
+  async function cleanupStaleTemps() {
+    let names
+    try { names = await readdir(directory) } catch { return }
+    await Promise.all(names.filter(name => TEMP_PATTERN.test(name)).map(async name => {
+      try {
+        const info = await lstat(join(directory, name))
+        if (info.isFile() && info.mtimeMs < Date.now() - STALE_TEMP_MS) await rm(join(directory, name), { force: true })
+      } catch {
+        // A crash leftover (up to 512 MB) is disposable; never block startup on it.
+      }
+    }))
+  }
   async function init() {
+    await cleanupStaleTemps()
     try {
       if ((await stat(file)).size > MAX_STATE) throw new Error('Hồ sơ đồng bộ vượt giới hạn.')
       state = JSON.parse(await readFile(file, 'utf8'))
@@ -229,14 +265,14 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
           const invitation = JSON.parse(Buffer.from(pairingCode.trim().slice(14), 'base64url').toString('utf8'))
           transport.validateEndpoint(invitation.host, invitation.port)
           if (invitation.v !== 1 || !Number.isFinite(invitation.expiresAt) || invitation.expiresAt <= Date.now()) throw new Error('Mã ghép đã hết hạn. Tạo mã mới trên máy chủ.')
-          const result = await transport.request(invitation.host, invitation.port, '/pair', { requestId: randomUUID(), at: Date.now(), name: state.name }, invitation.key, state.deviceId)
+          const result = await transport.request(invitation.host, invitation.port, '/pair', { requestId: randomUUID(), at: Date.now(), name: state.name }, invitation.key, state.deviceId, { signal: lifetime.signal })
           state.connection = { host: invitation.host, port: invitation.port, key: result.key, name: result.hostName }
         } else state.connection = null
         if (mode !== state.mode || mode === 'client') {
           state.records = {}; state.baseline = {}; state.bases = {}; state.conflicts = []; state.revision = 0; state.peers = {}; state.resolved = []; state.ackRevision = -1
         }
         state.mode = mode; pending = null; lastError = ''; lastSyncAt = null
-        if (mode === 'host') { await reconcile(await operations(snapshot), state.deviceId, state.name); await startServer() }
+        if (mode === 'host') { await reconcile(await operations(snapshot), state.deviceId, state.name); await startServer({ allowNewPort: true }) }
         await persist()
       } catch (error) {
         await closeServer(); state = previous
@@ -257,7 +293,7 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
           if (ops.length) await transaction(() => reconcile(ops, state.deviceId, state.name))
         } else {
           const remote = state.connection
-          const result = await transport.request(remote.host, remote.port, '/exchange', { requestId: randomUUID(), at: Date.now(), ops, sinceRev: state.revision }, remote.key, state.deviceId)
+          const result = await transport.request(remote.host, remote.port, '/exchange', { requestId: randomUUID(), at: Date.now(), ops, sinceRev: state.revision }, remote.key, state.deviceId, { signal: lifetime.signal })
           const records = result.partial ? { ...state.records, ...result.records } : result.records
           if (!Number.isSafeInteger(result.revision) || result.revision < 0) throw new Error('Phiên bản máy chủ không hợp lệ.')
           await validateRecords(records)
@@ -290,7 +326,7 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
       if (state.mode === 'host') await resolveConflict(id, choice, currentRev)
       else if (state.mode === 'client') {
         const remote = state.connection
-        const result = await transport.request(remote.host, remote.port, '/resolve', { requestId: randomUUID(), at: Date.now(), id, choice, currentRev }, remote.key, state.deviceId)
+        const result = await transport.request(remote.host, remote.port, '/resolve', { requestId: randomUUID(), at: Date.now(), id, choice, currentRev }, remote.key, state.deviceId, { signal: lifetime.signal })
         await validateRecords(result.records)
         state.records = result.records; state.conflicts = result.conflicts; state.revision = result.revision
       } else throw new Error('Bật đồng bộ để xử lý xung đột.')
@@ -306,7 +342,12 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
     })
   }
   async function revoke(id) { return serial(() => transaction(async () => { delete state.peers[id]; return publicStatus() })) }
-  async function stop() { stopped = true; await closeServer(); await queue }
+  async function stop() {
+    stopped = true; lifetime.abort()
+    await closeServer(); await queue
+    // Queued work (e.g. configure) may have reopened the server meanwhile.
+    await closeServer()
+  }
   return { init, status: publicStatus, configure, exchange, acknowledge, resolve, invitation, revoke, stop }
 }
 module.exports = { createLanSync }

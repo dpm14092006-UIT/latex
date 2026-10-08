@@ -121,6 +121,38 @@ export function bareInlineFormula(input) {
   return source
 }
 
+// Markdown escapes `x\_i` / `x\^2` become scripts, but inside text-mode arguments (`\text{max\_depth}`)
+// `\_` is the literal underscore and a bare `_` would not compile.
+const TEXT_MODE_COMMANDS = new Set(['text', 'textrm', 'textit', 'textbf', 'texttt', 'textsf', 'textup', 'textnormal', 'mbox'])
+function unescapeMathScripts(value) {
+  let output = ''
+  let depth = 0
+  let textDepth = 0
+  for (let index = 0; index < value.length; index++) {
+    const char = value[index]
+    if (char === '\\') {
+      const command = /^\\([A-Za-z]+)\s*\{/.exec(value.slice(index, index + 40))
+      if (command && !textDepth && TEXT_MODE_COMMANDS.has(command[1])) {
+        output += command[0]
+        textDepth = ++depth
+        index += command[0].length - 1
+        continue
+      }
+      const next = value[index + 1] ?? ''
+      output += !textDepth && (next === '_' || next === '^') ? next : char + next
+      index++
+      continue
+    }
+    if (char === '{') depth++
+    else if (char === '}') {
+      if (depth === textDepth) textDepth = 0
+      depth = Math.max(0, depth - 1)
+    }
+    output += char
+  }
+  return output
+}
+
 export function normalizeFormulaInput(input = '') {
   let value = String(input).normalize('NFC').trim()
     .replace(/^```(?:latex|tex)?\s*/i, '').replace(/\s*```$/, '')
@@ -143,14 +175,15 @@ export function normalizeFormulaInput(input = '') {
     if (value.endsWith(close)) value = value.slice(environment[0].length, -close.length).trim()
   }
   const aligned = /\\begin\{(?:aligned|align\*?|array|cases|matrix|pmatrix|bmatrix)\}/.test(value)
-  value = value.replace(/\\_/g, '_').replace(/\\\^/g, '^')
+  value = unescapeMathScripts(value)
     .replace(/∪/g, '\\cup ').replace(/∩/g, '\\cap ').replace(/≤/g, '\\leq ').replace(/≥/g, '\\geq ')
     .replace(/≠/g, '\\neq ').replace(/×/g, '\\times ').replace(/÷/g, '\\div ').replace(/±/g, '\\pm ')
     .replace(/→/g, '\\rightarrow ').replace(/←/g, '\\leftarrow ').replace(/⇒/g, '\\Rightarrow ').replace(/∞/g, '\\infty ')
     .replace(/(?<!\\)\\[\t ]*\r?\n\s*/g, ' ')
     .replace(/\\\\[\t ]*\r?\n\s*/g, aligned ? '\\\\\n' : '\\\\ ')
   if (!aligned) value = value.replace(/\s*\r?\n\s*/g, ' ')
-  value = value.replace(/\b([A-Za-z][A-Za-z0-9.-]*)\\\s+([A-Za-z][A-Za-z0-9.-]*(?:\\\s+[A-Za-z][A-Za-z0-9.-]*)*)/g,
+  // `max\ depth` is a spaced word run; `\quad\ x` / `\cdot\ n` are commands and stay untouched.
+  value = value.replace(/(?<!\\)\b([A-Za-z][A-Za-z0-9.-]*)\\\s+([A-Za-z][A-Za-z0-9.-]*(?:\\\s+[A-Za-z][A-Za-z0-9.-]*)*)/g,
     (_match, first, rest) => `\\text{${first} ${rest.replace(/\\\s+/g, ' ')}}`)
   const subscripts = { '₀':'0','₁':'1','₂':'2','₃':'3','₄':'4','₅':'5','₆':'6','₇':'7','₈':'8','₉':'9','₊':'+','₋':'-','₌':'=','₍':'(','₎':')','ₐ':'a','ₑ':'e','ₕ':'h','ᵢ':'i','ⱼ':'j','ₖ':'k','ₗ':'l','ₘ':'m','ₙ':'n','ₒ':'o','ₚ':'p','ᵣ':'r','ₛ':'s','ₜ':'t','ᵤ':'u','ᵥ':'v','ₓ':'x' }
   const superscripts = { '⁰':'0','¹':'1','²':'2','³':'3','⁴':'4','⁵':'5','⁶':'6','⁷':'7','⁸':'8','⁹':'9','⁺':'+','⁻':'-','⁼':'=','⁽':'(','⁾':')','ⁿ':'n','ⁱ':'i' }

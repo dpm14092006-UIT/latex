@@ -98,6 +98,7 @@ export function isValidDocument(value) {
       if (node.attrs?.label !== undefined && (typeof node.attrs.label !== 'string' || (node.attrs.label && !/^[A-Za-z0-9:._-]{1,100}$/.test(node.attrs.label)))) return false
     }
     if (node.type === 'imageBlock') {
+      if (node.attrs?.caption !== undefined && (typeof node.attrs.caption !== 'string' || node.attrs.caption.length > 500)) return false
       imageCount += 1
       if (imageCount > MAX_DOCUMENT_IMAGES) return false
       const src = node.attrs?.src

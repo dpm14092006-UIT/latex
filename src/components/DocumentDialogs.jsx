@@ -42,7 +42,7 @@ export function WorkspaceDialog({ type, value, onChange, onClose, onSave, frame,
   return <DialogFrame title={title} Icon={Icon} width={680} onClose={onClose}>
     <p className="studio-dialog-note">{isProject ? 'Mỗi dự án có các tab nội dung riêng và một bản tổng hợp.' : 'Tab mới sẽ được lưu trong dự án đang chọn.'}</p>
     <label className="label" htmlFor="workspace-item-name">{label}</label>
-    <input id="workspace-item-name" className="field" autoFocus maxLength={160} value={value} onChange={event => onChange(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && value.trim()) onSave() }} placeholder={isProject ? 'Ví dụ: Luận văn tốt nghiệp' : 'Ví dụ: Chương 1 — Tổng quan'} />
+    <input id="workspace-item-name" className="field" autoFocus maxLength={160} value={value} onChange={event => onChange(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.nativeEvent.isComposing && value.trim()) onSave() }} placeholder={isProject ? 'Ví dụ: Luận văn tốt nghiệp' : 'Ví dụ: Chương 1 — Tổng quan'} />
     {frame && <div className="studio-new-document-frame">
       <p className="studio-dialog-note">Thiết lập khung trước khi tạo: tiêu đề → tác giả / ngày → Abstract → mục lục (nếu bật) → nội dung theo mẫu.</p>
       <label>Mẫu khung tài liệu<select aria-label="Mẫu khung tài liệu" className="field" value={frame.templateId} onChange={event => onFrameChange({ ...frame, templateId: event.target.value })}><option value="">Bài viết mặc định — một cột</option>{templates.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>

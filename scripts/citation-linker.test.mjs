@@ -350,3 +350,29 @@ test('recognizes protected corporate authors and particle surnames as complete c
   assert.deepEqual(scan.rows.map(row => row.keys), [['worldbank'], ['vries']])
   assert.ok(scan.rows.every(row => row.resolved))
 })
+
+test('Western-order Vietnamese names match their BibTeX last name and rows never overlap another citation', () => {
+  const refs = parseBibtex('@article{nguyen2020, author={Van Thanh Nguyen}, year={2020}, title={A}}\n@article{pair2020, author={Smith, John and Jones, Ann}, year={2020}, title={B}}')
+  const scan = scanUnlinkedCitations(document(paragraph('Theo (Nguyen, 2020) và [@Smith] and Jones (2020).')), refs)
+  assert.deepEqual(scan.rows.map(row => [row.text, row.keys]), [['(Nguyen, 2020)', ['nguyen2020']], ['[@Smith]', []], ['Jones (2020)', []]])
+  const ranges = scan.rows.map(row => [row.from, row.to]).sort((a, b) => a[0] - b[0])
+  for (let index = 1; index < ranges.length; index++) assert.ok(ranges[index][0] >= ranges[index - 1][1])
+})
+
+test('citation labels survive typing without a rebuild and refresh when citations change', async () => {
+  const { Citation, citationPluginKey } = await import('../src/services/AcademicNodes.js')
+  const storage = { entries: parseBibtex('@book{a, author={Smith, John}, title={A}, year={2021}}\n@book{b, author={Lee, Jane}, title={B}, year={2022}}'), style: 'unsrt' }
+  const [plugin] = Citation.config.addProseMirrorPlugins.call({ storage })
+  let state = EditorState.create({ schema, doc: document(paragraph([text('See '), schema.node('citation', { key: 'b' }), text(' and '), schema.node('citation', { key: 'a' })])), plugins: [plugin] })
+  const labels = () => citationPluginKey.getState(state).decorations.find().map(item => [item.from, item.type.attrs['data-citation-label']])
+  assert.deepEqual(labels(), [[5, '[1]'], [11, '[2]']])
+  const before = citationPluginKey.getState(state).decorations.find()
+  state = state.apply(state.tr.insertText('Xem ', 1))
+  assert.deepEqual(labels(), [[9, '[1]'], [15, '[2]']])
+  assert.equal(citationPluginKey.getState(state).decorations.find()[0].type, before[0].type)
+  // Moving a citation without changing the order still decorates the node at its new position.
+  state = state.apply(state.tr.delete(9, 10).insert(10, schema.node('citation', { key: 'b' })))
+  assert.deepEqual(labels(), [[10, '[1]'], [15, '[2]']])
+  state = state.apply(state.tr.insert(1, schema.node('citation', { key: 'a' })))
+  assert.deepEqual(labels().map(([, label]) => label), ['[1]', '[2]', '[1]'])
+})

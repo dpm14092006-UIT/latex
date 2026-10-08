@@ -1,10 +1,32 @@
 const { open, readFile, rename, rm, mkdir, readdir, stat, lstat, copyFile } = require('node:fs/promises')
 const { join } = require('node:path')
 const { randomUUID } = require('node:crypto')
+const { setTimeout: delay } = require('node:timers/promises')
 
 const MAX_WORKSPACE_BYTES = 128 * 1024 * 1024
 const STALE_WRITE_FILE_MS = 24 * 60 * 60 * 1000
 const WORKSPACE_TEMP_PATTERN = /^workspace-v1\.json\.\d+\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/
+const TRANSIENT_RENAME_CODES = new Set(['EPERM', 'EACCES', 'EBUSY'])
+
+// Windows reports EPERM/EACCES/EBUSY while antivirus, indexing or backup tools
+// briefly hold the destination open; retry instead of failing the save.
+async function renameWithRetry(from, to, { renameFile = rename, platform = process.platform, attempts = 12 } = {}) {
+  for (let attempt = 1; ; attempt++) {
+    try { return await renameFile(from, to) } catch (error) {
+      if (platform !== 'win32' || attempt >= attempts || !TRANSIENT_RENAME_CODES.has(error?.code)) throw error
+      await delay(Math.min(attempt * 25, 250))
+    }
+  }
+}
+
+// POSIX only persists a rename once the containing directory is synced.
+async function syncDirectory(directory) {
+  if (process.platform === 'win32') return
+  let handle
+  try { handle = await open(directory, 'r'); await handle.sync() } catch {
+    // Best effort: the file data itself is already fsynced.
+  } finally { await handle?.close().catch(() => {}) }
+}
 
 function createWorkspaceStore(app) {
   const userDataPath = app.getPath('userData')
@@ -101,7 +123,8 @@ function createWorkspaceStore(app) {
         await handle.sync()
         await handle.close()
         handle = null
-        await rename(temporaryPath, workspacePath)
+        await renameWithRetry(temporaryPath, workspacePath)
+        await syncDirectory(userDataPath)
         return { saved: true, savedAt: value.savedAt || new Date().toISOString() }
       } catch (error) {
         await handle?.close().catch(() => {})
@@ -113,7 +136,13 @@ function createWorkspaceStore(app) {
     return write
   }
 
-  return { load, save, backup, listBackups, readBackup }
+  // Resolves once every queued write, including ones queued while waiting, has settled.
+  async function whenIdle() {
+    let current
+    do { current = writes; await current } while (current !== writes)
+  }
+
+  return { load, save, backup, listBackups, readBackup, whenIdle }
 }
 
-module.exports = { createWorkspaceStore }
+module.exports = { createWorkspaceStore, renameWithRetry, syncDirectory }

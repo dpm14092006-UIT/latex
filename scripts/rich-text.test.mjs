@@ -2,12 +2,21 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { toLatex } from '../src/services/DocumentSerializer.js'
 import { isValidDocument } from '../src/services/DocumentData.js'
-import { importWordAst, toWordAst, WORD_PAGE_BREAK } from '../src/services/WordDocument.js'
+import { importWordAst, readLatexSource, toWordAst, WORD_PAGE_BREAK } from '../src/services/WordDocument.js'
+import { bytesToBase64 } from '../src/services/ProjectAssets.js'
 import { normalizeColor, normalizeFontSize } from '../src/services/RichTextFormats.js'
 
 const doc = content => ({ type: 'doc', content })
 const para = (content, attrs) => ({ type: 'paragraph', ...(attrs ? { attrs } : {}), content })
 const text = (value, marks) => ({ type: 'text', text: value, ...(marks ? { marks } : {}) })
+
+test('Word export attaches captions to their image figures', () => {
+  const image = { type: 'imageBlock', attrs: { src: 'data:image/png;base64,iVBORw==', alt: 'File name', caption: 'Đồ thị vận tốc' } }
+  const ast = toWordAst(doc([image]), 'Image caption')
+  assert.equal(ast.blocks[0].t, 'Figure')
+  assert.deepEqual(ast.blocks[0].c[1][1][0].c, [{ t: 'Str', c: 'Đồ' }, { t: 'Space' }, { t: 'Str', c: 'thị' }, { t: 'Space' }, { t: 'Str', c: 'vận' }, { t: 'Space' }, { t: 'Str', c: 'tốc' }])
+  assert.equal(ast.blocks[0].c[2][0].c[0].t, 'Image')
+})
 
 test('serializer emits Word-style character formatting', () => {
   const { latex } = toLatex(doc([para([
@@ -75,4 +84,45 @@ test('Word export and import keep sub/superscript, highlight and page breaks', a
   const { document } = await importWordAst({ blocks: [{ t: 'Para', c: inlines }] })
   const marks = document.content[0].content.map(node => node.marks?.map(mark => mark.type).join(',') || '')
   assert.deepEqual(marks, ['', 'superscript', 'subscript', 'highlight'])
+})
+
+test('Word/LaTeX import keeps figure captions, drops empty text and shortens long footnotes', async () => {
+  const attr = ['', [], []]
+  const { document, warnings } = await importWordAst({ blocks: [
+    { t: 'Figure', c: [attr, [null, [{ t: 'Plain', c: [{ t: 'Str', c: 'Hình' }, { t: 'Space' }, { t: 'Str', c: '1.' }] }]], [{ t: 'Para', c: [{ t: 'Str', c: 'Nội' }] }]] },
+    { t: 'Para', c: [{ t: 'Str', c: 'a' }, { t: 'Code', c: [attr, ''] }, { t: 'Str', c: '' }, { t: 'Note', c: [{ t: 'Para', c: [{ t: 'Str', c: 'x'.repeat(6000) }] }] }] },
+  ] })
+  assert.deepEqual(document.content.slice(0, 2).map(node => node.content[0].text), ['Nội', 'Hình'])
+  assert.equal(document.content[1].content.map(node => node.text).join(''), 'Hình 1.')
+  assert.deepEqual(document.content[2].content.map(node => node.type), ['text', 'footnote'])
+  assert.ok(document.content[2].content.every(node => node.type !== 'text' || node.text))
+  assert.equal(document.content[2].content[1].attrs.text.length, 5000)
+  assert.ok(warnings.some(warning => warning.includes('5000')))
+  assert.equal(isValidDocument(document), true)
+})
+
+test('LaTeX source import finds images referenced without a file extension', async () => {
+  const png = bytesToBase64(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]))
+  const ast = { meta: {}, blocks: [{ t: 'Para', c: [{ t: 'Image', c: [['', [], []], [{ t: 'Str', c: 'Plot' }], ['figures/plot', '']] }] }] }
+  const saved = Object.fromEntries(['window', 'document', 'createImageBitmap', 'FileReader'].map(name => [name, globalThis[name]]))
+  Object.assign(globalThis, {
+    window: { desktopAPI: { parseLatexSource: async () => ({ ast: structuredClone(ast) }) } },
+    createImageBitmap: async () => ({ width: 4, height: 4, close() {} }),
+    document: { createElement: () => ({ getContext: () => ({ clearRect() {}, fillRect() {}, drawImage() {} }), toBlob: (done, type) => done(new Blob([Buffer.from(png, 'base64')], { type })) }) },
+    FileReader: class { readAsDataURL(blob) { blob.arrayBuffer().then(buffer => { this.result = `data:${blob.type};base64,${Buffer.from(buffer).toString('base64')}`; this.onload() }) } },
+  })
+  try {
+    const result = await readLatexSource('\\documentclass{article}', [], [{ filename: 'figures/plot.png', data: png }])
+    assert.equal(result.document.content[0].type, 'imageBlock')
+    assert.equal(result.document.content[0].attrs.src, `data:image/png;base64,${png}`)
+    const figure = toWordAst(doc([{ ...result.document.content[0], attrs: { ...result.document.content[0].attrs, caption: 'Chú thích nhập lại' } }]), 'Figure')
+    const imported = await importWordAst(figure)
+    assert.equal(imported.document.content.length, 1)
+    assert.equal(imported.document.content[0].attrs.caption, 'Chú thích nhập lại')
+  } finally {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete globalThis[name]
+      else globalThis[name] = value
+    }
+  }
 })

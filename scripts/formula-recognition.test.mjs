@@ -52,6 +52,26 @@ test('rejects incomplete, unsupported and excessive input without partial result
   }
 })
 
+test('fractions keep juxtaposed groups balanced; bars and function calls parse as written', () => {
+  const samples = [
+    ['(a)(b)/c', String.raw`\frac{\left(a\right) \cdot \left(b\right)}{c}`],
+    ['(a+b)(a-b)/2', String.raw`\frac{\left(a + b\right) \cdot \left(a - b\right)}{2}`],
+    ['(a+b)/(c+d)', String.raw`\frac{a + b}{c + d}`],
+    ['|x|', String.raw`\left|x\right|`],
+    ['|x - y| <= |x| + |y|', String.raw`\left|x - y\right| \leq \left|x\right| + \left|y\right|`],
+    ['|f(|x|)|', String.raw`\left|f \cdot \left(\left|x\right|\right)\right|`],
+    ['sin(x)^2 + cos(x)^2 = 1', String.raw`\sin\left(x\right)^{2} + \cos\left(x\right)^{2} = 1`],
+    ['log(n)/2', String.raw`\frac{\log\left(n\right)}{2}`],
+  ]
+  for (const [input, expected] of samples) {
+    const result = recognizeFormula(input)
+    assert.equal(result.error, '', input)
+    assert.equal(result.latex, expected, input)
+    assert.doesNotThrow(() => katex.renderToString(result.latex, { throwOnError: true }), input)
+  }
+  assert.ok(recognizeFormula('|'.repeat(5000)).error)
+})
+
 test('rejects compact notation when its meaning is inconsistent', () => {
   for (const input of [
     'Macro-F1=F1Emerging+F1Stable+F1Declining2',

@@ -125,15 +125,20 @@ function startGoBackend({ executable, cwd, appPath, resourcesPath, args = ['--li
     env: {
       ...process.env,
       VIETLATEX_API_TOKEN: token,
+      // The backend shuts down on its own if Electron dies without stopping it.
+      VIETLATEX_PARENT_PID: String(process.pid),
       VIETLATEX_APP_PATH: appPath,
       ...(resourcesPath ? { VIETLATEX_RESOURCES_PATH: resourcesPath } : {}),
     },
   })
   child.stderr.on('data', chunk => process.stderr.write(`[Go backend] ${chunk}`))
+  let settled = false
+  // The startup listener is removed once settled; a later 'error' (for example a
+  // failed kill) must not become an uncaught exception in the main process.
+  child.on('error', error => { if (settled) console.error('[Go backend] Lỗi tiến trình:', error.message) })
 
   return new Promise((resolve, reject) => {
     let output = ''
-    let settled = false
     const startupTimer = setTimeout(() => finish(new Error('Backend Go khởi động quá thời gian chờ.')), 15_000)
     startupTimer.unref?.()
 

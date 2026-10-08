@@ -98,9 +98,6 @@ textarea.field { font-family: var(--font-mono); font-size: 12px; line-height: 1.
 
 /* Top bar: one row with document, workspace, view and actions. */
 .studio-header { position: relative; z-index: 30; display: flex; flex: 0 0 auto; align-items: center; gap: 14px; height: 48px; padding: 0 12px; border-bottom: var(--rule); background: var(--bg); }
-.studio-brand { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
-.studio-logo { display: grid; place-items: center; }
-.studio-brand strong { font-size: 14px; font-weight: 700; }
 .studio-document { display: flex; min-width: 140px; flex: 1 1 260px; align-items: center; gap: 10px; }
 .studio-document input { width: 100%; min-width: 0; padding: 4px 6px; border: 1px solid transparent; border-radius: 3px; color: var(--fg); background: transparent; font: 600 14px/1.2 var(--font-sans); text-overflow: ellipsis; }
 .studio-document input:hover, .studio-document input:focus { border-color: var(--fg); }
@@ -166,10 +163,6 @@ textarea.field { font-family: var(--font-mono); font-size: 12px; line-height: 1.
 .studio-statusbar { display: flex; height: 24px; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 12px; padding: 0 12px; border-top: var(--rule); font-size: 11px; font-variant-numeric: tabular-nums; }
 .studio-statusbar > span { display: inline-flex; min-width: 0; align-items: center; gap: 8px; overflow: hidden; white-space: nowrap; }
 .studio-statusbar b { font-weight: 600; }
-.studio-mobile-nav { z-index: 30; display: none; height: 52px; flex: 0 0 auto; align-items: stretch; border-top: var(--rule); }
-.studio-mobile-nav button { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border-left: var(--rule); color: var(--fg); font-size: 11px; }
-.studio-mobile-nav button:first-child { border-left: 0; }
-.studio-mobile-nav button[aria-pressed=true] { color: var(--bg); background: var(--fg); }
 
 /* ---------- Ribbon ---------- */
 .studio-ribbon { position: relative; z-index: 15; flex: 0 0 auto; border-bottom: var(--rule); background: var(--bg); }
@@ -179,7 +172,6 @@ textarea.field { font-family: var(--font-mono); font-size: 12px; line-height: 1.
 .studio-ribbon-tab { flex: 0 0 auto; padding: 0 14px; color: var(--fg); font: 500 12px/1 var(--font-sans); white-space: nowrap; }
 .studio-ribbon-tab:hover { text-decoration: underline; text-underline-offset: 3px; }
 .studio-ribbon-tab.is-active { color: var(--bg); background: var(--fg); text-decoration: none; }
-.studio-ribbon-head-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 10px; padding-right: 6px; }
 /* Tools wrap onto a second line in a narrow pane instead of hiding behind a scrollbar. */
 .studio-ribbon-panel { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 2px; padding: 4px 8px; }
 .studio-ribbon-panel[hidden] { display: none; }
@@ -282,6 +274,12 @@ textarea.field { font-family: var(--font-mono); font-size: 12px; line-height: 1.
 .ProseMirror .tiptap-mathematics-render[data-type='block-math'] { display: block; margin: 1.4em 0; text-align: center; }
 .ProseMirror .ProseMirror-selectednode.tiptap-mathematics-render, .ProseMirror .latex-image-block.ProseMirror-selectednode { outline: 2px solid var(--fg); outline-offset: 2px; }
 .ProseMirror .latex-image-block { display: block; max-width: 100%; max-height: 580px; margin: 20px auto; object-fit: contain; }
+.ProseMirror .latex-image-figure { margin: 20px 0; text-align: center; }
+.ProseMirror .latex-image-figure .latex-image-block { margin: 0 auto 8px; }
+.ProseMirror .latex-image-figure.ProseMirror-selectednode { outline: 2px solid var(--fg); outline-offset: 4px; }
+.ProseMirror .latex-image-caption { display: block; width: 100%; box-sizing: border-box; padding: 8px 12px; border: 1px solid currentColor; border-radius: 4px; color: inherit; background: transparent; font: inherit; font-size: 0.9em; text-align: center; }
+.ProseMirror .latex-image-caption::placeholder { color: inherit; opacity: 0.55; }
+.ProseMirror .latex-image-caption:focus { outline: 2px solid var(--fg); outline-offset: 2px; }
 .ProseMirror table { width: 100%; margin: 1em 0; border-collapse: collapse; table-layout: fixed; }
 .ProseMirror th, .ProseMirror td { min-width: 1em; padding: 7px 9px; border: var(--rule); vertical-align: top; }
 .ProseMirror th { font-weight: 700; text-align: left; }
@@ -439,7 +437,7 @@ textarea.field { font-family: var(--font-mono); font-size: 12px; line-height: 1.
 /* ---------- Responsive ---------- */
 @media (max-width: 1280px) {
   .studio-header { gap: 10px; }
-  .studio-brand strong, .studio-save { display: none; }
+  .studio-save { display: none; }
   .studio-views button span { display: none; }
   .studio-views button { padding: 0 9px; }
 }
@@ -449,13 +447,10 @@ textarea.field { font-family: var(--font-mono); font-size: 12px; line-height: 1.
 }
 @media (max-width: 767px) {
   .studio-header { display: grid; height: auto; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: 'brand document actions' 'switcher switcher switcher'; gap: 6px 8px; padding: 6px 8px; }
-  .studio-brand { grid-area: brand; }
   .studio-document { grid-area: document; min-width: 0; }
   .studio-header-actions { grid-area: actions; }
   .studio-views { display: none; }
-  .studio-mobile-nav { display: flex; }
   .studio-statusbar { display: none; }
-  .studio-ribbon-head-actions .studio-page-indicator { display: none; }
   .studio-ribbon-tab { padding: 0 10px; }
   .studio-paper-stage { padding-right: 8px !important; padding-left: 8px !important; }
   .studio-paper { min-height: 1240px; padding-right: 20px !important; padding-left: 20px !important; }
@@ -535,7 +530,7 @@ textarea.field { font-family: var(--font-mono); font-size: 12px; line-height: 1.
 .studio-abstract-heading { text-align: center; font-weight: 700; margin-bottom: 14px; }
 .studio-abstract-preview > p { text-align: justify; text-indent: 1.5em; white-space: pre-line; line-height: 1.5; margin: 0 0 12px; }
 .studio-abstract-placeholder { color: var(--muted); }
-.studio-abstract-edit { display: block; margin: 12px auto 0; font: 12px var(--font-ui, sans-serif); color: var(--muted); cursor: pointer; text-decoration: underline; }
+.studio-abstract-edit { display: block; margin: 12px auto 0; font: 12px var(--font-sans); color: var(--muted); cursor: pointer; text-decoration: underline; }
 /* LAN controls use the same document manager spacing on narrow laptop screens. */
 .lan-sync-panel fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .lan-sync-panel label { display: grid; gap: 8px; margin: 14px 0; }

@@ -1,7 +1,8 @@
 import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { useEditor } from '@tiptap/react'
-import { Extension, mergeAttributes, Node as TiptapNode } from '@tiptap/core'
+import { Extension } from '@tiptap/core'
+import { ImageBlock } from './services/ImageBlock.js'
 import { Plugin } from '@tiptap/pm/state'
 import StarterKit from '@tiptap/starter-kit'
 import Heading from '@tiptap/extension-heading'
@@ -57,6 +58,7 @@ import PdfPreviewPane from './components/PdfPreviewPane.jsx'
 import LatexSourcePane from './components/LatexSourcePane.jsx'
 import { DocumentTemplatesDialog, FormulaDialog, FormulaLibraryDialog, WorkspaceDialog } from './components/DocumentDialogs.jsx'
 import MathSuggestionDialog from './components/MathSuggestionDialog.jsx'
+import TableLibrary from './components/TableLibrary.jsx'
 import '@fontsource-variable/dm-sans'
 import '@fontsource-variable/newsreader'
 import '@fontsource-variable/newsreader/wght-italic.css'
@@ -66,6 +68,7 @@ import './monochrome.css'
 import './obsidian.css'
 import './noir.css'
 import './aurora.css'
+import './table-library.css'
 
 // LaTeX và bộ kiểm tra workspace chỉ có ba cấp tiêu đề; h4–h6 dán từ web/Word hạ về cấp 3.
 const ThreeLevelHeading = Heading.extend({
@@ -73,24 +76,6 @@ const ThreeLevelHeading = Heading.extend({
     return [1, 2, 3, 4, 5, 6].map(level => ({ tag: `h${level}`, attrs: { level: Math.min(level, 3) } }))
   },
 }).configure({ levels: [1, 2, 3] })
-
-const ImageBlock = TiptapNode.create({
-  name: 'imageBlock',
-  group: 'block',
-  atom: true,
-  draggable: true,
-  addAttributes() {
-    return {
-      src: { default: null },
-      alt: { default: '' },
-      filename: { default: '', rendered: false },
-    }
-  },
-  parseHTML() { return [{ tag: 'img[data-latex-image]' }] },
-  renderHTML({ HTMLAttributes }) {
-    return ['img', mergeAttributes(HTMLAttributes, { 'data-latex-image': 'true', class: 'latex-image-block' })]
-  },
-})
 
 function findMathRanges(state, options) {
   const nodes = []
@@ -316,6 +301,7 @@ function App({ initialWorkspace }) {
   const pendingInsertionSelectionRef = useRef(null)
   const openReferencesDialogRef = useRef(null)
   const [libraryOpen, setLibraryOpen] = useState(false)
+  const [tableLibraryOpen, setTableLibraryOpen] = useState(false)
   const [newTemplateOpen, setNewTemplateOpen] = useState(false)
   const [templateName, setTemplateName] = useState('')
   const [templateLatex, setTemplateLatex] = useState('')
@@ -394,12 +380,13 @@ function App({ initialWorkspace }) {
           return [new Plugin({ filterTransaction: transaction => !summaryModeRef.current || !transaction.docChanged || transaction.getMeta('compilationLoad') === true })]
         },
       }),
-      StarterKit.configure({ heading: false }),
+      StarterKit.configure({ heading: false, orderedList: false }),
       ThreeLevelHeading,
       Placeholder.configure({ placeholder: 'Bắt đầu viết nội dung của bạn…' }),
       Mathematics.configure({
-        blockOptions: { katexOptions: { throwOnError: false }, onClick: (node, pos) => { if (summaryModeRef.current) return; pendingInsertionSelectionRef.current = null; formulaPastedUntrustedRef.current = false; setFormula(node.attrs.latex); setFormulaType('block'); setEditingFormulaPosition(pos); setFormulaOpen(true) } },
-        inlineOptions: { katexOptions: { throwOnError: false }, onClick: (node, pos) => { if (summaryModeRef.current) return; pendingInsertionSelectionRef.current = null; formulaPastedUntrustedRef.current = false; setFormula(node.attrs.latex); setFormulaType('inline'); setEditingFormulaPosition(pos); setFormulaOpen(true) } },
+        // Editing starts from the node's LaTeX; a leftover "Gõ thường" mode would show the previous plain text instead.
+        blockOptions: { katexOptions: { throwOnError: false }, onClick: (node, pos) => { if (summaryModeRef.current) return; pendingInsertionSelectionRef.current = null; formulaPastedUntrustedRef.current = false; setFormula(node.attrs.latex); setFormulaType('block'); setFormulaInputMode(current => current === 'recognize' ? 'visual' : current); setEditingFormulaPosition(pos); setFormulaOpen(true) } },
+        inlineOptions: { katexOptions: { throwOnError: false }, onClick: (node, pos) => { if (summaryModeRef.current) return; pendingInsertionSelectionRef.current = null; formulaPastedUntrustedRef.current = false; setFormula(node.attrs.latex); setFormulaType('inline'); setFormulaInputMode(current => current === 'recognize' ? 'visual' : current); setEditingFormulaPosition(pos); setFormulaOpen(true) } },
       }),
       TextAlign.configure({ types: ['heading', 'paragraph'], alignments: ['left', 'center', 'right', 'justify'] }),
       ...richTextExtensions,
@@ -822,7 +809,7 @@ function App({ initialWorkspace }) {
     return () => window.removeEventListener('keydown', keyboard, true)
   }, [])
   useEffect(() => {
-    if (!formulaOpen && !mathScanOpen && !libraryOpen && !documentTemplatesOpen && !workspaceDialogType && !managerOpen && !referencesDialog) return
+    if (!formulaOpen && !mathScanOpen && !libraryOpen && !tableLibraryOpen && !documentTemplatesOpen && !workspaceDialogType && !managerOpen && !referencesDialog) return
     const dialog = document.querySelector('.modal-backdrop [role="dialog"]')
     if (!dialog) return
     const previouslyFocused = document.activeElement
@@ -830,7 +817,13 @@ function App({ initialWorkspace }) {
     const initialTarget = focusable().find(node => node.matches('input, select, textarea, math-field')) || focusable()[0]
     initialTarget?.focus()
     const onKeyDown = event => {
-      if (event.key === 'Escape') { pendingInsertionSelectionRef.current = null; setFormulaOpen(false); setMathScanOpen(false); setLibraryOpen(false); setDocumentTemplatesOpen(false); setWorkspaceDialogType(null); setManagerOpen(false); setManagerContext(null); setReferencesDialog(null); return }
+      if (event.key === 'Escape') {
+        // Escape cancels an IME (Telex/VNI) composition first; a busy dialog keeps its pending result, as its close button does.
+        if (event.isComposing || dialog.matches('[aria-busy="true"]') || dialog.querySelector('[aria-busy="true"]')) return
+        // Captured and consumed so the editor's document-level Escape does not also collapse its toolbar.
+        event.preventDefault()
+        pendingInsertionSelectionRef.current = null; setFormulaOpen(false); setMathScanOpen(false); setLibraryOpen(false); setTableLibraryOpen(false); setDocumentTemplatesOpen(false); setWorkspaceDialogType(null); setManagerOpen(false); setManagerContext(null); setReferencesDialog(null); return
+      }
       if (event.key !== 'Tab') return
       const items = focusable()
       if (!items.length) return
@@ -838,9 +831,9 @@ function App({ initialWorkspace }) {
       if (event.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) { event.preventDefault(); last.focus() }
       else if (!event.shiftKey && (document.activeElement === last || !dialog.contains(document.activeElement))) { event.preventDefault(); first.focus() }
     }
-    window.addEventListener('keydown', onKeyDown)
-    return () => { window.removeEventListener('keydown', onKeyDown); previouslyFocused?.focus?.() }
-  }, [formulaOpen, mathScanOpen, libraryOpen, documentTemplatesOpen, workspaceDialogType, managerOpen, referencesDialog])
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => { window.removeEventListener('keydown', onKeyDown, true); previouslyFocused?.focus?.() }
+  }, [formulaOpen, mathScanOpen, libraryOpen, tableLibraryOpen, documentTemplatesOpen, workspaceDialogType, managerOpen, referencesDialog])
   useEffect(() => {
     if (!formulaOpen || mathliveReady) return
     import('mathlive')
@@ -854,6 +847,11 @@ function App({ initialWorkspace }) {
         setFormulaInputMode('latex')
       })
   }, [formulaOpen, mathliveReady])
+  // The field mounts after MathLive loads (first open) or when switching back to visual input; the dialog's
+  // initial focus has already landed elsewhere by then.
+  useEffect(() => {
+    if (formulaOpen && mathliveReady && formulaInputMode === 'visual') mathFieldRef.current?.focus()
+  }, [formulaOpen, mathliveReady, formulaInputMode])
   useEffect(() => {
     if (!formulaOpen || !mathliveReady || formulaInputMode !== 'visual' || !mathFieldRef.current) return
     const field = mathFieldRef.current
@@ -1073,13 +1071,20 @@ function App({ initialWorkspace }) {
     if (!file.type.startsWith('image/')) { setImageError('Hãy chọn một tệp hình ảnh.'); return }
     if (file.size > 15 * 1024 * 1024) { setImageError('Ảnh gốc vượt quá 15 MB. Hãy chọn ảnh nhỏ hơn.'); return }
     if (imageSummary.count >= MAX_DOCUMENT_IMAGES) { setImageError(`Mỗi tài liệu có thể lưu tối đa ${MAX_DOCUMENT_IMAGES} ảnh.`); return }
+    const taskId = editorTaskIdRef.current
     try {
       const src = await imageEncoderRef.current.encode(file)
+      // Encoding is async: the saved position belongs to the document that was open when the image was chosen.
+      if (editor.isDestroyed || summaryModeRef.current || editorTaskIdRef.current !== taskId) {
+        imageInsertPositionRef.current = null
+        setImageError('Ảnh chưa được chèn vì tài liệu đã thay đổi trong lúc xử lý ảnh. Hãy chọn lại ảnh.')
+        return
+      }
       const latest = imageStats(editor.getJSON())
       if (latest.count >= MAX_DOCUMENT_IMAGES) { setImageError(`Mỗi tài liệu có thể lưu tối đa ${MAX_DOCUMENT_IMAGES} ảnh.`); return }
       const encodedImage = src.slice(src.indexOf(',') + 1)
       if (latest.storedBytes + base64ByteLength(encodedImage) > MAX_TOTAL_DOCUMENT_IMAGE_BYTES) { setImageError('Ảnh vượt quá dung lượng lưu trên máy. Hãy xóa bớt ảnh trong tài liệu.'); return }
-      const position = imageInsertPositionRef.current ?? editor.state.selection.to
+      const position = Math.min(imageInsertPositionRef.current ?? editor.state.selection.to, editor.state.doc.content.size)
       const mime = src.match(/^data:image\/(png|jpeg)/)?.[1]
       if (!mime || !['png', 'jpeg'].includes(mime)) throw new Error('Định dạng ảnh sau khi chuyển đổi không được hỗ trợ.')
       const inserted = editor.chain().focus().insertContentAt(position, { type: 'imageBlock', attrs: { src, alt: file.name, filename: file.name } }).run()
@@ -1219,7 +1224,7 @@ function App({ initialWorkspace }) {
     // Also refresh when the active id stays the same (rename or restored settings).
     editor?.chain().setMeta('compilationLoad', true).setContent(task.document, { emitUpdate: false }).run()
   }
-  syncCanApplyRef.current = !formulaOpen && !mathScanOpen && !libraryOpen && !documentTemplatesOpen && !workspaceDialogType && !referencesDialog
+  syncCanApplyRef.current = !formulaOpen && !mathScanOpen && !libraryOpen && !tableLibraryOpen && !documentTemplatesOpen && !workspaceDialogType && !referencesDialog
   syncActionRef.current = async (action, value) => {
     if (action === 'auto' && !syncCanApplyRef.current) return
     if (syncBusyRef.current) {
@@ -1365,6 +1370,7 @@ function App({ initialWorkspace }) {
     onOpenManager={() => setManagerOpen(true)}
     onOpenReferences={tab => openReferencesDialog(tab || 'cite')}
     onOpenFormulaLibrary={openFormulaLibrary}
+    onOpenTableLibrary={() => { if (!summaryModeRef.current) setTableLibraryOpen(true) }}
     onOpenDocumentTemplates={() => setDocumentTemplatesOpen(true)}
     onToggleFocus={toggleFocusMode}
     outline={outline}
@@ -1411,7 +1417,7 @@ function App({ initialWorkspace }) {
     onImportSource={(value, filename) => { const name = (filename || 'Source nhập').replace(/\.tex$/i, ''); addImportedDocument({ ...createTask(name), sourceDraft: value, sourceEdited: true, sourceTrusted: false }, name) }}
   />
   const changeView = view => { if (isCompact) setActiveTab(view === 'split' ? 'write' : view); else setMode(view) }
-  const modalOpen = Boolean(formulaOpen || mathScanOpen || libraryOpen || documentTemplatesOpen || workspaceDialogType || managerOpen || referencesDialog)
+  const modalOpen = Boolean(formulaOpen || mathScanOpen || libraryOpen || tableLibraryOpen || documentTemplatesOpen || workspaceDialogType || managerOpen || referencesDialog)
   const createItem = type => { setWorkspaceItemName(''); setWorkspaceFrame({ templateId: '', documentTitle: '', settings: sanitizeSettings({ abstractEnabled: true }) }); setWorkspaceDialogType(type) }
   const openManager = (context = null) => { setManagerContext(context); setManagerOpen(true) }
   const commandItems = [
@@ -1523,6 +1529,7 @@ function App({ initialWorkspace }) {
         onInsert={insertFormula}
         normalizeFormula={normalizedFormula}
       />
+      {tableLibraryOpen && editor && <TableLibrary editor={editor} onClose={() => setTableLibraryOpen(false)} />}
       {mathScanOpen && editor && <MathSuggestionDialog editor={editor} katexRenderer={katexRenderer} onClose={() => setMathScanOpen(false)} />}
       <FormulaLibraryDialog
         open={libraryOpen}

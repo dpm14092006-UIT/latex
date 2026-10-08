@@ -46,8 +46,10 @@ export default function ReferencesDialog({ open, initialTab = 'cite', editing = 
   const bibliography = settings.bibliography
   const entries = useMemo(() => parseBibtex(bibliography), [bibliography])
   const style = resolveCitationStyle(settings.citationStyle, templateSource)
-  // The dialog is modal, so the document cannot change while it is open; reading it once per render is enough.
-  const doc = open ? editor?.getJSON() : null
+  // Serialize once per document version, not on every keystroke in the dialog's fields: the dialog's own
+  // edits (remove all, key renames) produce a new ProseMirror doc and re-render through setMessage/onSettings.
+  const editorDoc = open && editor && !editor.isDestroyed ? editor.state.doc : null
+  const doc = useMemo(() => editorDoc ? editorDoc.toJSON() : null, [editorDoc])
   const occurrences = useMemo(() => citationOccurrences(doc), [doc])
   const citationCount = occurrences.length
   const numbers = useMemo(() => citationNumbers(occurrences, entries, style), [occurrences, entries, style])
@@ -64,6 +66,14 @@ export default function ReferencesDialog({ open, initialTab = 'cite', editing = 
     const words = query.toLocaleLowerCase('vi').split(/\s+/).filter(Boolean)
     return words.length ? ordered.filter(entry => { const text = entrySearchText(entry); return words.every(word => text.includes(word)) }) : ordered
   }, [ordered, query])
+  const previewNumbers = useMemo(() => {
+    if (!selected.length || !editorDoc) return numbers
+    try {
+      const proposed = citationEditTransaction(editor.state, { keys: selected, mode: citationMode, editing, insertionSelection })
+      if (proposed) return citationNumbers(citationOccurrences(proposed.doc.toJSON()), entries, style)
+    } catch { /* The apply action reports stale selections without modifying the document. */ }
+    return numbers
+  }, [selected, editorDoc, editor, citationMode, editing, insertionSelection, entries, style, numbers])
 
   // The app's modal focus trap focuses the first field on open; on close, hand the caret back to the editor
   // (after the trap restores focus) so typing continues right after the citation.
@@ -143,6 +153,8 @@ export default function ReferencesDialog({ open, initialTab = 'cite', editing = 
   }
 
   const onSearchKey = event => {
+    // Enter that commits an IME composition (Vietnamese Telex/VNI) must not insert a citation.
+    if (event.nativeEvent.isComposing) return
     if (event.key === 'ArrowDown') { event.preventDefault(); setActive(value => Math.min(filtered.length - 1, value + 1)) }
     else if (event.key === 'ArrowUp') { event.preventDefault(); setActive(value => Math.max(0, value - 1)) }
     else if (event.key === 'Enter' && event.shiftKey) { event.preventDefault(); if (filtered[active]) toggle(filtered[active].key) }
@@ -153,13 +165,6 @@ export default function ReferencesDialog({ open, initialTab = 'cite', editing = 
     }
   }
 
-  let previewNumbers = numbers
-  if (selected.length && editor) {
-    try {
-      const proposed = citationEditTransaction(editor.state, { keys: selected, mode: citationMode, editing, insertionSelection })
-      if (proposed) previewNumbers = citationNumbers(citationOccurrences(proposed.doc.toJSON()), entries, style)
-    } catch { /* The apply action reports stale selections without modifying the document. */ }
-  }
   const preview = selected.length ? citationLabel(selected, previewNumbers, byKey, style, citationMode) : ''
   const styleSelect = <label className="cite-preview">Kiểu trích dẫn{' '}
     <select value={settings.citationStyle} onChange={event => onSettings({ ...settings, citationStyle: event.target.value })}>
@@ -178,7 +183,7 @@ export default function ReferencesDialog({ open, initialTab = 'cite', editing = 
   </div>
 
   return <div className="modal-backdrop studio-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose() }}>
-    <section className="studio-dialog" style={{ maxWidth: 720, width: '100%' }} role="dialog" aria-modal="true" aria-labelledby="references-title">
+    <section className="studio-dialog" style={{ maxWidth: 720, width: '100%' }} role="dialog" aria-modal="true" aria-labelledby="references-title" aria-busy={busy}>
       <header className="studio-dialog-head">
         <h2 id="references-title"><Quote size={20} strokeWidth={1.8} />{editing ? 'Sửa trích dẫn' : 'Trích dẫn & tài liệu tham khảo'}</h2>
         <button type="button" className="modal-close" onClick={onClose} disabled={busy} aria-label="Đóng"><X size={16} /></button>

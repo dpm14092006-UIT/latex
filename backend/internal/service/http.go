@@ -128,7 +128,7 @@ func (s *Service) environment(w http.ResponseWriter, r *http.Request) {
 	}
 	defer s.diagnosticsQueue.leave()
 	if err := s.diagnosticsQueue.acquire(r.Context()); err != nil {
-		writeServiceError(w, err)
+		s.writeFailure(w, r, err)
 		return
 	}
 	defer s.diagnosticsQueue.release()
@@ -154,10 +154,7 @@ func (s *Service) compile(w http.ResponseWriter, r *http.Request) {
 	}
 	pdf, err := s.latex.compile(r.Context(), input)
 	if err != nil {
-		if errors.Is(err, errClientCancelled) || r.Context().Err() != nil {
-			return
-		}
-		writeServiceError(w, err)
+		s.writeFailure(w, r, err)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -180,10 +177,7 @@ func (s *Service) importWord(w http.ResponseWriter, r *http.Request) {
 	}
 	ast, err := s.word.importDocument(r.Context(), bytes)
 	if err != nil {
-		if errors.Is(err, errClientCancelled) || r.Context().Err() != nil {
-			return
-		}
-		writeServiceError(w, err)
+		s.writeFailure(w, r, err)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -205,10 +199,7 @@ func (s *Service) exportWord(w http.ResponseWriter, r *http.Request) {
 	}
 	bytes, err := s.word.exportDocument(r.Context(), input)
 	if err != nil {
-		if errors.Is(err, errClientCancelled) || r.Context().Err() != nil {
-			return
-		}
-		writeServiceError(w, err)
+		s.writeFailure(w, r, err)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -231,10 +222,7 @@ func (s *Service) parseLatex(w http.ResponseWriter, r *http.Request) {
 	}
 	ast, err := s.word.parseLatex(r.Context(), input)
 	if err != nil {
-		if errors.Is(err, errClientCancelled) || r.Context().Err() != nil {
-			return
-		}
-		writeServiceError(w, err)
+		s.writeFailure(w, r, err)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -291,6 +279,19 @@ func decodeSingleJSON(reader io.Reader, target any) error {
 			return err
 		}
 	}
+}
+
+// writeFailure reports err unless the client has already gone away. Work
+// cut short by backend shutdown also cancels the request context; answer it
+// with 503 instead of letting the handler return an empty 200 response.
+func (s *Service) writeFailure(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, errClientCancelled) || r.Context().Err() != nil {
+		if s.lifecycle.Err() != nil {
+			writeServiceError(w, backendStoppingError())
+		}
+		return
+	}
+	writeServiceError(w, err)
 }
 
 func writeServiceError(w http.ResponseWriter, err error) {

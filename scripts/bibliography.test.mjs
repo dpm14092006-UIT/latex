@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   bibtexForCompile, citationDiagnostics, citationKeys, citationLabel, citationNumbers, citationOccurrences, classifyReferenceInput,
-  compressNumbers, describeEntry, familyName, formatBibtexEntry, normalizeIncomingBibtex, parseBibtex, parseReferenceLine, parseRis, removeBibtexEntry, resolveCitationStyle, shortAuthors, splitAuthors,
+  compressNumbers, describeEntry, familyName, formatBibtexEntry, normalizeIncomingBibtex, parseBibtex, parseReferenceLine, parseRis, removeBibtexEntry, resolveCitationStyle, shortAuthors, splitAuthors, stripLatex,
 } from '../src/services/Bibliography.js'
 import { toLatex } from '../src/services/DocumentSerializer.js'
 import { toWordAst, importWordAst } from '../src/services/WordDocument.js'
@@ -29,7 +29,8 @@ test('parses BibTeX entries with nested braces, quotes and parentheses', () => {
   assert.equal(entries[0].fields.year, '2024')
   const info = describeEntry(entries[0])
   assert.equal(info.title, 'Deep learning for Vietnamese text')
-  assert.equal(info.authors, 'Nguyen et al.')
+  // `Nguy{\~e}n` prints as “Nguyẽn” in the PDF; the editor label shows the same letters.
+  assert.equal(info.authors, 'Nguyẽn et al.')
   assert.equal(describeEntry(entries[1]).url, 'https://example.com/a')
 })
 
@@ -254,4 +255,57 @@ test('compiler escaping never changes BibTeX identifiers containing underscores'
     assert.equal(parseBibtex(compiled)[0].key, 'ma_2024')
     assert.match(compiled, /Trends\\_5 \\& models/)
   }
+})
+
+test('LaTeX accents, Vietnamese tone marks and special letters display as the PDF prints them', () => {
+  const cases = [
+    [String.raw`Nguy{\~{\^e}}n`, 'Nguyễn'],
+    [String.raw`Tr{\`\^a}n {\d{a}}i {\h{o}}`, 'Trần ại ỏ'],
+    [String.raw`M{\"u}ller and Garc{\'\i}a`, 'Müller and García'],
+    [String.raw`S{\o}ren {\ss} {\L}ukasz {\DJ}{\^o}ng`, 'Søren ß Łukasz Đông'],
+    [String.raw`\emph{Nguy{\~e}n} \textbf{Analysis}`, 'Nguyẽn Analysis'],
+    [String.raw`{\v{C}}apek \c{c}a \u{a}`, 'Čapek ça ă'],
+  ]
+  for (const [input, expected] of cases) assert.equal(stripLatex(input), expected, input)
+  // Letter accents never consume a longer command name.
+  assert.equal(stripLatex(String.raw`\Huge Title`), String.raw`\Huge Title`)
+  const entry = parseBibtex(String.raw`@article{a, author={Nguy{\~{\^e}}n, V{\u{a}}n An}, year={2024}, title={T}}`)[0]
+  assert.equal(shortAuthors(entry), 'Nguyễn')
+})
+
+test('capitalized given names are not BibTeX von particles', () => {
+  assert.equal(familyName('Van Thanh Nguyen'), 'Nguyen')
+  assert.equal(familyName('Hung Van Le'), 'Le')
+  assert.equal(familyName('Do Van Nam'), 'Nam')
+  assert.equal(familyName('Ludwig van Beethoven'), 'van Beethoven')
+  const entry = parseBibtex('@article{vn, author={Van Thanh Nguyen and Hung Van Le}, year={2023}, title={T}}')[0]
+  assert.equal(shortAuthors(entry), 'Nguyen & Le')
+  assert.equal(citationLabel(['vn'], new Map(), new Map([['vn', entry]]), 'apa'), '(Nguyen & Le, 2023)')
+})
+
+test('BibTeX compilation keeps inline math in titles while escaping text metacharacters', () => {
+  const source = String.raw`@article{km, author={Lee, A}, title={{$k$}-means & $O(n \log n)$ clustering_v2}, journal={J}, year={2024}}`
+  for (const style of ['unsrt', 'apa']) {
+    const compiled = bibtexForCompile(source, style)
+    assert.ok(compiled.includes(String.raw`{$k$}-means \& $O(n \log n)$ clustering\_v2`), style)
+  }
+  assert.ok(bibtexForCompile('@misc{p, title={Costs 50$ only}, year={2024}}', 'unsrt').includes(String.raw`Costs 50\$ only`))
+})
+
+test('APA reference lines with a full date or n.d. keep author, year and title apart', () => {
+  const dated = parseReferenceLine('Nguyen, A. (2024, March 5). Rising sea levels. Daily News.')
+  assert.equal(dated.fields.author, 'Nguyen, A.')
+  assert.equal(dated.fields.year, '2024')
+  assert.equal(dated.fields.title, 'Rising sea levels')
+  const undated = parseReferenceLine('World Health Organization. (n.d.). Air quality guidance. Retrieved 2025 from https://who.int/air')
+  assert.equal(undated.fields.title, 'Air quality guidance')
+  assert.equal(undated.fields.year, undefined)
+})
+
+test('formatted entries with a stray brace or trailing backslash cannot swallow later entries', () => {
+  const broken = formatBibtexEntry({ type: 'misc', key: 'broken', fields: { title: 'Sets {A, B and C', note: `path C:${String.fromCharCode(92)}` } })
+  const parsed = parseBibtex(`${broken}\n\n@misc{next, title={Next}, year={2024}}`)
+  assert.deepEqual(parsed.map(entry => entry.key), ['broken', 'next'])
+  assert.equal(parsed[0].fields.title, 'Sets A, B and C')
+  assert.equal(formatBibtexEntry({ key: 'ok', fields: { title: '{Deep} learning' } }), '@misc{ok,\n  title = {{Deep} learning}\n}')
 })

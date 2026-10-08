@@ -2,6 +2,7 @@ import { bibliographyStyleName, citationKeys, citationLabel, citationNumbers, ci
 import { bareInlineFormula, normalizeFormulaInput, repairStrippedLatex, standaloneLatexPaste } from '../math-input.js'
 import { sanitizeSettings } from './DocumentSettings.js'
 import { base64ByteLength } from './ProjectAssets.js'
+import { normalizeCellAlign, normalizeTableStyle } from './TableStyles.js'
 
 export const starter = { type: 'doc', content: [{ type: 'paragraph' }] }
 export const builtInTemplates = [
@@ -571,7 +572,17 @@ function tableCellText(node) {
   return (node?.content || []).map(tableCellText).join(' ')
 }
 
+const TABLE_STRIPE_COLOR = 'F2F2F2'
+const TABLE_HEADER_COLOR = 'E6E6E6'
+
 function renderLatexTable(node, context) {
+  const style = normalizeTableStyle(node.attrs)
+  const ruled = ['academic', 'striped', 'shaded'].includes(style.tableStyle)
+  const grid = style.tableStyle === 'grid'
+  const coloured = style.tableStyle === 'striped' || style.tableStyle === 'shaded'
+  // colortbl paints 	abcolsep beyond each cell, so coloured tables keep the
+  // outer padding instead of trimming it with @{}.
+  const padded = grid || coloured
   const sourceRows = Array.isArray(node.content) ? node.content : []
   const occupiedUntil = []
   let columns = 0
@@ -587,7 +598,7 @@ function renderLatexTable(node, context) {
         if (!overlaps) break
         column += 1
       }
-      cells.push({ cell, column, colspan, rowspan })
+      cells.push({ cell, column, colspan, rowspan, align: normalizeCellAlign(cell.attrs?.align) })
       for (let offset = 0; offset < colspan; offset += 1) {
         occupiedUntil[column + offset] = Math.max(occupiedUntil[column + offset] || 0, rowIndex + rowspan)
       }
@@ -597,6 +608,8 @@ function renderLatexTable(node, context) {
     return cells
   })
   columns = Math.max(1, columns)
+  // A merged cell cannot extend below the last row of the table.
+  for (const [rowIndex, row] of rows.entries()) for (const item of row) item.rowspan = Math.min(item.rowspan, rows.length - rowIndex)
 
   let headerRows = 0
   for (const row of rows) {
@@ -617,29 +630,42 @@ function renderLatexTable(node, context) {
   }
   const weights = lengths.map(length => Math.sqrt(length))
   // Reserve the inter-column padding explicitly so the real table width stays
-  // inside the text block instead of growing past the page margins.
-  const tableWidth = Math.max(0.68, 0.98 - 0.025 * (columns - 1))
+  // inside the text block instead of growing past the page margins. Grid
+  // tables also keep the outer padding and vertical rules.
+  const tableWidth = Math.max(0.6, 0.98 - 0.025 * (columns - 1) - (padded ? 0.03 : 0))
   const weightTotal = weights.reduce((sum, weight) => sum + weight, 0)
   const widths = weights.map(weight => tableWidth * weight / weightTotal)
 
   const valuesByColumn = Array.from({ length: columns }, () => [])
-  for (const row of rows.slice(headerRows)) {
-    for (const { cell, column, colspan } of row) {
+  const explicitByColumn = Array.from({ length: columns }, () => [])
+  for (const [rowIndex, row] of rows.entries()) {
+    for (const { cell, column, colspan, align } of row) {
       if (colspan !== 1) continue
-      const value = tableCellText(cell).trim()
-      if (value) valuesByColumn[column].push(value)
+      if (rowIndex >= headerRows) {
+        const value = tableCellText(cell).trim()
+        if (value) valuesByColumn[column].push(value)
+      }
+      if (rowIndex >= headerRows || headerRows === rows.length) explicitByColumn[column].push(align || 'auto')
     }
   }
   const alignments = valuesByColumn.map((values, column) => {
+    // An alignment the user chose for most cells of a column wins over the
+    // numeric-column heuristic; differing cells are overridden one by one.
+    const counts = new Map()
+    for (const align of explicitByColumn[column]) counts.set(align, (counts.get(align) || 0) + 1)
+    const [chosen] = [...counts].sort((a, b) => b[1] - a[1])[0] || []
+    if (chosen && chosen !== 'auto') return chosen
     if (/^\(?\s*n\s*,\s*k\s*\)?$/iu.test(headerLabels[column])) return 'left'
     if (values.length && values.every(value => /^[+−-]?(?:\d+(?:[.,]\d*)?|[.,]\d+)(?:[eE][+−-]?\d+)?\s*%?$/u.test(value))) return 'right'
     return 'left'
   })
-  const columnSpec = widths.map((width, index) => lengths[index] <= 28
-    ? alignments[index] === 'right' ? 'r' : alignments[index] === 'center' ? 'c' : 'l'
-    : `>{${alignments[index] === 'right' ? '\\raggedleft' : '\\raggedright'}\\arraybackslash}p{${width.toFixed(4)}\\linewidth}`
-  ).join('')
-  const specification = `@{}${columnSpec}@{}`
+  const wraps = lengths.map(length => style.tableWidth === 'full' || (style.tableWidth === 'auto' && length > 28))
+  const ragged = align => align === 'right' ? '\\raggedleft' : align === 'center' ? '\\centering' : '\\raggedright'
+  const columnType = (align, width, wrap) => wrap
+    ? `>{${ragged(align)}\\arraybackslash}p{${width.toFixed(4)}\\linewidth}`
+    : align === 'right' ? 'r' : align === 'center' ? 'c' : 'l'
+  const columnSpec = widths.map((width, index) => columnType(alignments[index], width, wraps[index])).join(grid ? '|' : '')
+  const specification = grid ? `|${columnSpec}|` : padded ? columnSpec : `@{}${columnSpec}@{}`
   let spanEnd = 0
   const spanContinues = rows.map((row, index) => {
     for (const item of row) spanEnd = Math.max(spanEnd, index + item.rowspan)
@@ -647,42 +673,127 @@ function renderLatexTable(node, context) {
   })
   // Repeated headers must include an entire merged group.
   while (headerRows > 0 && headerRows < rows.length && spanContinues[headerRows - 1]) headerRows++
+
+  // Grid rules must not cut through a merged cell that continues downwards.
+  const gridRule = rowIndex => {
+    const covered = Array(columns).fill(false)
+    for (const [start, row] of rows.entries()) {
+      if (start > rowIndex) break
+      for (const { column, colspan, rowspan } of row) {
+        if (start + rowspan <= rowIndex + 1) continue
+        for (let offset = 0; offset < colspan; offset += 1) covered[column + offset] = true
+      }
+    }
+    if (!covered.some(Boolean)) return '\\hline\n'
+    const ranges = []
+    for (let column = 0; column < columns; column += 1) {
+      if (covered[column]) continue
+      const start = column
+      while (column + 1 < columns && !covered[column + 1]) column += 1
+      ranges.push(`\\cline{${start + 1}-${column + 1}}`)
+    }
+    return ranges.length ? `${ranges.join('')}\n` : ''
+  }
+  // Rows merged vertically form one stripe group; colortbl would paint a
+  // continuation row over the \multirow text, so such groups stay unshaded.
+  const stripedRows = new Set()
+  if (style.tableStyle === 'striped') {
+    let groupStart = headerRows
+    let groupIndex = 0
+    for (let index = headerRows; index < rows.length; index += 1) {
+      if (spanContinues[index]) continue
+      if (groupIndex % 2 === 1 && groupStart === index) stripedRows.add(index)
+      groupIndex += 1
+      groupStart = index + 1
+    }
+  }
+  const cellContext = { ...context, inTable: true, tableHeaderPlain: !style.headerBold }
+  const cellSpec = (item, align, wrap) => {
+    const width = widths.slice(item.column, item.column + item.colspan).reduce((sum, part) => sum + part, 0)
+    // A merged paragraph cell also owns the padding (and grid rules) between
+    // the spanned columns; anything else shifts the following cells sideways.
+    const gaps = item.colspan - 1
+    const type = wrap && gaps
+      ? `>{${ragged(align)}\\arraybackslash}p{\\dimexpr ${width.toFixed(4)}\\linewidth+${2 * gaps}\\tabcolsep${grid ? `+${gaps}\\arrayrulewidth` : ''}\\relax}`
+      : columnType(align, width, wrap)
+    if (grid) return `${item.column === 0 ? '|' : ''}${type}|`
+    if (padded) return type
+    return `${item.column === 0 ? '@{}' : ''}${type}${item.column + item.colspan === columns ? '@{}' : ''}`
+  }
+  // Shaded header rows are all coloured, so a merged header cell is typeset
+  // from its last row (`\multirow{-n}`) where no later \rowcolor covers it.
+  const deferred = new Map()
+  const continuation = new Map()
+  for (const [start, row] of rows.entries()) {
+    for (const item of row) {
+      for (let offset = 1; offset < item.rowspan; offset += 1) continuation.set(`${start + offset}:${item.column}`, { item, last: offset === item.rowspan - 1 })
+    }
+  }
   const renderRow = (row, rowIndex) => {
     const cellsByColumn = new Map(row.map(item => [item.column, item]))
     const values = []
     for (let column = 0; column < columns;) {
       const item = cellsByColumn.get(column)
       if (!item) {
-        values.push('')
-        column += 1
+        const covered = continuation.get(`${rowIndex}:${column}`)
+        if (!covered) {
+          values.push('')
+          column += 1
+          continue
+        }
+        // Keep a horizontally merged block as one cell in its continuation
+        // rows so grid tables do not draw vertical rules through it.
+        const content = covered.last ? deferred.get(covered.item) || '' : ''
+        const align = covered.item.align || (covered.item.colspan > 1 && rowIndex < headerRows ? 'center' : alignments[column])
+        values.push(covered.item.colspan > 1 || (content && align !== alignments[column])
+          ? `\\multicolumn{${covered.item.colspan}}{${cellSpec(covered.item, align, wraps.slice(column, column + covered.item.colspan).some(Boolean))}}{${content}}`
+          : content)
+        column += covered.item.colspan
         continue
       }
-      let value = nodeLatex(item.cell, { ...context, inTable: true }).trim().replace(/\\par\s*$/u, '')
-      if (item.rowspan > 1) value = `\\multirow{${item.rowspan}}{*}{${value}}`
-      if (item.colspan > 1) {
-        const width = widths.slice(column, column + item.colspan).reduce((sum, part) => sum + part, 0)
-        const alignment = alignments[column] === 'right' ? '\\raggedleft' : alignments[column] === 'center' ? '\\centering' : '\\raggedright'
-        value = `\\multicolumn{${item.colspan}}{>{${alignment}\\arraybackslash}p{${width.toFixed(4)}\\linewidth}}{${value}}`
+      let value = nodeLatex(item.cell, cellContext).trim().replace(/\\par\s*$/u, '')
+      const wrap = wraps.slice(column, column + item.colspan).some(Boolean)
+      // Group headers spanning several columns are centred, as in booktabs.
+      const align = item.align || (item.colspan > 1 && rowIndex < headerRows ? 'center' : alignments[column])
+      if (item.rowspan > 1) {
+        // `=` keeps merged text inside the paragraph column instead of using
+        // its natural width, which would run past the column and the margin.
+        const multirow = rows => `\\multirow{${rows}}{${wrap ? '=' : '*'}}{${value}}`
+        if (style.tableStyle === 'shaded' && rowIndex < headerRows) {
+          deferred.set(item, multirow(-item.rowspan))
+          value = ''
+        } else {
+          value = multirow(item.rowspan)
+        }
       }
+      if (item.colspan > 1 || align !== alignments[column]) value = `\\multicolumn{${item.colspan}}{${cellSpec(item, align, wrap)}}{${value}}`
       values.push(value)
       column += item.colspan
     }
+    const color = style.tableStyle === 'shaded' && rowIndex < headerRows ? TABLE_HEADER_COLOR : stripedRows.has(rowIndex) ? TABLE_STRIPE_COLOR : ''
     // A page break inside a multirow would detach the continuation cells.
-    return `${values.join(' & ')} \\\\${spanContinues[rowIndex] ? '*' : ''}\n`
+    return `${color ? `\\rowcolor[HTML]{${color}}` : ''}${values.join(' & ')} \\\\${spanContinues[rowIndex] ? '*' : ''}\n${grid ? gridRule(rowIndex) : ''}`
   }
+  const topRule = ruled ? '\\toprule\n' : grid ? '\\hline\n' : ''
+  const headerRule = headerRows && (ruled || style.tableStyle === 'minimal') ? '\\midrule\n' : ''
+  const bottomRule = ruled ? '\\bottomrule\n' : ''
   const header = rows.slice(0, headerRows).map(renderRow).join('')
   const body = rows.slice(headerRows).map((row, index) => renderRow(row, index + headerRows)).join('')
+  // Coloured rows would otherwise show white gaps around the booktabs rules.
+  const sizeCommand = `\\${style.fontSize}`
   const tableStyle = String.raw`\begingroup
-\small
-\setlength{\tabcolsep}{4pt}
-\renewcommand{\arraystretch}{1.2}
+${sizeCommand}
+\setlength{\tabcolsep}{${grid ? 5 : 4}pt}
+\renewcommand{\arraystretch}{${style.rowSpacing}}
 \setlength{\extrarowheight}{1pt}
-\setlength{\parskip}{0pt}
+${coloured ? String.raw`\setlength{\aboverulesep}{0pt}
+\setlength{\belowrulesep}{0pt}
+` : ''}\setlength{\parskip}{0pt}
 \setlength{\parindent}{0pt}
 `
 
   const tableNumber = context.inTable ? 0 : (context.tableIndex = (context.tableIndex || 0) + 1)
-  const tabular = `${tableStyle}\\begin{tabular}{${specification}}\n\\toprule\n${header}${headerRows ? '\\midrule\n' : ''}${body}\\bottomrule\n\\end{tabular}\n\\endgroup`
+  const tabular = `${tableStyle}\\begin{tabular}{${specification}}\n${topRule}${header}${headerRule}${body}${bottomRule}\\end{tabular}\n\\endgroup`
   if (context.inTable) return `${tabular}\n`
 
   const caption = String(node.attrs?.caption || '').trim() || `Bảng ${tableNumber}`
@@ -692,13 +803,19 @@ function renderLatexTable(node, context) {
   let duplicate = 2
   while (context.tableLabels.has(label)) label = `${requestedLabel.slice(0, 94)}-${duplicate++}`
   context.tableLabels.add(label)
+  const captionBelow = style.captionPosition === 'bottom'
   const estimatedLines = rows.reduce((total, row) => total + Math.max(1, ...row.map(({ cell, column, colspan }) => Math.ceil(tableCellText(cell).length / Math.max(8, widths.slice(column, column + colspan).reduce((sum, width) => sum + width, 0) * 80)))), 0)
   const fullWidth = context.twoColumn && (rows.length > 24 || estimatedLines > 40)
   if (!context.twoColumn || fullWidth) {
-    const heading = `\\toprule\n${header}${headerRows ? '\\midrule\n' : ''}`
-    return `${fullWidth ? '\\onecolumn\n' : ''}${tableStyle}\\begin{longtable}{${specification}}\n\\caption{${latexEscape(caption)}}\\label{${label}} \\\\\n${heading}\\endfirsthead\n${heading}\\endhead\n\\bottomrule\n\\endfoot\n\\bottomrule\n\\endlastfoot\n${body}\\end{longtable}\n\\endgroup\n${fullWidth ? '\\twocolumn\n' : ''}\n`
+    const heading = `${topRule}${header}${headerRule}`
+    const captionRow = `\\caption{${latexEscape(caption)}}\\label{${label}}`
+    const firstHead = captionBelow ? heading : `${captionRow} \\\\\n${heading}`
+    // A longtable caption is a table row; terminate it explicitly in the last-page footer.
+    const lastFoot = captionBelow ? `${bottomRule}${captionRow} \\\\\n` : bottomRule
+    return `${fullWidth ? '\\onecolumn\n' : ''}${tableStyle}\\begin{longtable}{${specification}}\n${firstHead}\\endfirsthead\n${heading}\\endhead\n${bottomRule}\\endfoot\n${lastFoot}\\endlastfoot\n${body}\\end{longtable}\n\\endgroup\n${fullWidth ? '\\twocolumn\n' : ''}\n`
   }
-  return `\\begin{table}[htbp]\n\\centering\n\\caption{${latexEscape(caption)}}\n\\label{${label}}\n${tabular}\n\\end{table}\n\n`
+  const captionBlock = `\\caption{${latexEscape(caption)}}\n\\label{${label}}\n`
+  return `\\begin{table}[htbp]\n\\centering\n${captionBelow ? '' : captionBlock}${tabular}\n${captionBelow ? captionBlock : ''}\\end{table}\n\n`
 }
 
 function nodeLatex(node, context = { images: [] }) {
@@ -708,7 +825,9 @@ function nodeLatex(node, context = { images: [] }) {
     const marks = node.marks || []
     const bareUrlMark = marks.find(mark => mark.type === 'link' && /^https?:/i.test(mark.attrs?.href || '') && String(node.text || '').trim() === mark.attrs.href)
     const underlinedBareUrl = bareUrlMark && marks.some(mark => mark.type === 'underline')
-    const rawBareUrl = bareUrlMark ? String(bareUrlMark.attrs.href).replace(/[\\{}\r\n]/g, '') : ''
+    // The URL text is read inside \href's argument, where a raw % comments out
+    // the rest of the line and # is a parameter token; hyperref prints \% and \#.
+    const rawBareUrl = bareUrlMark ? String(bareUrlMark.attrs.href).replace(/[\\{}\r\n]/g, '').replace(/[%#]/g, character => `\\${character}`) : ''
     let text = bareUrlMark
       ? `${latexEscape(node.text.match(/^\s*/u)[0])}${underlinedBareUrl ? underlinedBreakableUrl(rawBareUrl) : `\\nolinkurl{${rawBareUrl}}`}${latexEscape(node.text.match(/\s*$/u)[0])}`
       : latexEscape(node.text)
@@ -774,10 +893,12 @@ function nodeLatex(node, context = { images: [] }) {
 
     const extension = match[1] === 'png' ? 'png' : 'jpg'
     const filename = `image-${context.images.length + 1}.${extension}`
-    context.images.push({ filename, data: match[2] })
+    const caption = String(node.attrs?.caption || '').trim()
+    context.images.push({ filename, data: match[2], ...(caption ? { caption } : {}) })
     const graphic = String.raw`\includegraphics[width=0.9\linewidth,keepaspectratio]{${filename}}`
-    return context.inTable ? graphic : String.raw`\begin{center}
-${graphic}
+    const captionLine = caption ? `\n\\par\\small\\textit{${latexEscape(caption)}}` : ''
+    return context.inTable ? `{${graphic}${captionLine}}` : String.raw`\begin{center}
+${graphic}${captionLine}
 \end{center}
 
 `
@@ -835,8 +956,10 @@ ${inner}\end{quote}
     case 'table': {
       return renderLatexTable(node, context)
     }
-    case 'tableHeader':
-      return String.raw`\textbf{${inner.trim().replace(/\\par\s*$/, '')}}`
+    case 'tableHeader': {
+      const text = inner.trim().replace(/\\par\s*$/, '')
+      return context.tableHeaderPlain ? text : String.raw`\textbf{${text}}`
+    }
     case 'tableCell':
       return inner
     case 'hardBreak':
@@ -1182,7 +1305,9 @@ export function reconcileEditorImagesIntoLatexSource(source, images = [], anchor
       unplacedImages.push(image.filename)
       return
     }
-    const block = `${editorImageStart}\n\\begin{center}\n\\includegraphics[width=0.9\\linewidth,keepaspectratio]{${image.filename}}\n\\end{center}\n${editorImageEnd}`
+    const caption = String(image.caption || '').trim()
+    const captionLine = caption ? `\n\\par\\small\\textit{${latexEscape(caption)}}` : ''
+    const block = `${editorImageStart}\n\\begin{center}\n\\includegraphics[width=0.9\\linewidth,keepaspectratio]{${image.filename}}${captionLine}\n\\end{center}\n${editorImageEnd}`
     additions.push({ index: insertionIndex, block })
   })
 
@@ -1271,6 +1396,13 @@ function prepareManualCitationReuse(doc, bibliography, citationStyle) {
   }
 }
 
+// LaTeX of one table as it will be compiled (one-column layout); used by the
+// table library preview.
+export function tableLatexPreview(table) {
+  if (table?.type !== 'table') return ''
+  return renderLatexTable(table, { images: [], tableIndex: 0, tableLabels: new Set() }).trim()
+}
+
 export function toLatex(doc, title, templateSource = defaultDocumentTemplate, documentSettings = {}) {
   const settings = sanitizeSettings(documentSettings)
   const source = String(templateSource || defaultDocumentTemplate)
@@ -1337,9 +1469,11 @@ export function toLatex(doc, title, templateSource = defaultDocumentTemplate, do
     latex = ensureLatexPackage(latex, 'url')
     if (!/\\urlstyle\s*\{/i.test(latex)) latex = latex.replace(/\\begin\{document\}/i, '\\urlstyle{rm}\n\\begin{document}')
   }
-  if (/\\(?:toprule|midrule|bottomrule)\b/.test(latex)) {
-    latex = ensureLatexPackage(latex, 'booktabs')
-    latex = ensureLatexPackage(latex, 'array')
+  if (/\\(?:toprule|midrule|bottomrule)\b/.test(latex)) latex = ensureLatexPackage(latex, 'booktabs')
+  if (/\\(?:toprule|midrule|bottomrule|arraybackslash|extrarowheight)\b/.test(latex)) latex = ensureLatexPackage(latex, 'array')
+  if (/\\rowcolor\b/.test(latex)) {
+    latex = ensureLatexPackage(latex, 'xcolor')
+    latex = ensureLatexPackage(latex, 'colortbl')
   }
   if (/\\begin\{longtable\}/.test(latex)) latex = ensureLatexPackage(latex, 'longtable')
   if (/\\multirow\b/.test(latex)) latex = ensureLatexPackage(latex, 'multirow')

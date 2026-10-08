@@ -141,6 +141,9 @@ func (s *wordService) importDocument(ctx context.Context, input []byte) ([]byte,
 	if err != nil {
 		return nil, pandocError(err)
 	}
+	if astTruncated(output) {
+		return nil, appError(http.StatusRequestEntityTooLarge, "Nội dung Word sau khi chuyển đổi vượt giới hạn 32 MB.")
+	}
 	var ast any
 	if err := json.Unmarshal(output, &ast); err != nil {
 		return nil, appError(http.StatusUnprocessableEntity, "Pandoc trả về cấu trúc Word không hợp lệ.")
@@ -183,6 +186,9 @@ func (s *wordService) parseLatex(ctx context.Context, input []byte) ([]byte, err
 	output, err := runCommandWithLimit(ctx, executable, []string{"--sandbox", "-f", "latex", "-t", "json", "input.tex"}, directory, maxTexCommandTime, maxWordASTBytes)
 	if err != nil {
 		return nil, pandocError(err)
+	}
+	if astTruncated(output) {
+		return nil, appError(http.StatusRequestEntityTooLarge, "Cấu trúc LaTeX sau khi chuyển đổi vượt giới hạn 32 MB.")
 	}
 	var ast map[string]any
 	if err := json.Unmarshal(output, &ast); err != nil {
@@ -276,6 +282,11 @@ func (s *wordService) exportDocument(ctx context.Context, input []byte) ([]byte,
 	return output, nil
 }
 
+// astTruncated reports whether Pandoc's JSON filled the output buffer, which
+// silently drops the rest. Reporting the size limit beats a misleading
+// "invalid structure" error from parsing the cut-off JSON.
+func astTruncated(output []byte) bool { return len(output) >= maxWordASTBytes }
+
 func validateWordZip(data []byte) error {
 	archive, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
@@ -358,14 +369,6 @@ func attachWordImages(value any, directory string, total *int) error {
 							if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
 								return fmt.Errorf("Ảnh Word có đường dẫn ngoài tài liệu.")
 							}
-							data, err := os.ReadFile(path)
-							if err != nil {
-								return fmt.Errorf("Không đọc được ảnh trong tài liệu Word.")
-							}
-							*total += len(data)
-							if *total > maxWordImageBytes {
-								return fmt.Errorf("Tổng ảnh Word vượt 24 MB.")
-							}
 							mime := ""
 							switch strings.ToLower(filepath.Ext(path)) {
 							case ".png":
@@ -373,10 +376,24 @@ func attachWordImages(value any, directory string, total *int) error {
 							case ".jpg", ".jpeg":
 								mime = "jpeg"
 							}
-							if mime != "" {
+							link[0] = ""
+							// Unsupported formats (EMF/WMF are common in Word) are dropped
+							// without being read or counted against the image budget.
+							// Targets that are missing or not regular files (external
+							// links, devices) are dropped instead of failing the import.
+							if info, err := os.Lstat(path); mime != "" && err == nil && info.Mode().IsRegular() {
+								if int64(*total)+info.Size() > maxWordImageBytes {
+									return fmt.Errorf("Tổng ảnh Word vượt 24 MB.")
+								}
+								data, err := os.ReadFile(path)
+								if err != nil {
+									return fmt.Errorf("Không đọc được ảnh trong tài liệu Word.")
+								}
+								*total += len(data)
+								if *total > maxWordImageBytes {
+									return fmt.Errorf("Tổng ảnh Word vượt 24 MB.")
+								}
 								link[0] = "data:image/" + mime + ";base64," + base64.StdEncoding.EncodeToString(data)
-							} else {
-								link[0] = ""
 							}
 						}
 					}
@@ -477,7 +494,9 @@ func findPandoc() (string, error) {
 			continue
 		}
 		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-			return candidate, nil
+			// Pandoc runs with Dir set to a temp directory, and exec resolves a
+			// relative executable against Dir, not against where it was found.
+			return filepath.Abs(candidate)
 		}
 	}
 	if executable, err := exec.LookPath("pandoc"); err == nil {

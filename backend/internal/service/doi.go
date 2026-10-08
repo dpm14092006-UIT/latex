@@ -205,16 +205,13 @@ func (s *Service) doiLookup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.doiQueue.acquire(r.Context()); err != nil {
-		writeServiceError(w, err)
+		s.writeFailure(w, r, err)
 		return
 	}
 	defer s.doiQueue.release()
 	bibtex, err := lookupDOI(r.Context(), input.DOI)
 	if err != nil {
-		if r.Context().Err() != nil {
-			return
-		}
-		writeServiceError(w, err)
+		s.writeFailure(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"bibtex": bibtex})

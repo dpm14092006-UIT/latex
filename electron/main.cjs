@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, Menu, net, protocol, screen, shell } = require('electron')
+const { app, BrowserWindow, dialog, ipcMain, Menu, net, protocol, screen, session, shell } = require('electron')
 const { existsSync, mkdirSync, readFileSync } = require('node:fs')
 const { writeFile } = require('node:fs/promises')
 const { basename, isAbsolute, join, resolve } = require('node:path')
@@ -61,6 +61,7 @@ try {
   process.exit(1)
 }
 let allowWindowClose = false
+let startupComplete = false
 let closeSavePending = false
 let closeSaveTimer
 
@@ -77,9 +78,22 @@ function trustedRendererUrl(rawUrl) {
   } catch { return false }
 }
 
-function assertTrustedSender(event) {
+function isTrustedSender(event) {
   const frame = event.senderFrame
-  if (!frame || frame !== event.sender.mainFrame || !trustedRendererUrl(frame.url)) throw new Error('Yêu cầu không đến từ giao diện ứng dụng.')
+  return Boolean(frame && frame === event.sender.mainFrame && trustedRendererUrl(frame.url))
+}
+
+function assertTrustedSender(event) {
+  if (!isTrustedSender(event)) throw new Error('Yêu cầu không đến từ giao diện ứng dụng.')
+}
+
+// Electron grants every permission by default. The UI only needs clipboard
+// access (copy buttons, MathLive paste); deny camera, location, notifications…
+const RENDERER_PERMISSIONS = new Set(['clipboard-read', 'clipboard-sanitized-write'])
+function registerPermissionPolicy() {
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    callback(RENDERER_PERMISSIONS.has(permission) && webContents === mainWindow?.webContents && trustedRendererUrl(details?.requestingUrl || webContents.getURL()))
+  })
 }
 
 function registerRendererProtocol() {
@@ -107,6 +121,9 @@ function finishWindowClose(saved) {
 function requestWindowFlush() {
   if (closeSavePending || !mainWindow || mainWindow.isDestroyed()) return
   closeSavePending = true
+  // A crashed renderer can never answer; its unsaved state is already gone, so
+  // close with what is on disk instead of leaving an unclosable window.
+  if (mainWindow.webContents.isCrashed()) { finishWindowClose(true); return }
   mainWindow.webContents.send('workspace:flush-before-close')
   closeSaveTimer = setTimeout(() => finishWindowClose(false), 15_000)
   closeSaveTimer.unref?.()
@@ -116,9 +133,11 @@ async function shutdownApplication() {
   if (backendShutdownPromise) return backendShutdownPromise
   for (const controller of compileControllers.values()) controller.abort()
   backendShutdownPromise = Promise.resolve(backendRestartPromise).catch(() => {}).then(async () => {
-    await lanSync?.stop()
-    await backend?.stop()
-  }).catch(error => console.error('Không thể dừng dịch vụ sạch sẽ:', error)).finally(() => {
+    // Wait for queued workspace writes (a save can arrive after the close flush)
+    // and stop every service even if one of them fails.
+    const results = await Promise.allSettled([workspaceStore?.whenIdle(), lanSync?.stop(), backend?.stop()])
+    for (const result of results) if (result.status === 'rejected') console.error('Không thể dừng dịch vụ sạch sẽ:', result.reason)
+  }).finally(() => {
     allowApplicationQuit = true
     app.quit()
   })
@@ -153,17 +172,16 @@ function registerNativeActions() {
     assertTrustedSender(event)
     return workspaceStore.save(workspace)
   })
+  // ipcMain.on listeners have no caller to reject to: throwing here would be an
+  // uncaught exception in the main process, so untrusted messages are ignored.
   ipcMain.on('workspace:close-ready', event => {
-    assertTrustedSender(event)
-    if (event.sender === mainWindow?.webContents) finishWindowClose(true)
+    if (isTrustedSender(event) && event.sender === mainWindow?.webContents) finishWindowClose(true)
   })
   ipcMain.on('workspace:close-failed', event => {
-    assertTrustedSender(event)
-    if (event.sender === mainWindow?.webContents) finishWindowClose(false)
+    if (isTrustedSender(event) && event.sender === mainWindow?.webContents) finishWindowClose(false)
   })
   ipcMain.on('latex:cancel', (event, id) => {
-    assertTrustedSender(event)
-    if (typeof id === 'string') compileControllers.get(id)?.abort()
+    if (isTrustedSender(event) && typeof id === 'string') compileControllers.get(id)?.abort()
   })
   ipcMain.handle('latex:compile', async (event, latex, images, id, assets, fresh) => {
     assertTrustedSender(event)
@@ -254,13 +272,23 @@ async function createMainWindow() {
   mainWindow.webContents.on('will-redirect', (event, url) => {
     if (!trustedRendererUrl(url)) event.preventDefault()
   })
-  if (usesBuiltRenderer()) await mainWindow.loadURL(DESKTOP_URL)
-  else {
-    await waitForRenderer()
-    await mainWindow.loadURL(RENDERER_URL)
-    mainWindow.webContents.openDevTools({ mode: 'detach' })
+  mainWindow.webContents.on('render-process-gone', () => { if (closeSavePending) finishWindowClose(true) })
+  // Registered before loading so a window closed or failing during load is released.
+  const createdWindow = mainWindow
+  createdWindow.on('closed', () => { if (mainWindow === createdWindow) mainWindow = null })
+  try {
+    if (usesBuiltRenderer()) await createdWindow.loadURL(DESKTOP_URL)
+    else {
+      await waitForRenderer()
+      await createdWindow.loadURL(RENDERER_URL)
+      createdWindow.webContents.openDevTools({ mode: 'detach' })
+    }
+  } catch (error) {
+    // The UI never loaded, so nothing can answer the close flush; without this the
+    // blank window (and a quit after the startup error) waits 15 s and stays open.
+    if (mainWindow === createdWindow) allowWindowClose = true
+    throw error
   }
-  mainWindow.on('closed', () => { mainWindow = null })
 }
 
 function goBackendExecutable() {
@@ -340,13 +368,17 @@ Bạn vẫn có thể soạn thảo; biên dịch PDF sẽ thử khởi động 
         dialog.showErrorBox('Đồng bộ chưa sẵn sàng', `${error.message}\nDữ liệu tài liệu vẫn được giữ trên máy.`)
       }
       registerNativeActions()
+      registerPermissionPolicy()
+      startupComplete = true
       await createMainWindow()
     } catch (error) {
       dialog.showErrorBox('Không thể mở Viết & Công Thức', error.message || 'Lỗi khởi động ứng dụng.')
       app.quit()
     }
   })
-  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createMainWindow().catch(error => dialog.showErrorBox('Không thể mở ứng dụng', error.message)) })
+  // macOS emits 'activate' on first launch too, possibly while startup is still
+  // awaiting the sync profile (no IPC handlers yet, second window), or during quit.
+  app.on('activate', () => { if (startupComplete && !backendShutdownPromise && BrowserWindow.getAllWindows().length === 0) createMainWindow().catch(error => dialog.showErrorBox('Không thể mở ứng dụng', error.message)) })
   app.on('before-quit', event => {
     if (allowApplicationQuit) return
     event.preventDefault()

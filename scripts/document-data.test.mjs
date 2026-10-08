@@ -5,6 +5,18 @@ import { imageStats } from '../src/services/DocumentSerializer.js'
 import { assetBudgetError, matchesImageSignature, validateAssetFileBatch } from '../src/services/ProjectAssets.js'
 import { createProject, createTask, sanitizeWorkspace } from '../src/services/WorkspaceData.js'
 
+test('image captions are optional and limited to 500 characters', () => {
+  const image = { type: 'imageBlock', attrs: { src: 'data:image/png;base64,iVBORw0KGgo=' } }
+  const document = { type: 'doc', content: [image] }
+  assert.equal(isValidDocument(document), true)
+  image.attrs.caption = 'a'.repeat(500)
+  assert.equal(isValidDocument(document), true)
+  image.attrs.caption += 'a'
+  assert.equal(isValidDocument(document), false)
+  image.attrs.caption = 123
+  assert.equal(isValidDocument(document), false)
+})
+
 test('workspaces saved with pasted h4-h6 headings still open, clamped to level 3', () => {
   const heading = level => ({ type: 'heading', attrs: { textAlign: null, label: '', level }, content: [{ type: 'text', text: `H${level}` }] })
   const document = { type: 'doc', content: [heading(2), { type: 'blockquote', content: [heading(4)] }, heading(6)] }

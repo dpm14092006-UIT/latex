@@ -33,7 +33,7 @@ const PdfPageCanvas = memo(function PdfPageCanvas({ pdf, pageNumber, width, zoom
         setRendering(false)
         onRendered()
       } catch (cause) {
-        if (!disposed) { setRendering(false); onError(cause) }
+        if (!disposed) { setRendering(false); onError(cause, pdf) }
       } finally {
         page?.cleanup()
       }
@@ -111,7 +111,12 @@ function PdfViewer({ src, imageCount, imageFocusKey, imageSyncWarning, controlsC
     }
     if (bestPage) setPageNumber(current => current === bestPage ? current : bestPage)
   }, [navigation])
-  const onPageError = useCallback(cause => setError(cause.message || 'Không thể dựng trang PDF.'), [])
+  // A new PDF destroys the previous document while its pages may still be rendering; their
+  // "destroyed" rejections arrive after the reload cleared the error and must not be shown.
+  const loadedPdfRef = useRef(null)
+  const onPageError = useCallback((cause, source) => {
+    if (source === loadedPdfRef.current) setError(cause.message || 'Không thể dựng trang PDF.')
+  }, [])
 
   useEffect(() => {
     const observer = new ResizeObserver(([entry]) => setWidth(Math.floor(entry.contentRect.width)))
@@ -142,6 +147,7 @@ function PdfViewer({ src, imageCount, imageFocusKey, imageSyncWarning, controlsC
         const document = await task.promise
         if (disposed) return
 
+        loadedPdfRef.current = document
         setPdf(document)
         setPageNumber(number => Math.min(number, document.numPages))
         setRendering(false)
@@ -171,7 +177,7 @@ function PdfViewer({ src, imageCount, imageFocusKey, imageSyncWarning, controlsC
       } catch (cause) { if (!disposed) { setError(cause.message); setRendering(false) } }
     }
     load()
-    return () => { disposed = true; controller.abort(); task?.destroy() }
+    return () => { disposed = true; loadedPdfRef.current = null; controller.abort(); task?.destroy() }
   }, [src])
 
   useEffect(() => {

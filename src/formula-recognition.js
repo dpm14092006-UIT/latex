@@ -145,9 +145,21 @@ function tokenize(input) {
   return { tokens }
 }
 
+// Drops the outer \left( … \right) only when it wraps the whole operand: `(a)(b)` must keep both groups.
+function unwrapParentheses(value) {
+  if (!value.startsWith('\\left(') || !value.endsWith('\\right)')) return value
+  let depth = 0
+  for (const match of value.matchAll(/\\left|\\right/g)) {
+    depth += match[0] === '\\left' ? 1 : -1
+    if (depth === 0) return match.index === value.length - '\\right)'.length ? value.slice('\\left('.length, -'\\right)'.length) : value
+  }
+  return value
+}
+
 function parseTokens(tokens) {
   let position = 0
   let depth = 0
+  let absoluteDepth = 0
   const current = () => tokens[position]
   const skipSpace = () => {
     let hadSpace = false
@@ -157,16 +169,20 @@ function parseTokens(tokens) {
     }
     return hadSpace
   }
-  const isAtomStart = token => token && (token === '(' || token === '{' || token === '|' || /^[A-Za-z]/.test(token) || /^\d/.test(token))
+  // Inside |…| the next bar closes the absolute value instead of opening an implicit product.
+  const isAtomStart = token => token && (token === '(' || token === '{' || (token === '|' && !absoluteDepth) || /^[A-Za-z]/.test(token) || /^\d/.test(token))
 
   function grouped(open, close, left, right) {
     if (current() !== open) throw new Error('Thiếu dấu mở nhóm.')
     position += 1
     depth += 1
     if (depth > 80) throw new Error('Công thức lồng quá nhiều tầng.')
+    const outerAbsoluteDepth = absoluteDepth
+    absoluteDepth = 0
     skipSpace()
     const contents = parseSum()
     skipSpace()
+    absoluteDepth = outerAbsoluteDepth
     if (current() !== close) throw new Error('Thiếu dấu đóng nhóm.')
     position += 1
     depth -= 1
@@ -190,10 +206,16 @@ function parseTokens(tokens) {
     if (token === '{') return grouped('{', '}', '\\{', '\\}')
     if (token === '|') {
       position += 1
+      depth += 1
+      if (depth > 80) throw new Error('Công thức lồng quá nhiều tầng.')
+      const outerAbsoluteDepth = absoluteDepth
+      absoluteDepth = 1
       const contents = parseSum()
+      absoluteDepth = outerAbsoluteDepth
       skipSpace()
       if (current() !== '|') throw new Error('Thiếu dấu | đóng trị tuyệt đối.')
       position += 1
+      depth -= 1
       return `\\left|${contents}\\right|`
     }
     if (/^\d/.test(token)) {
@@ -211,7 +233,8 @@ function parseTokens(tokens) {
         return token === 'sqrt' ? `\\sqrt{${inner}}` : `\\left|${inner}\\right|`
       }
       if (greek.has(token)) return greek.get(token)
-      if (functions.has(token)) return functions.get(token)
+      // sin(x) is function application, not \sin multiplied by (x).
+      if (functions.has(token)) return current() === '(' ? `${functions.get(token)}${grouped('(', ')', '\\left(', '\\right)')}` : functions.get(token)
       if (token.length === 1) return token
       return renderRoman(token)
     }
@@ -251,9 +274,7 @@ function parseTokens(tokens) {
         position += 1
         const right = parsePower()
         if (token === '/') {
-          const numerator = value.match(/^\\left\(([\s\S]*)\\right\)$/)?.[1] || value
-          const denominator = right.match(/^\\left\(([\s\S]*)\\right\)$/)?.[1] || right
-          value = `\\frac{${numerator}}{${denominator}}`
+          value = `\\frac{${unwrapParentheses(value)}}{${unwrapParentheses(right)}}`
         }
         else value += token === '÷' ? ` \\div ${right}` : ` \\cdot ${right}`
         continue

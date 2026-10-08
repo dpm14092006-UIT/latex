@@ -47,6 +47,23 @@ function isFormulaLike(source) {
   return /[=<>≤≥≈∈∉+*/^_{}()\u00B9\u00B2\u00B3\u2070-\u207F\u2080-\u208E\u2090-\u209C]/.test(source)
 }
 
+// Dates (12/05/2024, 05/2024) are written with slashes in Vietnamese prose; they are not fractions.
+const datePattern = /^\d{1,2}\/\d{1,2}\/(?:\d{2}|\d{4})$|^\d{1,2}\/(?:19|20)\d{2}$/
+
+// A plain word glued to one edge of a relation ("(n=120) tham", "gia (n=120)") is usually the
+// surrounding sentence, so an equally scored candidate without it is preferred.
+function hasBareWordEdge(source) {
+  return [source.match(/^([A-Za-z]{2,})\s/)?.[1], source.match(/\s([A-Za-z]{2,})$/)?.[1]]
+    .some(word => word && !mathWords.has(word.toLowerCase()))
+}
+
+function betterRelation(candidate, best) {
+  if (!best || candidate.score !== best.score) return !best || candidate.score > best.score
+  const candidateEdge = hasBareWordEdge(candidate.source)
+  if (candidateEdge !== hasBareWordEdge(best.source)) return !candidateEdge
+  return candidate.source.length > best.source.length
+}
+
 function quality(source, latex, kind, forcedConfidence) {
   if (forcedConfidence) return forcedConfidence
   const operators = (source.match(/[=<>≤≥≈∈∉+*/^_]/g) || []).length
@@ -62,7 +79,7 @@ function quality(source, latex, kind, forcedConfidence) {
 function collectFromSegment(text, segmentOffset, output) {
   const add = (start, end, kind, reason, confidence) => {
     const range = trimRange(text, start, end)
-    if (!range.source || range.source.length > 180 || range.source.includes(BLOCK_SEPARATOR)) return
+    if (!range.source || range.source.length > 180 || range.source.includes(BLOCK_SEPARATOR) || datePattern.test(range.source)) return
     const parsed = recognizeFormula(range.source)
     if (parsed.error || !parsed.latex || !isFormulaLike(range.source)) return
     const score = quality(range.source, parsed.latex, kind, confidence)
@@ -120,7 +137,7 @@ function collectFromSegment(text, segmentOffset, output) {
         const score = quality(source, parsed.latex, 'relation')
         if (score < 0.64) continue
         const candidate = { start, end, source, score }
-        if (!best || candidate.score > best.score || (candidate.score === best.score && candidate.source.length > best.source.length)) best = candidate
+        if (betterRelation(candidate, best)) best = candidate
       }
     }
     if (best) {

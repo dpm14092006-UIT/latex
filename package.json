@@ -20,7 +20,7 @@
     "preview": "npm run backend:build && node scripts/run-web.mjs --preview",
     "backend:build": "node scripts/build-backend.mjs",
     "backend:build:windows": "node scripts/build-backend.mjs --windows-x64",
-    "test:backend": "npm run backend:build && node --test scripts/bibliography.test.mjs scripts/project-assets.test.mjs scripts/latex-compiler.test.mjs scripts/electron-proxy.test.mjs scripts/citation-linker.test.mjs scripts/citation-review.test.mjs scripts/document-data.test.mjs scripts/project-compilation.test.mjs scripts/document-serializer.test.mjs scripts/math-input.test.mjs scripts/formula-recognition.test.mjs scripts/math-suggestion-scanner.test.mjs scripts/math-node-transforms.test.mjs scripts/rich-text.test.mjs scripts/external-links.test.mjs scripts/untrusted-latex-trust.test.mjs scripts/pdf-compile-scheduler.test.mjs electron/app-protocol.test.cjs electron/backend-client.test.cjs electron/workspace-store.test.cjs",
+    "test:backend": "npm run backend:build && node --test scripts/bibliography.test.mjs scripts/project-assets.test.mjs scripts/latex-compiler.test.mjs scripts/electron-proxy.test.mjs scripts/citation-linker.test.mjs scripts/citation-review.test.mjs scripts/document-data.test.mjs scripts/project-compilation.test.mjs scripts/document-serializer.test.mjs scripts/math-input.test.mjs scripts/formula-recognition.test.mjs scripts/math-suggestion-scanner.test.mjs scripts/math-node-transforms.test.mjs scripts/rich-text.test.mjs scripts/external-links.test.mjs scripts/untrusted-latex-trust.test.mjs scripts/pdf-compile-scheduler.test.mjs scripts/table-styles.test.mjs electron/app-protocol.test.cjs electron/backend-client.test.cjs electron/workspace-store.test.cjs",
     "smoke:latex": "npm run backend:build && node scripts/smoke-latex.mjs",
     "smoke:math-paste": "node scripts/smoke-math-paste.mjs",
     "desktop:dev": "node scripts/run-desktop-dev.mjs",
@@ -41,14 +41,14 @@
     "test:project-tabs": "node scripts/project-tabs-ui.mjs",
     "test:project-pdf": "npm run backend:build && node scripts/project-compilation-pdf.mjs",
     "test:desktop:dist": "node scripts/build-desktop.mjs && cross-env VIETLATEX_TEST_PACKAGED_RENDERER=true node scripts/desktop-smoke.mjs",
+    "test:headings": "node scripts/build-desktop.mjs && node scripts/heading-numbering-desktop.mjs",
     "test:stress": "npm run backend:build && node scripts/stress-backend.mjs",
     "smoke:serializer": "npm run backend:build && node scripts/smoke-serializer-xelatex.mjs",
     "test:go": "cd backend && go vet ./... && go test ./...",
     "test:go:race": "cd backend && go test -race -count=1 ./...",
     "test:bench": "npm run backend:build && node scripts/bench-compile.mjs",
     "test:citation-scan": "node --test scripts/citation-linker.test.mjs scripts/citation-review.test.mjs && node scripts/citation-linker-ui.mjs && node scripts/citation-screenshot-ui.mjs",
-    "test:review-fixes": "node scripts/review-fixes-ui.mjs",
-    "test:headings": "node scripts/build-desktop.mjs && node scripts/heading-numbering-desktop.mjs"
+    "test:review-fixes": "node scripts/review-fixes-ui.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",
@@ -62,6 +62,7 @@
     "@lezer/highlight": "^1.2.5",
     "@tiptap/extension-heading": "^3.31.3",
     "@tiptap/extension-highlight": "^3.31.3",
+    "@tiptap/extension-list": "^3.31.4",
     "@tiptap/extension-mathematics": "^3.31.3",
     "@tiptap/extension-placeholder": "^3.31.3",
     "@tiptap/extension-subscript": "^3.31.3",

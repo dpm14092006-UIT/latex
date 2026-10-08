@@ -25,20 +25,28 @@ export async function readZip(file, maxBytes = MAX_TOTAL_ASSET_BYTES) {
   const count = view.getUint16(end + 10, true)
   if (count > 300 || count === 65535) throw new Error('ZIP có quá nhiều tệp.')
   let offset = view.getUint32(end + 16, true), total = 0
-  const names = new Set(), sizes = new Map()
+  const names = new Set(), sizes = new Map(), renames = new Map()
   for (let i = 0; i < count; i++) {
     if (offset + 46 > end || view.getUint32(offset, true) !== 0x02014b50) throw new Error('Mục lục ZIP không hợp lệ.')
     const length = view.getUint16(offset + 28, true), extra = view.getUint16(offset + 30, true), comment = view.getUint16(offset + 32, true)
     if (offset + 46 + length + extra + comment > end) throw new Error('ZIP bị cắt ngắn.')
-    const name = strFromU8(data.subarray(offset + 46, offset + 46 + length))
+    // fflate decodes names without the UTF-8 flag as Latin-1, but macOS Finder and many tools store UTF-8
+    // names without setting it. Use the same raw key as fflate, then rename valid UTF-8 names.
+    const nameBytes = data.subarray(offset + 46, offset + 46 + length)
+    const flaggedUtf8 = (view.getUint16(offset + 8, true) & 0x800) !== 0
+    const rawName = strFromU8(nameBytes, !flaggedUtf8)
+    let name = rawName
+    if (!flaggedUtf8) try { name = new TextDecoder('utf-8', { fatal: true }).decode(nameBytes) } catch { name = rawName }
+    renames.set(rawName, name)
     const size = view.getUint32(offset + 24, true)
     if (view.getUint16(offset + 8, true) & 1 || ((view.getUint32(offset + 38, true) >>> 16) & 0xf000) === 0xa000) throw new Error('ZIP chứa tệp mã hóa hoặc liên kết không được hỗ trợ.')
     if (size > maxBytes || (total += size) > maxBytes || names.has(name.toLowerCase())) throw new Error('ZIP vượt dung lượng giải nén hoặc có tên tệp trùng.')
     if (name.includes('\\') || name.startsWith('/') || name.split('/').some(p => p === '..' || p === '.') || name.includes(':') || /[\x00-\x1f]/.test(name)) throw new Error('Đường dẫn ZIP không an toàn.')
     names.add(name.toLowerCase()); sizes.set(name, size); offset += 46 + length + extra + comment
   }
-  return new Promise((resolve, reject) => unzip(data, { filter: entry => entry.originalSize <= maxBytes }, (error, files) => {
+  return new Promise((resolve, reject) => unzip(data, { filter: entry => entry.originalSize <= maxBytes }, (error, unpacked) => {
     if (error) return reject(error)
+    const files = Object.fromEntries(Object.entries(unpacked).map(([name, bytes]) => [renames.get(name) ?? name, bytes]))
     if (Object.keys(files).length !== sizes.size || Object.entries(files).some(([name, bytes]) => sizes.get(name) !== bytes.length)) return reject(new Error('Kích thước hoặc danh sách tệp ZIP không khớp.'))
     resolve(files)
   }))
@@ -66,8 +74,11 @@ export async function importWorkspace(file) {
   }
   return { ...importedWorkspace, customTemplates: sanitizeFormulaTemplates(raw.customTemplates), documentTemplates: sanitizeDocumentTemplates(raw.documentTemplates) }
 }
+// Finder and Explorer add metadata (AppleDouble `._x`, __MACOSX/, .DS_Store, Thumbs.db) that is never project content.
+const isArchiveMetadata = path => path.split('/').some((part, index, parts) => part === '__MACOSX' || (index === parts.length - 1 && (/^\._/.test(part) || /^(?:\.DS_Store|Thumbs\.db|desktop\.ini)$/i.test(part))))
+
 export async function importLatexProject(file) {
-  const files = await readZip(file, MAX_TOTAL_ASSET_BYTES + 800 * 1024)
+  const files = Object.fromEntries(Object.entries(await readZip(file, MAX_TOTAL_ASSET_BYTES + 800 * 1024)).filter(([path]) => !isArchiveMetadata(path)))
   const sources = Object.keys(files).filter(name => /\.tex$/i.test(name))
   const roots = sources.filter(name => /\\documentclass\b/.test(strFromU8(files[name])))
   const main = roots.length === 1 ? roots[0] : sources.length === 1 ? sources[0] : null

@@ -11,7 +11,7 @@ export default function StudioNavigation({ projects, activeProject, activeTaskId
     const nav = document.getElementById('workspace-navigation')
     searchRef.current?.focus()
     const keyboard = event => {
-      if (document.querySelector('[role="dialog"], dialog[open]')) return
+      if (document.querySelector('[role="dialog"], dialog[open]') || event.isComposing) return
       if (event.key === 'Escape') { event.preventDefault(); onClose(); return }
       if (event.key !== 'Tab') return
       const elements = [...nav.querySelectorAll('button, input, select')].filter(item => !item.disabled && item.getClientRects().length)
@@ -19,8 +19,9 @@ export default function StudioNavigation({ projects, activeProject, activeTaskId
       if (event.shiftKey && (document.activeElement === first || !nav.contains(document.activeElement))) { event.preventDefault(); last?.focus() }
       else if (!event.shiftKey && (document.activeElement === last || !nav.contains(document.activeElement))) { event.preventDefault(); first?.focus() }
     }
-    document.addEventListener('keydown', keyboard)
-    return () => { document.removeEventListener('keydown', keyboard); if (previous?.isConnected) previous.focus() }
+    // Capture phase: the drawer's Escape runs (and is consumed) before the editor's document-level Escape handler.
+    document.addEventListener('keydown', keyboard, true)
+    return () => { document.removeEventListener('keydown', keyboard, true); if (previous?.isConnected) previous.focus() }
   }, [isCompact, open, onClose])
   return <>
     {isCompact && open && <button type="button" className="mono-nav-shade" onClick={onClose} aria-label="Đóng điều hướng" />}

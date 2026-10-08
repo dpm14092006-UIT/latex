@@ -122,10 +122,33 @@ export function parseBibtex(text) {
 
 // ---------- Display ----------
 
+// Accent commands map to Unicode combining marks so `Nguy{\~{\^e}}n` reads as “Nguyễn”, like the PDF.
+// `\d` (dot below) and `\h` (hook above, vietnam/vntex) are the Vietnamese tone marks.
+const LATEX_ACCENTS = { "'": '\u0301', '`': '\u0300', '^': '\u0302', '"': '\u0308', '~': '\u0303', '=': '\u0304', '.': '\u0307', u: '\u0306', v: '\u030C', H: '\u030B', c: '\u0327', k: '\u0328', d: '\u0323', r: '\u030A', b: '\u0331', h: '\u0309' }
+const LATEX_LETTERS = { i: 'ı', j: 'ȷ', o: 'ø', O: 'Ø', ss: 'ß', aa: 'å', AA: 'Å', ae: 'æ', AE: 'Æ', oe: 'œ', OE: 'Œ', l: 'ł', L: 'Ł', dj: 'đ', DJ: 'Đ' }
+const LATEX_ACCENT_PATTERN = /\\(?:([`'^"~=.])|([uvHckdbrh])(?![A-Za-z]))\s*(?:\{\s*(\p{L}\p{M}*)\s*\}|(\p{L}\p{M}*))/gu
+
+function replaceLatexAccents(value) {
+  if (!value.includes('\\')) return value
+  let text = value.replace(/\\(ss|aa|AA|ae|AE|oe|OE|dj|DJ|[ijoOlL])(?![A-Za-z])(?:\s*\{\})?\s*/g, (_, name) => LATEX_LETTERS[name])
+  // Accented dotless i/j are plain i/j; nested accents (`\~{\^e}`) resolve inside out.
+  for (let pass = 0; pass < 4; pass++) {
+    const next = text.replace(LATEX_ACCENT_PATTERN, (_, symbol, letter, braced, bare) => `${(braced || bare).replace(/^ı/u, 'i').replace(/^ȷ/u, 'j')}${LATEX_ACCENTS[symbol || letter]}`)
+    if (next === text) break
+    text = next
+  }
+  return text.normalize('NFC')
+}
+
 export function stripLatex(value) {
-  return String(value || '')
-    .replace(/\\(?:textbf|textit|emph|textrm|textsc|mathrm|url|href)\s*\{([^{}]*)\}/g, '$1')
-    .replace(/\\['`^"~=.uvHck]\s*\{?([A-Za-z])\}?/g, (_, letter) => letter)
+  let text = replaceLatexAccents(String(value || ''))
+  // Unwrap from the innermost group outwards so `\emph{Nguy{\~e}n}` loses the command name too.
+  for (let pass = 0; pass < 8 && text.includes('{'); pass++) {
+    const next = text.replace(/\\(?:textbf|textit|emph|textrm|textsc|mathrm|url|href)\s*\{([^{}]*)\}/g, '$1').replace(/(?<!\\[A-Za-z]*\s*)\{([^{}\\]*)\}/g, '$1')
+    if (next === text) break
+    text = next
+  }
+  return text
     .replace(/\\([&%$#_{}])/g, '$1')
     .replace(/[{}]/g, '')
     .replace(/~/g, ' ')
@@ -161,7 +184,8 @@ export function familyName(name) {
   if (organization) return stripLatex(organization[1])
   if (text.includes(',')) return text.split(',')[0].trim()
   const parts = text.split(/\s+/)
-  const particleIndex = parts.findIndex((part, index) => index < parts.length - 1 && SURNAME_PARTICLES.has(part.toLowerCase()))
+  // BibTeX only treats lowercase words as the von part: “Van Thanh Nguyen” and “Hung Van Le” keep the last word.
+  const particleIndex = parts.findIndex((part, index) => index < parts.length - 1 && SURNAME_PARTICLES.has(part))
   if (particleIndex >= 0) return parts.slice(particleIndex).join(' ')
   return parts.at(-1) || ''
 }
@@ -325,7 +349,19 @@ export function makeCitationKey(fields, existing = new Set()) {
 }
 
 // Preserve protected capitalization and corporate authors; these braces are BibTeX semantics.
-const bibValue = value => String(value).replace(/\r?\n/g, ' ').trim()
+// Text pasted from reference lists/RIS can still carry a stray brace or a trailing backslash, which would
+// swallow every following entry of the .bib file; such values lose their braces instead.
+function bibValue(value) {
+  let text = String(value).replace(/\r?\n/g, ' ').trim().replace(/(?<!\\)((?:\\\\)*)\\$/u, '$1')
+  let depth = 0
+  for (let index = 0; index < text.length && depth >= 0; index++) {
+    if (text[index] === '\\') index++
+    else if (text[index] === '{') depth++
+    else if (text[index] === '}') depth--
+  }
+  if (depth !== 0) text = text.replace(/(?<!\\)[{}]/g, '')
+  return text
+}
 
 export function formatBibtexEntry({ type = 'misc', key, fields }) {
   const order = ['author', 'title', 'journal', 'booktitle', 'publisher', 'volume', 'number', 'pages', 'year', 'doi', 'url', 'note']
@@ -512,10 +548,12 @@ export function parseReferenceLine(line) {
     rest = text.slice(quoted.index + quoted[0].length)
   } else {
     // APA-like: Authors (2024). Title. Venue.
-    const apa = text.match(/^(.+?)\s*\((\d{4}[a-z]?)\)\.?\s*(.+?)\.\s+(.*)$/)
+    // APA dates may carry a month/day ("2024, March 5") or be "n.d.".
+    const apa = text.match(/^(.+?)\s*\((\d{4}[a-z]?|n\.\s?d\.)(?:,\s*[^()]{1,40})?\)\.?\s*(.+?)\.\s+(.*)$/)
     if (apa) {
       fields.author = referenceAuthors(apa[1])
-      fields.year = apa[2]
+      if (/^\d/.test(apa[2])) fields.year = apa[2]
+      else delete fields.year
       fields.title = apa[3]
       rest = apa[4]
     } else {
@@ -587,8 +625,9 @@ function protectBibtexText(text) {
   for (const entry of parseBibtex(source).reverse()) {
     const fields = Object.fromEntries(Object.entries(entry.fields).map(([name, value]) => {
       if (['doi', 'url'].includes(name)) return [name, value]
+      // URLs and inline math (`{$k$-means}`, `$O(n \log n)$`) are LaTeX semantics, not text to escape.
       const urls = []
-      let protectedValue = value.replace(/https?:\/\/[^\s{}]+/gi, url => { urls.push(url); return '\u0000URL' + (urls.length - 1) + '\u0000' })
+      let protectedValue = value.replace(/https?:\/\/[^\s{}]+|(?<!\\)\$(?!\$)(?:[^$\\\n]|\\.)+(?<!\\)\$/gi, url => { urls.push(url); return '\u0000URL' + (urls.length - 1) + '\u0000' })
         .replace(/(?<!\\)[#$%&_]/g, character => '\\' + character)
       urls.forEach((url, index) => { protectedValue = protectedValue.replaceAll('\u0000URL' + index + '\u0000', url) })
       return [name, protectedValue]

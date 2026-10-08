@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -40,12 +41,16 @@ const (
 var (
 	imageFilenamePattern       = regexp.MustCompile(`^image-\d+\.(?:png|jpg)$`)
 	bibliographyPattern        = regexp.MustCompile(`\\(?:bibliography|addbibresource)(?:\[[^\]]*\])?\s*\{`)
-	rerunPattern               = regexp.MustCompile(`\\(?:ref|pageref|eqref|tableofcontents|bibliography|cite)\b`)
 	latexLinePattern           = regexp.MustCompile(`(?:document\.tex:|\bl\.)(\d+)`)
 	latexDetailPattern         = regexp.MustCompile(`(?i)not found|cannot find|Fatal error|\.tex:\d+|^l\.\d+|found no \\citation commands|couldn't open (?:database|style) file`)
 	unresolvedCitationsPattern = regexp.MustCompile(`(?is)(?:warning:\s*[^\r\n]*citation\s+[^\r\n]*(?:\r?\n[^\r\n]*)?undefined|there were undefined citations)`)
 	allowedAssets              = map[string]bool{".tex": true, ".bib": true, ".bst": true, ".sty": true, ".cls": true, ".png": true, ".jpg": true, ".jpeg": true, ".pdf": true, ".eps": true, ".csv": true, ".txt": true}
 )
+
+// Commands that read .aux/.toc data back and need another pass: the \ref
+// family (\autoref, \cref, \nameref, \hyperref[...], but not \href), the
+// \cite family (\citep, \parencite, ...) and lists of contents/figures.
+var rerunPattern = regexp.MustCompile(`\\(?:ref|[a-zA-Z]*[a-gi-zA-Z]ref|[a-zA-Z]*cite[a-zA-Z]*|tableofcontents|listof[a-zA-Z]+|bibliography)\b`)
 
 type encodedAsset struct {
 	Filename string `json:"filename"`
@@ -573,7 +578,9 @@ func windowsReservedName(part string) bool {
 func compileHash(latex string, images, assets []fileAsset) string {
 	hash := sha256.New()
 	writeHashField(hash, []byte("vietlatex-compile-cache-v2"))
-	writeHashField(hash, []byte(time.Now().UTC().Format("2006-01-02")))
+	// \today uses the TeX process's local date, so cached PDFs must expire at
+	// local midnight rather than UTC midnight (07:00 in Vietnam).
+	writeHashField(hash, []byte(time.Now().Format("2006-01-02")))
 	writeHashField(hash, []byte(latex))
 	writeHashField(hash, []byte(fmt.Sprint(len(images))))
 	for _, image := range images {
@@ -605,19 +612,17 @@ func randomID() (string, error) {
 
 func (s *latexService) compileDocument(ctx context.Context, latex string, files []fileAsset) ([]byte, error) {
 	run := &texRun{ctx: ctx, first: s.warm.take()}
-	defer run.close()
-	directory := ""
 	if run.first != nil {
-		directory = run.first.directory
+		run.directory = run.first.directory
 	} else {
 		created, err := os.MkdirTemp("", "viet-latex-")
 		if err != nil {
 			return nil, appError(http.StatusInternalServerError, "Không tạo được thư mục biên dịch tạm.")
 		}
-		directory = created
+		run.directory = created
 	}
-	defer os.RemoveAll(directory)
-	run.directory = directory
+	defer run.cleanup()
+	directory := run.directory
 	source := filepath.Join(directory, "document.tex")
 	pdf := filepath.Join(directory, "document.pdf")
 	if err := os.WriteFile(source, []byte(latex), 0o600); err != nil {
@@ -645,7 +650,7 @@ func (s *latexService) compileDocument(ctx context.Context, latex string, files 
 		return nil, latexError(compileErr)
 	}
 	if log, err := os.ReadFile(filepath.Join(directory, "document.log")); err == nil && unresolvedCitationsPattern.Match(log) {
-		return nil, &serviceError{status: http.StatusUnprocessableEntity, message: "Trích dẫn chưa được giải quyết trong PDF. Kiểm tra khóa REF và danh mục BibTeX; không thể xuất bản có trích dẫn [?].", log: string(log)}
+		return nil, &serviceError{status: http.StatusUnprocessableEntity, message: "Trích dẫn chưa được giải quyết trong PDF. Kiểm tra khóa REF và danh mục BibTeX; không thể xuất bản có trích dẫn [?].", log: logTail(string(log))}
 	}
 	return readCompiledPDF(pdf)
 }
@@ -667,6 +672,17 @@ func (r *texRun) close() {
 		}
 	}
 	r.first, r.next = nil, nil
+}
+
+// cleanup stops leftover warm processes before removing the work directory.
+// Windows refuses to delete a directory that is a live process's working
+// directory, so removing it first leaked the directory whenever a pass failed
+// or was cancelled after the next pass had been prestarted.
+func (r *texRun) cleanup() {
+	r.close()
+	if r.directory != "" {
+		_ = os.RemoveAll(r.directory)
+	}
 }
 
 // pass runs one -no-pdf XeLaTeX pass. prestart spawns the following pass's
@@ -838,7 +854,11 @@ func runXeLatex(ctx context.Context, source, directory string, noPDF bool) error
 	if err != nil {
 		return err
 	}
-	_, err = runCommand(ctx, executable, append(args, "-output-directory", directory, source), directory, maxTexCommandTime)
+	// The command runs inside directory, so name the main file relative to
+	// it, as the warm path does. TeX tokenizes the file name: a "~" (as in
+	// 8.3 short TEMP paths like C:\Users\NGUYEN~1\...) or "%" in an absolute
+	// path made every cold compile fail with "Emergency stop".
+	_, err = runCommand(ctx, executable, append(args, "-output-directory", directory, filepath.Base(source)), directory, maxTexCommandTime)
 	return err
 }
 
@@ -910,10 +930,21 @@ func formatLatexError(detail string) error {
 		prefix = fmt.Sprintf("Dòng %d: ", line)
 	}
 	message := fmt.Sprintf("%sXeLaTeX chưa biên dịch được tài liệu. %s", prefix, joined)
-	if len(detail) > 32_000 {
-		detail = detail[len(detail)-32_000:]
+	return &serviceError{status: http.StatusUnprocessableEntity, message: message, log: logTail(detail), line: line}
+}
+
+// logTail keeps the end of a compiler log, where TeX reports the failure,
+// without starting in the middle of a UTF-8 sequence.
+func logTail(log string) string {
+	const maxLogBytes = 32_000
+	if len(log) <= maxLogBytes {
+		return log
 	}
-	return &serviceError{status: http.StatusUnprocessableEntity, message: message, log: detail, line: line}
+	start := len(log) - maxLogBytes
+	for start < len(log) && !utf8.RuneStart(log[start]) {
+		start++
+	}
+	return log[start:]
 }
 
 func findXeLatex() (string, error) {

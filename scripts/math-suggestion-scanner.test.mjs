@@ -87,6 +87,14 @@ test('scans editor paragraphs, maps document positions and skips code, links, an
   assert.equal(result.suggestions[0].blockEligible, false)
 })
 
+test('slash dates are not fractions and relations do not absorb neighbouring plain words', () => {
+  assert.deepEqual(scanMathText('Ngày 12/05/2024 và tháng 05/2024 chúng tôi họp.').suggestions, [])
+  assert.deepEqual(scanMathText('Tỷ lệ 50% (n=120) tham gia khảo sát.').suggestions.map(item => item.source), ['(n=120)'])
+  assert.deepEqual(scanMathText('Mẫu gia (n=120) được chọn.').suggestions.map(item => item.source), ['(n=120)'])
+  assert.deepEqual(scanMathText('Một nửa là 1/2 phần.').suggestions.map(item => item.source), ['1/2'])
+  assert.deepEqual(scanMathText('Năng lượng E = mc^2 rất lớn.').suggestions.map(item => item.source), ['E = mc^2'])
+})
+
 test('marks a standalone equation as eligible for display math', () => {
   const paragraph = textBlock([textNode('x^2 + y^2 = z^2')])
   const [suggestion] = scanMathDocument(documentOf([paragraph])).suggestions

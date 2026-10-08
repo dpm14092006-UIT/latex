@@ -234,10 +234,17 @@ test('real XeLaTeX paginates long tables and repeats headers in single-column an
 })
 
 test('Word export accepts valid embedded images and rejects MIME mismatches', async () => {
-  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jG9sAAAAASUVORK5CYII='
-  const document = { type: 'doc', content: [{ type: 'imageBlock', attrs: { src: `data:image/png;base64,${png}`, alt: 'Pixel' } }] }
+  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC'
+  const document = { type: 'doc', content: [{ type: 'imageBlock', attrs: { src: `data:image/png;base64,${png}`, alt: 'Pixel', caption: 'Đồ thị A_B & 50%' } }] }
   const exported = await goBackend.convertWord('export', toWordAst(document, 'Image test'))
   assert.equal(Object.keys(unzipSync(exported.bytes)).filter(name => name.startsWith('word/media/')).length, 1)
+  const imported = await goBackend.convertWord('import', exported.bytes)
+  assert.equal(imported.ast.blocks[0].t, 'Figure')
+  const caption = imported.ast.blocks[0].c[1][1].flatMap(block => block.c).filter(item => item.t === 'Str').map(item => item.c).join(' ')
+  assert.equal(caption, 'Đồ thị A_B & 50%')
+  const { latex, images } = toLatex(document, 'Image caption')
+  const pdf = await goBackend.compileLatex(latex, images)
+  assert.match(await pdfText(pdf), /Đồ thị A_B & 50%/u)
 
   const invalid = structuredClone(document)
   invalid.content[0].attrs.src = 'data:image/png;base64,/9j/4AAQ'
