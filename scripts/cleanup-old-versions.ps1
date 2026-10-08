@@ -12,7 +12,10 @@ $portableDirectory = Get-ChildItem -LiteralPath $releaseRoot -Directory |
   Sort-Object Name -Descending | Select-Object -First 1
 if (-not $portableDirectory) { throw 'No verified portable release found; nothing will be deleted.' }
 $portableManifest = Get-Content -LiteralPath (Join-Path $portableDirectory.FullName 'portable-manifest.json') -Raw | ConvertFrom-Json
-$portableName = "Viet-Latex-Studio-$($cleanupPackage.version)-Portable.exe"
+$portableName = [IO.Path]::GetFileName([string]$portableManifest.path)
+if ($portableName -notmatch "^Viet-Latex-Studio-$([regex]::Escape([string]$cleanupPackage.version))-Portable(?:-[A-Fa-f0-9]{7,40})?\.exe$") {
+  throw 'Portable manifest filename is invalid; nothing will be deleted.'
+}
 $portablePath = Join-Path $portableDirectory.FullName $portableName
 if ($portableManifest.version -ne $cleanupPackage.version -or $portableManifest.sha256 -notmatch '^[A-Fa-f0-9]{64}$') {
   throw 'Portable release manifest does not match the current package.'

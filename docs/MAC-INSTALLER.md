@@ -6,9 +6,16 @@ Hiện chưa có file DMG được tạo hoặc kiểm thử trong phiên Window
 
 ## Tạo trên MacBook
 
-Chuyển gói `Viet-Latex-Studio-0.5.0-Mac-Build-Source.zip` sang Mac và giải nén. Đây là mã nguồn để tạo bộ cài, chưa phải ứng dụng đã cài. Gói không chứa workspace cá nhân, dependency Windows hoặc các bản phát hành cũ.
+Lấy mã nguồn mới nhất từ GitHub trên MacBook:
 
-Cần [Node.js 24 LTS](https://nodejs.org/en/download) với npm 11 và [Go 1.26.8+](https://go.dev/dl/), cùng Command Line Tools của Apple cho lipo. Nếu chưa có Command Line Tools, cài bằng `xcode-select --install` trên Mac. Sau khi môi trường sẵn sàng, mở Terminal ở thư mục vừa giải nén và chạy:
+```bash
+git clone https://github.com/dpm14092006-UIT/latex.git
+cd latex
+```
+
+Nếu đã clone, chạy `git pull --ff-only` trong thư mục repo để cập nhật. Có thể dùng gói `Viet-Latex-Studio-0.5.0-Mac-Build-Source.zip` rồi giải nén khi không dùng Git. Gói này là mã nguồn để tạo bộ cài, không chứa workspace cá nhân, dependency Windows hoặc các bản phát hành cũ.
+
+Cần [Node.js 24 LTS](https://nodejs.org/en/download) với npm 11 và [Go 1.26.8+](https://go.dev/dl/), cùng Command Line Tools của Apple cho lipo. Nếu chưa có Command Line Tools, cài bằng `xcode-select --install` trên Mac. Sau khi môi trường sẵn sàng, chạy trong thư mục repo hoặc thư mục mã nguồn vừa giải nén:
 
 ```bash
 bash scripts/build-mac.command
