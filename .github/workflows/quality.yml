@@ -70,6 +70,7 @@ jobs:
       - name: Build universal Mac test installer
         run: npm run desktop:build:mac
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       - uses: actions/upload-artifact@v4
         with:

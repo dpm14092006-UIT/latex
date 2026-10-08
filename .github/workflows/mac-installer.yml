@@ -32,6 +32,7 @@ jobs:
       - name: Build universal DMG
         run: npm run desktop:build:mac
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}

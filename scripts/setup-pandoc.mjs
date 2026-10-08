@@ -8,7 +8,10 @@ import { resolve } from 'node:path'
 if (!['win32', 'darwin'].includes(process.platform)) throw new Error('Cài Pandoc từ pandoc.org/installing.html hoặc đặt PANDOC_PATH đến bản đã cài.')
 const version = process.env.PANDOC_VERSION || '3.11'
 if (!/^\d+(?:\.\d+)+$/.test(version)) throw new Error('Phiên bản Pandoc không hợp lệ.')
-const response = await fetch(`https://api.github.com/repos/jgm/pandoc/releases/tags/${version}`, { headers: { 'User-Agent': 'VietLaTeX-Studio-setup' } })
+const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN
+const headers = { 'User-Agent': 'VietLaTeX-Studio-setup', Accept: 'application/vnd.github+json' }
+if (githubToken) headers.Authorization = `Bearer ${githubToken}`
+const response = await fetch(`https://api.github.com/repos/jgm/pandoc/releases/tags/${version}`, { headers, signal: AbortSignal.timeout(30_000) })
 if (!response.ok) throw new Error(`GitHub: ${response.status}`)
 const release = await response.json()
 const directory = resolve('tools/pandoc')
@@ -18,7 +21,7 @@ async function installAsset(pattern, output) {
 const asset = release.assets.find(asset => pattern.test(asset.name))
 if (!asset || !/^sha256:[a-f0-9]{64}$/.test(asset.digest || '')) throw new Error('Không có gói với SHA-256 được công bố.')
 console.log(`Downloading ${asset.name}`)
-const download = await fetch(asset.browser_download_url)
+const download = await fetch(asset.browser_download_url, { signal: AbortSignal.timeout(120_000) })
 if (!download.ok) throw new Error(`Download: ${download.status}`)
 const bytes = new Uint8Array(await download.arrayBuffer())
 const digest = createHash('sha256').update(bytes).digest('hex')
