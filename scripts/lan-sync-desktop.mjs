@@ -147,7 +147,8 @@ try {
   // must render without running LaTeX on the receiver.
   if (await client.page.getByRole('dialog').count()) await client.page.getByRole('button', { name: 'Đóng', exact: true }).click()
   await client.page.getByRole('button', { name: 'Cập nhật PDF', exact: true }).click()
-  await client.page.waitForFunction(() => Boolean(window.lanTestPdfUrl), { timeout: 45000 })
+  // waitForFunction(fn, arg, options): the timeout must be the third argument.
+  await client.page.waitForFunction(() => Boolean(window.lanTestPdfUrl), undefined, { timeout: 45000 })
   await client.page.locator('.studio-panel-status[data-tone="ready"]').waitFor({ timeout: 45000 })
   await host.page.locator('.studio-panel-status').filter({ hasText: 'Đã nhận qua LAN' }).waitFor({ timeout: 45000 })
   await host.page.locator('.studio-pdf-page canvas').first().waitFor()
