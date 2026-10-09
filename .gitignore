@@ -10,6 +10,7 @@ desktop-build.log
 references/*
 !references/README.md
 tools/pandoc/
+tools/tectonic/
 test-results/
 artifacts/
 public/mathlive/

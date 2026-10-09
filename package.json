@@ -35,6 +35,7 @@
     "test:pdf-batching": "npm run backend:build && node scripts/pdf-batching-smoke.mjs",
     "test:load": "npm run backend:build && node scripts/load-compile.mjs",
     "setup:pandoc": "node scripts/setup-pandoc.mjs",
+    "setup:tectonic": "node scripts/setup-tectonic.mjs",
     "test:upgrade": "npm run backend:build && node --test scripts/upgrade.test.mjs",
     "test:desktop": "npm run backend:build && node scripts/desktop-smoke.mjs",
     "test:ui": "node scripts/monochrome-ui-smoke.mjs",

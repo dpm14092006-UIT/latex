@@ -21,8 +21,9 @@ const run = (command, args, env = process.env) => new Promise((resolve, reject) 
 
 await access(executable)
 await run('/usr/bin/codesign', ['--verify', '--deep', '--strict', app])
-for (const binary of [executable, join(resources, 'backend', 'vietlatex-backend'), join(resources, 'pandoc', 'pandoc')]) {
+for (const binary of [executable, join(resources, 'backend', 'vietlatex-backend'), join(resources, 'pandoc', 'pandoc'), join(resources, 'tectonic', 'tectonic')]) {
   for (const arch of ['x86_64', 'arm64']) await run('/usr/bin/lipo', [binary, '-verify_arch', arch])
 }
+await run(join(resources, 'tectonic', 'tectonic'), ['--version'])
 await run(process.execPath, [join(root, 'scripts', 'lan-sync-desktop.mjs')], { ...process.env, DESKTOP_EXE: executable })
-console.log('Packaged Mac app passed: signature integrity, universal binaries and two-desktop LAN regression.')
+console.log('Packaged Mac app passed: signature integrity, universal binaries, bundled Tectonic and two-desktop LAN regression.')

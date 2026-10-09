@@ -625,6 +625,9 @@ func (s *latexService) compileDocument(ctx context.Context, latex string, files 
 	directory := run.directory
 	source := filepath.Join(directory, "document.tex")
 	pdf := filepath.Join(directory, "document.pdf")
+	if runtime.GOOS == "darwin" {
+		latex = macFontCompatible(latex)
+	}
 	if err := os.WriteFile(source, []byte(latex), 0o600); err != nil {
 		return nil, appError(http.StatusInternalServerError, "Không ghi được tài liệu LaTeX tạm.")
 	}
@@ -639,6 +642,13 @@ func (s *latexService) compileDocument(ctx context.Context, latex string, files 
 	}
 
 	run.source = source
+	if tectonic, ok := tectonicEngine(); ok {
+		run.close()
+		if err := runTectonic(ctx, tectonic, latex, directory); err != nil {
+			return nil, latexError(err)
+		}
+		return compiledResult(directory, pdf)
+	}
 	needsBibliography := bibliographyPattern.MatchString(latex)
 	var compileErr error
 	if !needsBibliography && !rerunPattern.MatchString(latex) {
@@ -649,10 +659,97 @@ func (s *latexService) compileDocument(ctx context.Context, latex string, files 
 	if compileErr != nil {
 		return nil, latexError(compileErr)
 	}
+	return compiledResult(directory, pdf)
+}
+
+func compiledResult(directory, pdf string) ([]byte, error) {
 	if log, err := os.ReadFile(filepath.Join(directory, "document.log")); err == nil && unresolvedCitationsPattern.Match(log) {
 		return nil, &serviceError{status: http.StatusUnprocessableEntity, message: "Trích dẫn chưa được giải quyết trong PDF. Kiểm tra khóa REF và danh mục BibTeX; không thể xuất bản có trích dẫn [?].", log: logTail(string(log))}
 	}
 	return readCompiledPDF(pdf)
+}
+
+// XeTeX on macOS resolves font names through Core Text, which cannot see the
+// OpenType fonts inside the TeX tree, so the built-in templates' Latin Modern
+// request fails with fontspec's "cannot be found". Loading the same fonts by
+// file name goes through kpathsea and works with MacTeX and Tectonic alike.
+var latinModernByName = regexp.MustCompile(`\\setmainfont\{Latin Modern Roman\}`)
+
+const latinModernByFile = `\setmainfont{lmroman10}[Extension=.otf,UprightFont=*-regular,BoldFont=*-bold,ItalicFont=*-italic,BoldItalicFont=*-bolditalic]`
+
+func macFontCompatible(latex string) string {
+	return latinModernByName.ReplaceAllLiteralString(latex, latinModernByFile)
+}
+
+// Tectonic downloads TeX Live files on first use, which can take minutes.
+const maxTectonicCommandTime = 5 * time.Minute
+
+var biberPattern = regexp.MustCompile(`\\addbibresource\b|backend\s*=\s*biber`)
+
+// tectonicEngine selects the self-contained Tectonic engine when no XeLaTeX
+// is installed (MacTeX is ~5 GB) or when VIETLATEX_TEX_ENGINE=tectonic.
+func tectonicEngine() (string, bool) {
+	if os.Getenv("VIETLATEX_SANDBOX") == "docker" {
+		return "", false
+	}
+	switch os.Getenv("VIETLATEX_TEX_ENGINE") {
+	case "xelatex":
+		return "", false
+	case "tectonic":
+	default:
+		if _, err := findXeLatex(); err == nil {
+			return "", false
+		}
+	}
+	executable, err := findTectonic()
+	return executable, err == nil
+}
+
+func runTectonic(ctx context.Context, executable, latex, directory string) error {
+	if biberPattern.MatchString(latex) {
+		if _, err := exec.LookPath("biber"); err != nil {
+			return appError(http.StatusServiceUnavailable, "APA 7th cần Biber, nhưng Tectonic không kèm Biber. Cài MacTeX hoặc TeX Live, hoặc chọn kiểu trích dẫn số thứ tự/IEEE.")
+		}
+	}
+	// --untrusted disables shell escape and other insecure features, matching
+	// -no-shell-escape on the XeLaTeX path; Tectonic runs BibTeX and reruns itself.
+	_, err := runCommand(ctx, executable, []string{"-X", "compile", "--untrusted", "--keep-logs", "--outdir", directory, "document.tex"}, directory, maxTectonicCommandTime)
+	var command *commandError
+	if errors.As(err, &command) && command.timeout {
+		return appError(http.StatusGatewayTimeout, "Tectonic biên dịch quá 5 phút. Lần đầu Tectonic cần tải gói TeX; kiểm tra kết nối mạng rồi thử lại.")
+	}
+	return err
+}
+
+func findTectonic() (string, error) {
+	name := "tectonic"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	candidates := []string{os.Getenv("TECTONIC_PATH")}
+	if resources := os.Getenv("VIETLATEX_RESOURCES_PATH"); resources != "" {
+		candidates = append(candidates, filepath.Join(resources, "tectonic", name))
+	}
+	if appPath := os.Getenv("VIETLATEX_APP_PATH"); appPath != "" {
+		candidates = append(candidates, filepath.Join(appPath, "tools", "tectonic", name))
+	}
+	candidates = append(candidates, filepath.Join("tools", "tectonic", name))
+	if runtime.GOOS == "darwin" {
+		candidates = append(candidates, "/opt/homebrew/bin/tectonic", "/usr/local/bin/tectonic", "/opt/local/bin/tectonic")
+	}
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			// runCommand sets Dir to the work directory, so a relative path would not resolve.
+			return filepath.Abs(candidate)
+		}
+	}
+	if executable, err := exec.LookPath("tectonic"); err == nil {
+		return executable, nil
+	}
+	return "", &commandError{missing: true}
 }
 
 // texRun drives the XeLaTeX passes for one document directory, using warm
@@ -989,6 +1086,14 @@ func (s *latexService) environment(ctx context.Context) map[string]any {
 			return map[string]any{"available": false, "sandbox": "docker", "error": fmt.Sprintf("Docker hoặc image %s chưa sẵn sàng. %s", image, err.Error())}
 		}
 		return map[string]any{"available": true, "executable": "docker", "version": "XeLaTeX — " + image, "sandbox": "docker"}
+	}
+	if tectonic, ok := tectonicEngine(); ok {
+		version, err := runCommand(ctx, tectonic, []string{"--version"}, "", 5*time.Second)
+		if err != nil {
+			return map[string]any{"available": false, "executable": tectonic, "engine": "tectonic", "error": err.Error(), "help": "Cài MacTeX/TeX Live hoặc cài lại ứng dụng để có Tectonic."}
+		}
+		firstLine := strings.SplitN(strings.TrimSpace(string(version)), "\n", 2)[0]
+		return map[string]any{"available": true, "executable": tectonic, "engine": "tectonic", "version": strings.TrimSuffix(firstLine, "\r") + " (tự tải gói TeX khi cần)", "sandbox": "local"}
 	}
 	executable, err := findXeLatex()
 	if err != nil {

@@ -49,7 +49,7 @@ Word không bảo toàn tuyệt đối mọi bố cục: tham chiếu chéo xu�
 
 ## Phát triển và đóng gói
 
-Cần Node.js 22.13+ (khuyến nghị Node 24 LTS theo `.nvmrc`), npm 11+, Go 1.26.8+ để phát triển/đóng gói, và XeLaTeX (Windows: MiKTeX/TeX Live; macOS: MacTeX/TeX Live). `npm ci` dùng lockfile và chế độ kiểm tra `engines` nghiêm ngặt. Người dùng bản desktop đã đóng gói không cần cài Go.
+Cần Node.js 22.13+ (khuyến nghị Node 24 LTS theo `.nvmrc`), npm 11+, Go 1.26.8+ để phát triển/đóng gói, và XeLaTeX (Windows: MiKTeX/TeX Live; macOS: MacTeX/TeX Live, hoặc Tectonic đóng gói sẵn trong bản Mac khi không có MacTeX). `npm ci` dùng lockfile và chế độ kiểm tra `engines` nghiêm ngặt. Người dùng bản desktop đã đóng gói không cần cài Go.
 
 Xuất PDF APA 7th dùng `biblatex-apa`, `csquotes` và `biber`; cài các gói này trong bộ TeX. Xuất Word dùng CSL APA 7th của dự án Citation Style Language (bản cục bộ, giữ thông tin tác giả và giấy phép trong tệp CSL). Docker TeX cần xây lại image sau khi cập nhật Dockerfile để có Biber.
 

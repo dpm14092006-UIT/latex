@@ -13,6 +13,9 @@ const run = (command, args, env = process.env) => new Promise((resolve, reject) 
 const pandoc = join(root, 'tools', 'pandoc', 'pandoc')
 try { await access(pandoc) } catch { await run(process.execPath, [join(root, 'scripts', 'setup-pandoc.mjs')]) }
 for (const arch of ['x86_64', 'arm64']) await run('/usr/bin/lipo', [pandoc, '-verify_arch', arch])
+const tectonic = join(root, 'tools', 'tectonic', 'tectonic')
+try { await access(tectonic) } catch { await run(process.execPath, [join(root, 'scripts', 'setup-tectonic.mjs')]) }
+for (const arch of ['x86_64', 'arm64']) await run('/usr/bin/lipo', [tectonic, '-verify_arch', arch])
 await run(process.execPath, [join(root, 'scripts', 'build-backend.mjs'), '--universal'])
 for (const arch of ['x86_64', 'arm64']) await run('/usr/bin/lipo', [join(root, 'build', 'backend', 'vietlatex-backend'), '-verify_arch', arch])
 await run(process.execPath, [join(root, 'node_modules', 'vite', 'bin', 'vite.js'), 'build'], { ...process.env, BUILD_DESKTOP_APP: 'true' })

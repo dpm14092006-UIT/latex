@@ -8,9 +8,13 @@ module.exports = {
   electronFuses: process.platform === 'darwin'
     ? { ...packageBuild.electronFuses, resetAdHocDarwinSignature: true }
     : packageBuild.electronFuses,
-  extraResources: packageBuild.extraResources.map(resource => process.platform === 'darwin'
-    ? { ...resource, filter: resource.to === 'backend' ? ['vietlatex-backend'] : ['**/*', '!**/*.exe'] }
-    : resource),
+  extraResources: [
+    ...packageBuild.extraResources.map(resource => process.platform === 'darwin'
+      ? { ...resource, filter: resource.to === 'backend' ? ['vietlatex-backend'] : ['**/*', '!**/*.exe'] }
+      : resource),
+    // Fallback engine for Macs without MacTeX (scripts/setup-tectonic.mjs).
+    ...(process.platform === 'darwin' ? [{ from: 'tools/tectonic', to: 'tectonic', filter: ['**/*'] }] : []),
+  ],
   directories: {
     ...packageBuild.directories,
     output: join(tmpdir(), `VietLatexDesktopBuild-${pkg.version}`),

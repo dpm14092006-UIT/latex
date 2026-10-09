@@ -58,6 +58,17 @@ jobs:
       - run: npm install --global npm@11.12.1
       - run: npm ci
       - run: npm run test:go
+      - name: Install bundled Tectonic
+        run: npm run setup:tectonic
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      # The runner has no MacTeX, so this is the only job that compiles a real
+      # PDF on macOS (built-in template font + Vietnamese + BibTeX).
+      - name: Compile a Vietnamese PDF on macOS with Tectonic
+        run: cd backend && go test ./internal/service -run 'TestTectonic|TestMacFont' -count=1 -v
+        env:
+          VIETLATEX_REQUIRE_TECTONIC: '1'
+          TECTONIC_PATH: ${{ github.workspace }}/tools/tectonic/tectonic
       - run: npm run lint
       - run: npm run test:backend
       - run: npm run test:sync
