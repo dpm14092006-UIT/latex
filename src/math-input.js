@@ -1,3 +1,21 @@
+import { replaceUnicodeScripts, unicodeSubscripts, unicodeSuperscripts } from './unicode-scripts.js'
+
+const unicodeScriptCharacters = [...unicodeSubscripts.keys(), ...unicodeSuperscripts.keys()].join('')
+const unicodeFormulaPattern = new RegExp(`(?<![\\p{L}\\p{N}_\\\\])[A-Za-z][A-Za-z0-9${unicodeScriptCharacters}]*(?![\\p{L}\\p{N}_])`, 'gu')
+const unicodeScriptPattern = new RegExp(`[${unicodeScriptCharacters}]`, 'u')
+
+// Explicit Unicode scripts are an unambiguous signal even without $…$.
+// Keep an entire chemical token together: H₂O and SO₄²⁻ must not be split.
+export function unicodeScriptFormulas(input) {
+  const text = String(input ?? '')
+  return [...text.matchAll(unicodeFormulaPattern)].filter(match => unicodeScriptPattern.test(match[0])).map(match => {
+    const source = match[0]
+    const chemical = /^[A-Z]/.test(source) && source.replace(/[^A-Za-z]/g, '').length > 1
+    const base = chemical ? source.replace(/[A-Za-z]+/g, letters => `\\mathrm{${letters}}`) : source
+    return { source, start: match.index, end: match.index + source.length, latex: normalizeFormulaInput(base) }
+  })
+}
+
 const formulaCommands = /\\(?:frac|dfrac|tfrac|sqrt|sum|prod|int|oint|lim|left|right|begin|end|mathrm|mathcal|mathbb|mathbf|mathit|operatorname|widehat|widetilde|overline|underline|vec|dot|ddot|partial|nabla|cdot|times|div|pm|mp|cup|cap|in|notin|leq|geq|neq|approx|equiv|rightarrow|leftarrow|Rightarrow|infty|log|ln|sin|cos|tan|exp|cases|matrix|aligned)\b/i
 const bareMathOperators = /[=+*/^_<>≤≥≠≈∈∉→←⇒∞∫∑√±×÷∪∩∂∇−-]/u
 const mathFunctionWords = new Set(['sin', 'cos', 'tan', 'log', 'ln', 'exp', 'lim', 'sum', 'prod', 'min', 'max', 'sup', 'inf', 'det', 'rank', 'trace'])
@@ -69,6 +87,8 @@ export function standaloneLatexPaste(input, normalize = value => value.trim()) {
   if (environments.some(name => !/^(?:equation\*?|align\*?|gather\*?|displaymath|aligned|split|multline\*?|cases|array|matrix|pmatrix|bmatrix|vmatrix|Vmatrix)$/.test(name))) return null
 
   const commands = source.match(/\\[A-Za-z]+\*?/g) || []
+  const unicode = unicodeScriptFormulas(source)
+  if (!wrapped.explicit && unicode.length === 1 && unicode[0].source === source) return { latex: unicode[0].latex, type: 'inline' }
   const hasStructure = formulaCommands.test(source) || bareMathOperators.test(source)
   if (!hasStructure && !wrapped.explicit) return null
 
@@ -185,12 +205,7 @@ export function normalizeFormulaInput(input = '') {
   // `max\ depth` is a spaced word run; `\quad\ x` / `\cdot\ n` are commands and stay untouched.
   value = value.replace(/(?<!\\)\b([A-Za-z][A-Za-z0-9.-]*)\\\s+([A-Za-z][A-Za-z0-9.-]*(?:\\\s+[A-Za-z][A-Za-z0-9.-]*)*)/g,
     (_match, first, rest) => `\\text{${first} ${rest.replace(/\\\s+/g, ' ')}}`)
-  const subscripts = { '₀':'0','₁':'1','₂':'2','₃':'3','₄':'4','₅':'5','₆':'6','₇':'7','₈':'8','₉':'9','₊':'+','₋':'-','₌':'=','₍':'(','₎':')','ₐ':'a','ₑ':'e','ₕ':'h','ᵢ':'i','ⱼ':'j','ₖ':'k','ₗ':'l','ₘ':'m','ₙ':'n','ₒ':'o','ₚ':'p','ᵣ':'r','ₛ':'s','ₜ':'t','ᵤ':'u','ᵥ':'v','ₓ':'x' }
-  const superscripts = { '⁰':'0','¹':'1','²':'2','³':'3','⁴':'4','⁵':'5','⁶':'6','⁷':'7','⁸':'8','⁹':'9','⁺':'+','⁻':'-','⁼':'=','⁽':'(','⁾':')','ⁿ':'n','ⁱ':'i' }
-  const subChars = Object.keys(subscripts).join('')
-  const supChars = Object.keys(superscripts).join('')
-  value = value.replace(new RegExp(`[${subChars}]+`, 'g'), run => `_{${[...run].map(char => subscripts[char]).join('')}}`)
-    .replace(new RegExp(`[${supChars}]+`, 'g'), run => `^{${[...run].map(char => superscripts[char]).join('')}}`)
+  value = replaceUnicodeScripts(value, (type, content) => `${type === 'subscript' ? '_' : '^'}{${content}}`)
   value = textifyPlainWordRuns(value)
     .replace(/\s{2,}/g, ' ').trim()
   return value

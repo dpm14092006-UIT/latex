@@ -25,6 +25,7 @@ const doc = {
     paragraph(text('Đối chiếu với nghiên cứu trước '), { type: 'citation', attrs: { key: 'smith2026' } }),
     paragraph({ type: 'hardBreak' }, text('[1] sau ngắt dòng đầu đoạn')),
     paragraph(text('Ký tự đặc biệt: a\\b{c} # $ % & _ ^ ~ < > |')),
+    paragraph(text('NO₂ CO₂ H₂O SO₄²⁻ m² xₜ ¹⁴C')),
     paragraph(text('Rỗng: '), { type: 'inlineMath', attrs: { latex: '  ' } }, text(' xong')),
     { type: 'blockMath', attrs: { latex: 'a = b\n\n\n+ c' } },
     { type: 'blockMath', attrs: { latex: '' } },

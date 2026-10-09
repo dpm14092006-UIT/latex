@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { normalizeFormulaInput, standaloneLatexPaste } from '../src/math-input.js'
+import { normalizeFormulaInput, standaloneLatexPaste, unicodeScriptFormulas } from '../src/math-input.js'
+
+test('Unicode formulas stay complete and bare chemical pastes become inline LaTeX', () => {
+  const formulas = unicodeScriptFormulas('Nồng độ NO₂, CO₂, H₂O và SO₄²⁻; xₜ và m².')
+  assert.deepEqual(formulas.map(item => item.source), ['NO₂', 'CO₂', 'H₂O', 'SO₄²⁻', 'xₜ', 'm²'])
+  assert.deepEqual(formulas.map(item => item.latex), [String.raw`\mathrm{NO}_{2}`, String.raw`\mathrm{CO}_{2}`, String.raw`\mathrm{H}_{2}\mathrm{O}`, String.raw`\mathrm{SO}_{4}^{2-}`, 'x_{t}', 'm^{2}'])
+  assert.deepEqual(standaloneLatexPaste('NO₂', normalizeFormulaInput), { latex: String.raw`\mathrm{NO}_{2}`, type: 'inline' })
+  assert.equal(standaloneLatexPaste('Nồng độ NO₂.', normalizeFormulaInput), null)
+  assert.deepEqual(unicodeScriptFormulas('đNO₂ \\NO₂ abc_NO₂'), [])
+})
 
 test('matrix row separators followed by newlines are preserved', () => {
   assert.equal(normalizeFormulaInput('\\begin{pmatrix} a & b \\\\\n c & d \\end{pmatrix}'), '\\begin{pmatrix} a & b \\\\\nc & d \\end{pmatrix}')

@@ -2,6 +2,9 @@ const { createCipheriv, createDecipheriv, randomBytes } = require('node:crypto')
 const http = require('node:http')
 const { isIP } = require('node:net')
 const MAX_WIRE_BYTES = 180 * 1024 * 1024
+const MIN_REQUEST_TIMEOUT_MS = 30_000
+const MAX_REQUEST_TIMEOUT_MS = 15 * 60_000
+const MIN_TRANSFER_BYTES_PER_SECOND = 256 * 1024
 
 function secret() { return randomBytes(32).toString('base64url') }
 function keyBytes(key) {
@@ -31,6 +34,10 @@ function localAddress(host) {
 }
 function validateEndpoint(host, port) {
   if (!localAddress(host) || !Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Chỉ kết nối địa chỉ IPv4 trong mạng nội bộ.')
+}
+function requestTimeoutForWireBytes(bytes) {
+  const size = Number.isFinite(bytes) && bytes > 0 ? bytes : 0
+  return Math.min(MAX_REQUEST_TIMEOUT_MS, MIN_REQUEST_TIMEOUT_MS + Math.ceil(size / MIN_TRANSFER_BYTES_PER_SECOND * 1000))
 }
 // `budget` ({ used, max }) is shared by concurrent readers so several large
 // bodies cannot together exhaust memory before they are authenticated.
@@ -64,22 +71,34 @@ function request(host, port, path, payload, key, deviceId, { signal } = {}) {
   const wire = seal(payload, key, `request:${path}`)
   if (Buffer.byteLength(wire) > MAX_WIRE_BYTES) return Promise.reject(new Error('Gói đồng bộ vượt giới hạn.'))
   return new Promise((resolve, reject) => {
+    let timer
+    const armTimeout = bytes => {
+      clearTimeout(timer)
+      timer = setTimeout(() => req.destroy(new Error('Không kết nối được máy chủ. Tiếp tục lưu trên máy và thử lại khi cùng mạng LAN.')), requestTimeoutForWireBytes(bytes))
+    }
     const req = http.request({ hostname: host, port, path, method: 'POST', agent: false, signal, headers: {
       'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(wire), 'X-Vietlatex-Device': deviceId,
     } }, async response => {
+      const responseBytes = Number(response.headers['content-length'])
+      armTimeout(Number.isFinite(responseBytes) ? responseBytes : MAX_WIRE_BYTES)
       try {
         const raw = await readBody(response)
-        if (response.statusCode !== 200) throw new Error(response.statusCode === 401 ? 'Mã ghép đã hết hạn hoặc máy này đã bị ngắt quyền kết nối.' : `Máy chủ đồng bộ trả lỗi ${response.statusCode}.`)
+        if (response.statusCode !== 200) {
+          let errorCode = ''
+          try { errorCode = JSON.parse(raw).code || '' } catch { /* Non-JSON errors use the status message below. */ }
+          if (response.statusCode === 409 && errorCode === 'CLOCK_SKEW') throw new Error('Đồng hồ giữa hai máy lệch quá 5 phút. Hãy bật đồng bộ thời gian tự động trên cả hai máy rồi thử lại.')
+          throw new Error(response.statusCode === 401 ? 'Mã ghép đã hết hạn hoặc máy này đã bị ngắt quyền kết nối.' : `Máy chủ đồng bộ trả lỗi ${response.statusCode}.`)
+        }
         const result = unseal(raw, key, `response:${path}`)
         if (result.requestId !== payload.requestId) throw new Error('Phản hồi không khớp lượt đồng bộ.')
         if (result.error) throw new Error(result.error)
         resolve(result)
       } catch (error) { reject(error) }
     })
-    const timer = setTimeout(() => req.destroy(new Error('Không kết nối được máy chủ. Tiếp tục lưu trên máy và thử lại khi cùng mạng LAN.')), 30000)
+    armTimeout(Buffer.byteLength(wire))
     req.once('close', () => clearTimeout(timer))
     req.once('error', reject)
     req.end(wire)
   })
 }
-module.exports = { secret, seal, unseal, readBody, request, validateEndpoint, MAX_WIRE_BYTES }
+module.exports = { secret, seal, unseal, readBody, request, validateEndpoint, requestTimeoutForWireBytes, MAX_WIRE_BYTES, MAX_REQUEST_TIMEOUT_MS }

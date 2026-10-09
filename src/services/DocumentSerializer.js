@@ -1,5 +1,6 @@
 import { bibliographyStyleName, citationKeys, citationLabel, citationNumbers, citationOccurrences, isAuthorYearStyle, parseBibtex, resolveCitationStyle, shortAuthors, stripLatex } from './Bibliography.js'
 import { bareInlineFormula, normalizeFormulaInput, repairStrippedLatex, standaloneLatexPaste } from '../math-input.js'
+import { replaceUnicodeScripts } from '../unicode-scripts.js'
 import { normalizeDocumentSpacing } from './DocumentSpacing.js'
 import { normalizeTextColor } from './RichTextFormats.js'
 import { sanitizeSettings } from './DocumentSettings.js'
@@ -548,7 +549,8 @@ export function normalizeDocumentDelimiters(doc) {
 
 const latexEscapes = { '\\': '\\textbackslash{}', '^': '\\textasciicircum{}', '~': '\\textasciitilde{}', '#': '\\#', $: '\\$', '%': '\\%', '&': '\\&', _: '\\_', '{': '\\{', '}': '\\}' }
 function latexEscape(value = '') {
-  return String(value ?? '').replace(/[\\^~#$%&_{}]/g, character => latexEscapes[character])
+  const escaped = String(value ?? '').replace(/[\\^~#$%&_{}]/g, character => latexEscapes[character])
+  return replaceUnicodeScripts(escaped, (type, content) => `\\text${type}{${content}}`)
 }
 const highlightDefinition = String.raw`\providecommand{\vietlatexhl}[2]{{\setlength{\fboxsep}{0.5pt}\colorbox[HTML]{#1}{\strut #2}}}`
 function latexHexColor(value) { return /^#[0-9a-f]{6}$/i.test(value || '') ? value.slice(1).toUpperCase() : '' }

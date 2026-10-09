@@ -1,12 +1,13 @@
 import { BookOpen, FilePlus2, FileStack, FolderPlus, Plus, Sigma, Trash2, X } from 'lucide-react'
-import { useState } from 'react'
+import { useLayoutEffect, useState } from 'react'
 import { recognizeFormula } from '../formula-recognition.js'
 import AbstractSettings from './AbstractSettings.jsx'
+import { formatShortcut } from '../services/KeyboardShortcuts.js'
 
-function DialogFrame({ title, Icon, width, onClose, children }) {
+function DialogFrame({ title, Icon, width, onClose, children, bottomInset = 0 }) {
   return (
-    <div className="modal-backdrop studio-backdrop" onMouseDown={event => event.target === event.currentTarget && onClose()}>
-      <section className="studio-dialog" style={{ maxWidth: width }} role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+    <div className="modal-backdrop studio-backdrop" style={bottomInset ? { bottom: bottomInset } : undefined} onMouseDown={event => event.target === event.currentTarget && onClose()}>
+      <section className="studio-dialog" style={{ maxWidth: width, ...(bottomInset ? { maxHeight: `min(880px, calc(100dvh - ${bottomInset}px - 40px))` } : {}) }} role="dialog" aria-modal="true" aria-labelledby="dialog-title">
         <header className="studio-dialog-head">
           <h2 id="dialog-title"><Icon size={20} strokeWidth={1.8} />{title}</h2>
           <button type="button" className="modal-close" onClick={onClose} aria-label="Đóng"><X size={16} /></button>
@@ -77,18 +78,28 @@ export function FormulaDialog({
   mathFieldRef,
   onUntrustedPaste,
   mathliveReady,
+  mathKeyboard = { visible: false, height: 0 },
+  onHideKeyboard,
   katexRenderer,
   onInsert,
   normalizeFormula,
 }) {
   const [plainFormula, setPlainFormula] = useState('')
+  useLayoutEffect(() => {
+    if (!open || inputMode !== 'visual' || !mathKeyboard.visible) return
+    const frame = window.requestAnimationFrame(() => {
+      const container = mathFieldRef.current?.parentElement
+      if (container) container.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [open, inputMode, mathKeyboard.visible, mathKeyboard.height, mathFieldRef])
   const recognized = recognizeFormula(plainFormula)
   const recognitionActive = inputMode === 'recognize'
   const canInsert = Boolean(formula.trim()) && (!recognitionActive || !recognized.error)
   if (!open) return null
 
   return (
-    <DialogFrame title={editing ? 'Sửa công thức' : 'Chèn công thức'} Icon={Sigma} width={560} onClose={onClose}>
+    <DialogFrame title={editing ? 'Sửa công thức' : 'Chèn công thức'} Icon={Sigma} width={560} onClose={onClose} bottomInset={mathKeyboard.visible ? mathKeyboard.height : 0}>
       <span className="label">Kiểu hiển thị</span>
       <div className="studio-choice-row">
         <button type="button" onClick={() => onFormulaTypeChange('inline')} aria-pressed={formulaType === 'inline'}>Trong dòng <span>x²</span></button>
@@ -129,9 +140,13 @@ export function FormulaDialog({
           <button type="button" disabled={!recognized.latex} onClick={() => onInputModeChange('visual')}>Sửa trực quan</button>
         </div>
       </div>}
-      <div hidden={inputMode !== 'visual'}>
+      {inputMode === 'visual' && <div>
+        <div className="studio-formula-input-head">
+          <span className="label">Nhập công thức</span>
+          {mathKeyboard.visible && <button type="button" className="btn" onClick={onHideKeyboard} title="Đóng bàn phím · Esc"><X size={14} />Đóng bàn phím</button>}
+        </div>
         {mathliveReady ? <math-field ref={mathFieldRef} className="mathlive-field" aria-label="Nhập công thức toán học" math-virtual-keyboard-policy="manual" math-mode-space={'\\;'} smart-mode="on" smart-fence smart-superscript /> : <div className="studio-preview-box label" style={{ borderStyle: 'dashed' }}>Đang tải bàn phím công thức…</div>}
-      </div>
+      </div>}
       <textarea
         hidden={inputMode !== 'latex'}
         className="field min-h-24 resize-y"
@@ -145,7 +160,7 @@ export function FormulaDialog({
       <span className="label">Xem trước</span>
       <div className="studio-preview-box" dangerouslySetInnerHTML={{ __html: renderFormula(katexRenderer, normalizeFormula(formula) || '\\,', formulaType === 'block') }} />
       <div className="studio-dialog-foot">
-        <span className="label">Ctrl + Enter để {editing ? 'lưu' : 'chèn'}</span>
+        <span className="label">{formatShortcut('Ctrl + Enter')} để {editing ? 'lưu' : 'chèn'}</span>
         <button type="button" className="btn btn--solid" disabled={!canInsert} onClick={onInsert}><Plus size={14} /> {editing ? 'Lưu công thức' : 'Chèn công thức'}</button>
       </div>
     </DialogFrame>

@@ -224,7 +224,7 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
     }
   }
   async function serve(req, res) {
-    const end = (code, body = '{}') => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(body) }
+    const end = (code, body = '{}') => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Content-Length': Buffer.byteLength(body) }); res.end(body) }
     if (stopped || req.method !== 'POST' || !['/pair', '/exchange', '/resolve', '/pdf'].includes(req.url) || req.headers.origin) return end(403)
     const remote = req.socket.remoteAddress
     const attempt = attempts.get(remote) || { count: 0, at: Date.now() }
@@ -241,7 +241,8 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
     let body
     try {
       body = transport.unseal(await transport.readBody(req, limit, bodyBudget), key, `request:${req.url}`)
-      if (!body || typeof body.requestId !== 'string' || body.requestId.length > 100 || typeof deviceId !== 'string' || !/^[a-f0-9-]{36}$/.test(deviceId) || !Number.isFinite(body.at) || Math.abs(Date.now() - body.at) > REQUEST_WINDOW_MS) return end(401)
+      if (!body || typeof body.requestId !== 'string' || body.requestId.length > 100 || typeof deviceId !== 'string' || !/^[a-f0-9-]{36}$/.test(deviceId) || !Number.isFinite(body.at)) return end(401)
+      if (Math.abs(Date.now() - body.at) > REQUEST_WINDOW_MS) return end(409, JSON.stringify({ code: 'CLOCK_SKEW' }))
       const replayKey = `${deviceId}:${body.requestId}`
       if (replay.has(replayKey)) return end(401)
       replay.set(replayKey, Date.now())
@@ -283,7 +284,7 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
   }
   async function startServer({ allowNewPort = false } = {}) {
     const candidate = http.createServer((req, res) => { void serve(req, res).catch(() => { if (!res.headersSent) res.writeHead(500); res.end() }) })
-    candidate.requestTimeout = 30000; candidate.headersTimeout = 10000; candidate.maxConnections = 16
+    candidate.requestTimeout = transport.MAX_REQUEST_TIMEOUT_MS; candidate.headersTimeout = 10000; candidate.maxConnections = 16
     const listen = port => new Promise((resolve, reject) => { candidate.once('error', reject); candidate.listen(port, '0.0.0.0', () => { candidate.off('error', reject); resolve() }) })
     try { await listen(state.port || 0) } catch (error) {
       // Paired machines expect the saved port, but if another program now holds

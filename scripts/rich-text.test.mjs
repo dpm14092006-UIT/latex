@@ -84,6 +84,46 @@ test('validator accepts palette formatting and rejects arbitrary values', () => 
   assert.equal(isValidDocument(doc([para([text('a')], { textAlign: 'diagonal' })])), false)
 })
 
+test('workspace recovery keeps valid text, tasks and assets around damaged entries', () => {
+  const task = createTask('Tài liệu còn cứu được', doc([
+    para([text('Đoạn văn tốt'), { type: 'citation', attrs: { key: 'khóa không hợp lệ!' } }]),
+    { type: 'unrecognizedNode', content: [] },
+    para([text('Đoạn cuối vẫn còn')]),
+  ]))
+  task.sourceDraft = '\\documentclass{article}'
+  task.sourceEdited = true
+  task.sourceTrusted = false
+  task.assets = [
+    { filename: 'notes.txt', data: bytesToBase64(new TextEncoder().encode('ghi chú còn tốt')) },
+    { filename: '../private.tex', data: bytesToBase64(new TextEncoder().encode('không hợp lệ')) },
+    { filename: 'refs.bib', data: bytesToBase64(new TextEncoder().encode('@book{ok}')) },
+  ]
+  const project = createProject('Dự án còn cứu được', task)
+  const restored = sanitizeWorkspace({ projects: [project], activeProjectId: project.id })
+  assert.ok(restored, 'one damaged node or asset must not discard the workspace')
+  const recovered = restored.projects[0].tasks[0]
+  assert.equal(recovered.title, 'Tài liệu còn cứu được')
+  assert.equal(recovered.sourceDraft, '\\documentclass{article}')
+  assert.equal(recovered.sourceEdited, true)
+  assert.equal(recovered.sourceTrusted, false)
+  assert.match(JSON.stringify(recovered.document), /Đoạn văn tốt/)
+  assert.match(JSON.stringify(recovered.document), /Đoạn cuối vẫn còn/)
+  assert.doesNotMatch(JSON.stringify(recovered.document), /unrecognizedNode|khóa không hợp lệ/)
+  assert.deepEqual(recovered.assets.map(asset => asset.filename), ['notes.txt', 'refs.bib'])
+})
+
+test('a wholly damaged document keeps its task metadata with a safe editable starter', () => {
+  const task = createTask('Nguồn còn giữ')
+  task.document = { type: 'doc', content: [{ type: 'unsupportedBlock', content: [] }] }
+  task.sourceDraft = '\\input{chapters/main.tex}'
+  const project = createProject('Dự án', task)
+  const restored = sanitizeWorkspace({ projects: [project], activeProjectId: project.id })
+  assert.equal(restored.projects[0].tasks[0].title, 'Nguồn còn giữ')
+  assert.equal(restored.projects[0].tasks[0].sourceDraft, '\\input{chapters/main.tex}')
+  assert.ok(isValidDocument(restored.projects[0].tasks[0].document))
+  assert.match(JSON.stringify(restored.projects[0].tasks[0].document), /paragraph/)
+})
+
 test('pasted CSS is normalized to serializable values', () => {
   assert.equal(normalizeColor('rgb(198, 40, 40)'), '#c62828')
   assert.equal(normalizeColor('#ABC'), '#aabbcc')

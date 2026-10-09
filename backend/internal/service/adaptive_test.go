@@ -300,7 +300,7 @@ func TestHealthReportsOperationalMetrics(t *testing.T) {
 			t.Errorf("word stats missing %q", key)
 		}
 	}
-	for _, key := range []string{"availableMemoryBytes", "cpus", "uptimeSec", "backendHeapBytes"} {
+	for _, key := range []string{"availableMemoryBytes", "cpus", "uptimeSec", "backendHeapBytes", "requestBodyBytesInFlight", "requestBodyBudgetBytes"} {
 		if _, ok := body.System[key]; !ok {
 			t.Errorf("system stats missing %q", key)
 		}

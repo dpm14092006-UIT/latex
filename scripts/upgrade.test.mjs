@@ -14,6 +14,7 @@ import { startGoBackendForTests } from './go-backend-test-client.mjs'
 import { bibtexForCompile } from '../src/services/Bibliography.js'
 import { citationLabel, citationNumbers, parseBibtex } from '../src/services/Bibliography.js'
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs'
+import { unicodeScriptFormulas } from '../src/math-input.js'
 const require = createRequire(import.meta.url)
 const goBackend = await startGoBackendForTests()
 after(() => goBackend.close())
@@ -30,6 +31,42 @@ async function pdfText(bytes) {
     return pages.join(' ').replace(/\s+/g, ' ')
   } finally { await loading.destroy() }
 }
+
+test('automatically recognized Unicode chemical formulas compile with scripts in a real PDF', async () => {
+  const content = unicodeScriptFormulas('NO₂ CO₂ H₂O SO₄²⁻ m² xₜ').flatMap(formula => [
+    { type: 'inlineMath', attrs: { latex: formula.latex } }, text(' '),
+  ])
+  const { latex } = toLatex({ type: 'doc', content: [{ type: 'paragraph', content }] }, 'Recognized chemistry')
+  assert.match(latex, /\$\\mathrm\{NO\}_\{2\}\$/)
+  const bytes = await goBackend.compileLatex(latex, [], { fresh: true })
+  const printed = (await pdfText(bytes)).replace(/\s+/gu, '')
+  assert.ok(printed.includes('NO2CO2H2O'), printed)
+  // Math-mode extraction may emit the raised charge before the lower index.
+  assert.match(printed, /SO(?:42[-−]|2[-−]4)/u)
+  assert.ok(printed.includes('m2xt'), printed)
+  assert.doesNotMatch(printed, /[\ufffd\uffff]/u)
+})
+
+test('typed Unicode scripts retain their glyphs and baseline positions in a real PDF', async () => {
+  const document = { type: 'doc', content: [paragraph('NO₂ CO₂ H₂O SO₄²⁻ m² xₜ ¹⁴C')] }
+  const { latex } = toLatex(document, 'Unicode scripts')
+  const bytes = await goBackend.compileLatex(latex, [], { fresh: true })
+  const loading = getDocument({ data: new Uint8Array(bytes), useSystemFonts: true })
+  try {
+    const pdf = await loading.promise
+    const items = (await (await pdf.getPage(1)).getTextContent()).items
+    const combined = items.map(item => item.str).join('').replace(/\s+/gu, '')
+    assert.ok(combined.includes('NO2CO2H2OSO42-m2xt14C'), combined)
+    assert.doesNotMatch(combined, /[\ufffd\uffff]/u)
+    const no = items.findIndex(item => item.str === 'NO')
+    assert.equal(items[no + 1]?.str, '2')
+    assert.ok(items[no + 1].transform[5] < items[no].transform[5], 'NO₂ must place 2 below the baseline')
+    assert.ok(items[no + 1].height < items[no].height, 'NO₂ must reduce the script size')
+    const meters = items.findIndex(item => item.str === 'm')
+    assert.equal(items[meters + 1]?.str, '2')
+    assert.ok(items[meters + 1].transform[5] > items[meters].transform[5], 'm² must place 2 above the baseline')
+  } finally { await loading.destroy() }
+})
 
 test('workspace CRUD, merge and restored settings retain independent documents', () => {
   const source = sample(); source.activeProjectId = source.projects[0].id

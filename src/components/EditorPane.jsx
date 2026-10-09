@@ -6,6 +6,7 @@ import { AlignCenter, AlignJustify, AlignLeft, AlignRight, Baseline, Bold, BookO
 import { FONT_SIZES, HIGHLIGHT_COLORS, MATH_SYMBOLS, TEXT_COLORS, TEXT_SYMBOLS } from '../services/RichTextFormats.js'
 import { useTrackpadZoom } from '../hooks/useTrackpadZoom.js'
 import ZoomControls, { ZOOM_LEVELS } from './ZoomControls.jsx'
+import { formatShortcut } from '../services/KeyboardShortcuts.js'
 
 // Marks the format painter copies; links and code are content, not formatting.
 const PAINTABLE_MARKS = new Set(['bold', 'italic', 'underline', 'strike', 'superscript', 'subscript', 'textStyle', 'highlight'])
@@ -196,8 +197,8 @@ function ToolButton({ title, active, onClick, children, prominent = false, ariaE
     <button
       type="button"
       className={'studio-ribbon-tool' + (active ? ' is-active' : '') + (prominent ? ' is-prominent' : '')}
-      title={title}
-      aria-label={title}
+      title={formatShortcut(title)}
+      aria-label={formatShortcut(title)}
       aria-pressed={active === undefined ? undefined : active}
       aria-expanded={ariaExpanded}
       onClick={onClick}

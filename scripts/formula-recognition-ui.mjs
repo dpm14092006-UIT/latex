@@ -12,7 +12,10 @@ try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } })
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
   const project = createProject('Kiểm thử', createTask('Công thức'))
-  await page.addInitScript(data => localStorage.setItem('latex-workspace-v1', JSON.stringify(data)), {
+  await page.addInitScript(data => {
+    localStorage.setItem('latex-workspace-v1', JSON.stringify(data))
+    localStorage.setItem('latex-pdf-batch-mode', 'manual')
+  }, {
     version: 1, projects: [project], activeProjectId: project.id, mode: 'write', activeTab: 'write', pdfMode: 'manual',
   })
   const errors = []
@@ -28,6 +31,8 @@ try {
   assert.equal(await dialog.getByLabel('LaTeX nhận diện được').inputValue(), String.raw`p \geq N_{\mathrm{train}}`)
   await dialog.locator('.studio-preview-box .katex').waitFor()
   const compactSamples = [
+    ['NO₂', String.raw`\mathrm{NO}_{2}`],
+    ['H₂O', String.raw`\mathrm{H}_{2}\mathrm{O}`],
     ['Macro-F1=F1Emerging+F1Stable+F1Declining3', String.raw`\text{Macro-F1} = \frac{\mathrm{F1}_{\text{Emerging}} + \mathrm{F1}_{\text{Stable}} + \mathrm{F1}_{\text{Declining}}}{3}`],
     ['Yc,t(4){Emerging,Stable,Declining}', String.raw`Y_{c,t}^{(4)} \in \{\text{Emerging}, \text{Stable}, \text{Declining}\}`],
     ['SalesPerActiveProductc,t=Salesc,tActiveProductsc,t', String.raw`\mathrm{SalesPerActiveProduct}_{c,t} = \frac{\mathrm{Sales}_{c,t}}{\mathrm{ActiveProducts}_{c,t}}`],
@@ -76,8 +81,44 @@ try {
   await blockSuggestion.check()
   await blockScanDialog.getByRole('button', { name: 'Chuyển 1 gợi ý' }).click()
   await page.locator('.tiptap [data-type="block-math"]').waitFor()
+  // Real typing completes on a boundary; do not split H₂O while entering it.
+  const draft = page.locator('.tiptap')
+  const replaceDraft = async value => {
+    await draft.click()
+    await draft.press(`${primaryKey}+A`)
+    await draft.press('Backspace')
+    if (value) await page.keyboard.insertText(value)
+  }
+  await replaceDraft('Nồng độ ')
+  await page.keyboard.insertText('NO₂')
+  assert.equal(await draft.locator('[data-type="inline-math"]').count(), 0)
+  await page.keyboard.press('Space')
+  const no2 = draft.locator('[data-type="inline-math"]')
+  await no2.waitFor()
+  assert.equal(await no2.getAttribute('data-latex'), String.raw`\mathrm{NO}_{2}`)
+  await page.keyboard.insertText('được đo.')
+  assert.match(await draft.innerText(), /được đo\./)
+  await replaceDraft('')
+  await page.keyboard.insertText('H₂')
+  await page.keyboard.insertText('O')
+  await page.keyboard.press('Space')
+  await draft.locator('[data-type="inline-math"]').waitFor()
+  assert.equal(await draft.locator('[data-type="inline-math"]').getAttribute('data-latex'), String.raw`\mathrm{H}_{2}\mathrm{O}`)
+  await replaceDraft('Nồng độ ')
+  await page.evaluate(() => navigator.clipboard.writeText('NO₂'))
+  await page.keyboard.press(`${primaryKey}+V`)
+  await draft.locator('[data-type="inline-math"]').waitFor()
+  assert.equal(await draft.locator('[data-type="inline-math"]').getAttribute('data-latex'), String.raw`\mathrm{NO}_{2}`)
+  assert.match(await draft.innerText(), /Nồng độ/)
+  assert.equal(await page.locator('.studio-trust-banner').count(), 0, 'generated Unicode LaTeX should compile without requesting raw-source trust')
+  await replaceDraft('Nồng độ ')
+  await page.evaluate(() => navigator.clipboard.writeText('NO₂, CO₂ và H₂O được đo.'))
+  await page.keyboard.press(`${primaryKey}+V`)
+  await draft.locator('[data-type="inline-math"]').nth(2).waitFor()
+  assert.deepEqual(await draft.locator('[data-type="inline-math"]').evaluateAll(nodes => nodes.map(node => node.getAttribute('data-latex'))), [String.raw`\mathrm{NO}_{2}`, String.raw`\mathrm{CO}_{2}`, String.raw`\mathrm{H}_{2}\mathrm{O}`])
+  assert.match(await draft.innerText(), /được đo\./)
   assert.deepEqual(errors, [])
-  console.log('Formula recognition UI: typed conversion, scan suggestions, inline/display review and insertion passed.')
+  console.log('Formula recognition UI: typed conversion, scan suggestions, inline/display review, Unicode chemical typing and pasting passed.')
 } finally {
   await browser?.close()
   await server.close()

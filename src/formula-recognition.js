@@ -1,3 +1,6 @@
+import { unicodeSubscripts as subscriptMap, unicodeSuperscripts as superscriptMap } from './unicode-scripts.js'
+import { unicodeScriptFormulas } from './math-input.js'
+
 const greek = new Map(Object.entries({
   alpha: '\\alpha', beta: '\\beta', gamma: '\\gamma', delta: '\\delta', epsilon: '\\epsilon',
   theta: '\\theta', lambda: '\\lambda', mu: '\\mu', pi: '\\pi', rho: '\\rho', sigma: '\\sigma',
@@ -20,18 +23,6 @@ const operators = new Map([
 ])
 
 const tokenPattern = /\s+|>=|<=|!=|==|⇒|↔|[A-Za-z]+\d*|\d+(?:\.\d+)?|[≤≥≠≈∈∉∞→±×÷]|[()+\-*/^_=,{}|<>]/gy
-
-const subscriptMap = new Map(Object.entries({
-  '₀': '0', '₁': '1', '₂': '2', '₃': '3', '₄': '4', '₅': '5', '₆': '6', '₇': '7', '₈': '8', '₉': '9',
-  'ₐ': 'a', 'ₑ': 'e', 'ₕ': 'h', 'ᵢ': 'i', 'ⱼ': 'j', 'ₖ': 'k', 'ₗ': 'l', 'ₘ': 'm', 'ₙ': 'n',
-  'ₒ': 'o', 'ₚ': 'p', 'ᵣ': 'r', 'ₛ': 's', 'ₜ': 't', 'ᵤ': 'u', 'ᵥ': 'v', 'ₓ': 'x',
-  '₊': '+', '₋': '-', '₌': '=', '₍': '(', '₎': ')',
-}))
-
-const superscriptMap = new Map(Object.entries({
-  '⁰': '0', '¹': '1', '²': '2', '³': '3', '⁴': '4', '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9',
-  '⁺': '+', '⁻': '-', '⁼': '=', '⁽': '(', '⁾': ')', 'ⁿ': 'n', 'ⁱ': 'i',
-}))
 
 function convertScriptRun(input, pattern, mapping, type) {
   return input.replace(pattern, (_match, base, run) => `${base}${type}{${[...run].map(character => mapping.get(character) || character).join('')}}`)
@@ -329,6 +320,8 @@ export function recognizeFormula(value) {
 
   const special = macroAverage(input) || categoricalLabel(input) || perRatio(input)
   if (special) return special
+  const unicode = unicodeScriptFormulas(input.trim())
+  if (unicode.length === 1 && unicode[0].source === input.trim() && unicode[0].latex.startsWith('\\mathrm')) return success(unicode[0].latex)
   const tokenized = tokenize(normalizeUnicodeScripts(input))
   if (tokenized.error) return failure(tokenized.error)
   return parseTokens(tokenized.tokens)

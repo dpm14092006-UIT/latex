@@ -6,7 +6,8 @@ import { startGoBackendForTests } from './go-backend-test-client.mjs'
 
 let server, browser, backend
 let releaseHeld
-const requests = [], errors = []
+const requests = [], errors = [], compileErrors = []
+let completed = false
 try {
   backend = await startGoBackendForTests()
   server = await createServer({ server: { host: '127.0.0.1', port: 0 } })
@@ -15,13 +16,24 @@ try {
   const context = await browser.newContext({ acceptDownloads: true, viewport: { width: 1440, height: 1000 } })
   const page = await context.newPage()
   page.setDefaultTimeout(20000)
+  await page.addInitScript(() => {
+    if (localStorage.getItem('latex-pdf-batch-mode') === null) {
+      localStorage.setItem('latex-pdf-batch-mode', '2')
+      localStorage.setItem('latex-pdf-live-default-v1', '1')
+    }
+  })
   page.on('pageerror', error => errors.push(error.message))
   await page.route('**/api/compile', async route => {
     const input = route.request().postDataJSON()
     requests.push(input)
     if (requests.length === 3) await new Promise(resolve => { releaseHeld = resolve })
-    const pdf = await backend.compileLatex(input.latex, input.images, { assets: input.assets, fresh: input.fresh })
-    await route.fulfill({ status: 200, contentType: 'application/pdf', body: pdf })
+    try {
+      const pdf = await backend.compileLatex(input.latex, input.images, { assets: input.assets, fresh: input.fresh })
+      await route.fulfill({ status: 200, contentType: 'application/pdf', body: pdf })
+    } catch (error) {
+      compileErrors.push({ request: requests.length, message: error.message, status: error.status, log: error.log, line: error.line })
+      await route.fulfill({ status: error.status || 500, contentType: 'text/plain', body: error.message })
+    }
   })
   await page.goto(server.resolvedUrls.local[0])
   await page.locator('.tiptap').fill(String.raw`Live formula \(x^2+1\) and normal text a/b.`)
@@ -71,9 +83,13 @@ try {
   assert.equal(await page.getByLabel('Chế độ cập nhật PDF').inputValue(), 'manual')
   await page.waitForTimeout(1000)
   assert.equal(requests.length, 4, 'manual preference survives reload without compile')
+  assert.deepEqual(compileErrors, [])
   assert.deepEqual(errors, [])
+  completed = true
   console.log('PDF batching UI passed: immediate math, no keystroke compile, manual update, fresh export, latest-only queue, stale preview, persisted mode.')
 } finally {
+  if (compileErrors.length) console.error('PDF compile route errors:', JSON.stringify(compileErrors))
+  if (!completed && requests.length) console.error('PDF compile requests seen before failure:', JSON.stringify(requests.map(({ latex, fresh }) => ({ latex: String(latex).slice(0, 160), fresh }))))
   releaseHeld?.()
   await browser?.close()
   await server?.close()

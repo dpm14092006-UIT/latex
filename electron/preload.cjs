@@ -8,6 +8,7 @@ ipcRenderer.on('workspace:flush-before-close', () => {
 })
 
 contextBridge.exposeInMainWorld('desktopAPI', Object.freeze({
+  platform: process.platform,
   loadWorkspace: () => ipcRenderer.invoke('workspace:load'),
   saveWorkspace: workspace => ipcRenderer.invoke('workspace:save', workspace),
   syncStatus: () => ipcRenderer.invoke('sync:status'),

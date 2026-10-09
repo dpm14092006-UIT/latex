@@ -107,12 +107,19 @@ class GoBackendClient {
       await this.request('/api/shutdown', { method: 'POST', body: '{}', signal: controller.signal }).catch(() => {})
     } finally { clearTimeout(timeout) }
     if (requestTimedOut) {
-      this.child.kill()
-      return Promise.race([this.exitPromise, delay(1000).then(() => this.exitInfo)])
+      return this.terminate()
     }
     const result = await Promise.race([this.exitPromise, delay(4000).then(() => null)])
     if (result) return result
+    return this.terminate()
+  }
+
+  async terminate() {
     this.child.kill()
+    const graceful = await Promise.race([this.exitPromise, delay(1000).then(() => null)])
+    if (graceful) return graceful
+    // A hung backend can ignore SIGTERM. Do not leave it behind after Cmd+Q.
+    this.child.kill('SIGKILL')
     return Promise.race([this.exitPromise, delay(1000).then(() => this.exitInfo)])
   }
 }

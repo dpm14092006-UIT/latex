@@ -1,9 +1,12 @@
 import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { formatShortcut } from './services/KeyboardShortcuts.js'
 import { createRoot } from 'react-dom/client'
 import { useEditor } from '@tiptap/react'
 import { Extension } from '@tiptap/core'
 import { ImageBlock } from './services/ImageBlock.js'
 import { Plugin } from '@tiptap/pm/state'
+import { isHistoryTransaction } from '@tiptap/pm/history'
+import { convertUnicodeScriptMath } from './services/UnicodeScriptMath.js'
 import StarterKit from '@tiptap/starter-kit'
 import Heading from '@tiptap/extension-heading'
 import Placeholder from '@tiptap/extension-placeholder'
@@ -26,7 +29,7 @@ import ReferencesDialog from './components/ReferencesDialog.jsx'
 import StudioManager from './components/StudioManager.jsx'
 import { BookOpen, Eye, FileCode2, FileDown, FilePenLine, FolderPlus, GripVertical, PanelTopOpen, Settings2, Sigma } from 'lucide-react'
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels'
-import { normalizeFormulaInput, standaloneLatexPaste } from './math-input.js'
+import { normalizeFormulaInput, standaloneLatexPaste, unicodeScriptFormulas } from './math-input.js'
 import { containsUntrustedLatex, isClipboardPasteTransaction, UNTRUSTED_LATEX_INSERT_META, UNTRUSTED_LATEX_PASTE_META, UNTRUSTED_LATEX_TEMPLATE_META } from './services/UntrustedLatex.js'
 import {
   builtInDocumentTemplates,
@@ -61,6 +64,7 @@ import LatexSourcePane from './components/LatexSourcePane.jsx'
 import { DocumentTemplatesDialog, FormulaDialog, FormulaLibraryDialog, WorkspaceDialog } from './components/DocumentDialogs.jsx'
 import MathSuggestionDialog from './components/MathSuggestionDialog.jsx'
 import TableLibrary from './components/TableLibrary.jsx'
+import { useMathKeyboard } from './hooks/useMathKeyboard.js'
 import '@fontsource-variable/dm-sans'
 import '@fontsource-variable/newsreader'
 import '@fontsource-variable/newsreader/wght-italic.css'
@@ -159,9 +163,9 @@ const FormulaDelimiters = Extension.create({
         const name = parsed.type === 'inline' ? 'inlineMath' : 'blockMath'
         const mathNode = view.state.schema.nodes[name]
         if (!mathNode) return false
-        const transaction = view.state.tr.replaceSelectionWith(mathNode.create({ latex: parsed.latex }))
-          .setMeta(UNTRUSTED_LATEX_PASTE_META, true)
-          .scrollIntoView()
+        const transaction = view.state.tr.replaceSelectionWith(mathNode.create({ latex: parsed.latex })).scrollIntoView()
+        const generatedUnicode = unicodeScriptFormulas(text.trim()).some(formula => formula.source === text.trim())
+        if (!generatedUnicode) transaction.setMeta(UNTRUSTED_LATEX_PASTE_META, true)
         if (!transaction.docChanged) return false
         event.preventDefault()
         view.dispatch(transaction)
@@ -174,6 +178,35 @@ const FormulaDelimiters = Extension.create({
         const conversion = convertDelimitedMath(newState, { bareFormulas: pasted })
         if (conversion && pasted) conversion.setMeta(UNTRUSTED_LATEX_PASTE_META, true)
         return conversion
+      },
+    })]
+  },
+})
+
+const UnicodeScriptRecognition = Extension.create({
+  name: 'unicodeScriptRecognition',
+  addProseMirrorPlugins() {
+    let editorView
+    return [new Plugin({
+      view(view) { editorView = view; return { destroy() { editorView = null } } },
+      props: { handleDOMEvents: { blur(view) {
+        window.setTimeout(() => {
+          if (!view.isDestroyed && !view.composing) view.dispatch(view.state.tr.setMeta('unicodeScriptsComplete', true))
+        }, 0)
+        return false
+      } } },
+      appendTransaction(transactions, oldState, newState) {
+        if (editorView?.composing || transactions.some(isHistoryTransaction)) return null
+        const complete = transactions.some(transaction => transaction.getMeta('unicodeScriptsComplete'))
+        const changed = transactions.some(transaction => transaction.docChanged)
+        const moved = !oldState.selection.eq(newState.selection)
+        if (!complete && !changed && !moved) return null
+        const ranges = changedDocumentRanges(transactions, newState.doc)
+        if (moved && !changed) ranges.push({ from: oldState.selection.from, to: oldState.selection.to })
+        return convertUnicodeScriptMath(newState, {
+          ranges: complete ? undefined : ranges,
+          deferAtCursor: !complete && !transactions.some(isClipboardPasteTransaction),
+        })
       },
     })]
   },
@@ -299,6 +332,15 @@ function App({ initialWorkspace }) {
   const [formulaInputMode, setFormulaInputMode] = useState('visual')
   const [mathliveReady, setMathliveReady] = useState(false)
   const mathFieldRef = useRef(null)
+  const mathKeyboard = useMathKeyboard(mathliveReady, formulaOpen && formulaInputMode === 'visual')
+  const blurMathField = () => {
+    const field = mathFieldRef.current
+    // MathLive can retain a stale global focus reference if its host is hidden or removed while focused.
+    field?.shadowRoot?.activeElement?.blur?.()
+    field?.blur()
+    if (field && document.activeElement === field) HTMLElement.prototype.blur.call(field)
+    window.mathVirtualKeyboard?.hide()
+  }
   const formulaPastedUntrustedRef = useRef(false)
   const pendingInsertionSelectionRef = useRef(null)
   const openReferencesDialogRef = useRef(null)
@@ -404,6 +446,7 @@ function App({ initialWorkspace }) {
       TableCell,
       ImageBlock,
       FormulaDelimiters,
+      UnicodeScriptRecognition,
       HeadingRecognition,
     ],
     content: docData,
@@ -416,6 +459,8 @@ function App({ initialWorkspace }) {
       if (sourceEditedRef.current) return
       const transaction = convertDelimitedMath(createdEditor.state)
       if (transaction) createdEditor.view.dispatch(transaction)
+      const unicode = convertUnicodeScriptMath(createdEditor.state)
+      if (unicode) createdEditor.view.dispatch(unicode)
     },
     onUpdate: ({ editor: updatedEditor, transaction, appendedTransactions }) => {
       if (summaryModeRef.current) return
@@ -818,14 +863,23 @@ function App({ initialWorkspace }) {
     if (!dialog) return
     const previouslyFocused = document.activeElement
     const focusable = () => [...dialog.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), math-field, [tabindex]:not([tabindex="-1"])')].filter(node => node.getClientRects().length && !node.closest('[hidden], [inert]'))
-    const initialTarget = focusable().find(node => node.matches('input, select, textarea, math-field')) || focusable()[0]
+    // MathLive can be present before its custom-element internals are ready;
+    // the dedicated effect below focuses it after the field mounts.
+    const initialTarget = focusable().find(node => node.matches('input, select, textarea')) || focusable()[0]
     initialTarget?.focus()
     const onKeyDown = event => {
       if (event.key === 'Escape') {
         // Escape cancels an IME (Telex/VNI) composition first; a busy dialog keeps its pending result, as its close button does.
         if (event.isComposing || dialog.matches('[aria-busy="true"]') || dialog.querySelector('[aria-busy="true"]')) return
+        if (window.mathVirtualKeyboard?.visible) {
+          event.preventDefault()
+          event.stopImmediatePropagation()
+          window.mathVirtualKeyboard.hide()
+          return
+        }
         // Captured and consumed so the editor's document-level Escape does not also collapse its toolbar.
         event.preventDefault()
+        if (formulaOpen) blurMathField()
         pendingInsertionSelectionRef.current = null; setFormulaOpen(false); setMathScanOpen(false); setLibraryOpen(false); setTableLibraryOpen(false); setDocumentTemplatesOpen(false); setWorkspaceDialogType(null); setManagerOpen(false); setManagerContext(null); setReferencesDialog(null); return
       }
       if (event.key !== 'Tab') return
@@ -851,11 +905,6 @@ function App({ initialWorkspace }) {
         setFormulaInputMode('latex')
       })
   }, [formulaOpen, mathliveReady])
-  // The field mounts after MathLive loads (first open) or when switching back to visual input; the dialog's
-  // initial focus has already landed elsewhere by then.
-  useEffect(() => {
-    if (formulaOpen && mathliveReady && formulaInputMode === 'visual') mathFieldRef.current?.focus()
-  }, [formulaOpen, mathliveReady, formulaInputMode])
   useEffect(() => {
     if (!formulaOpen || !mathliveReady || formulaInputMode !== 'visual' || !mathFieldRef.current) return
     const field = mathFieldRef.current
@@ -881,6 +930,16 @@ function App({ initialWorkspace }) {
     field.addEventListener('paste', onPaste, true)
     return () => { field.removeEventListener('input', onInput); field.removeEventListener('paste', onPaste, true) }
   }, [formulaOpen, formulaInputMode, mathliveReady, formula])
+  // Let the custom element finish mounting before focusing it. A quick mode switch cancels this,
+  // so MathLive cannot finish a delayed focus after its field has been hidden or removed.
+  useEffect(() => {
+    if (!formulaOpen || !mathliveReady || formulaInputMode !== 'visual' || !mathFieldRef.current) return
+    const field = mathFieldRef.current
+    const timer = window.setTimeout(() => {
+      if (field.isConnected && formulaOpen && formulaInputMode === 'visual') field.focus()
+    }, 80)
+    return () => window.clearTimeout(timer)
+  }, [formulaOpen, mathliveReady, formulaInputMode])
   useEffect(() => {
     if (!(formulaOpen || libraryOpen) || katexRenderer) return
     import('katex')
@@ -1198,7 +1257,7 @@ function App({ initialWorkspace }) {
     setFormula('X_t^{selected} = S_t^{(n)} ∪ E_t^{(k)}')
     setFormulaOpen(true)
   }
-  const closeFormula = () => { pendingInsertionSelectionRef.current = null; setFormulaOpen(false) }
+  const closeFormula = () => { pendingInsertionSelectionRef.current = null; blurMathField(); setFormulaOpen(false) }
   const openFormulaLibrary = () => { if (summaryModeRef.current) return; rememberEditorSelection(); setLibraryOpen(true) }
   const closeFormulaLibrary = () => { pendingInsertionSelectionRef.current = null; setLibraryOpen(false) }
   const jumpToHeading = index => {
@@ -1461,7 +1520,7 @@ function App({ initialWorkspace }) {
   const createItem = type => { setWorkspaceItemName(''); setWorkspaceFrame({ templateId: '', documentTitle: '', settings: sanitizeSettings({ abstractEnabled: true }) }); setWorkspaceDialogType(type) }
   const openManager = (context = null) => { setManagerContext(context); setManagerOpen(true) }
   const commandItems = [
-    { id: 'insert-citation', label: 'Chèn trích dẫn (Ctrl+Shift+C)', Icon: BookOpen, run: () => openReferencesDialog('cite') },
+    { id: 'insert-citation', label: formatShortcut('Chèn trích dẫn (Ctrl+Shift+C)'), Icon: BookOpen, run: () => openReferencesDialog('cite') },
     { id: 'references', label: 'Danh mục tài liệu tham khảo', Icon: BookOpen, run: () => openReferencesDialog('library') },
     { id: 'scan-citations', label: 'Quét trích dẫn chưa liên kết REF', Icon: BookOpen, run: () => openReferencesDialog('scan') },
     { id: 'new-task', label: 'Tạo tài liệu mới', Icon: FilePenLine, run: () => createItem('task') },
@@ -1560,12 +1619,15 @@ function App({ initialWorkspace }) {
         onFormulaTypeChange={setFormulaType}
         inputMode={formulaInputMode}
         onInputModeChange={mode => {
+          if (mode !== 'visual') blurMathField()
           if (mode === 'recognize') formulaPastedUntrustedRef.current = false
           setFormulaInputMode(mode)
         }}
         mathFieldRef={mathFieldRef}
         onUntrustedPaste={() => { formulaPastedUntrustedRef.current = true }}
         mathliveReady={mathliveReady}
+        mathKeyboard={mathKeyboard}
+        onHideKeyboard={() => window.mathVirtualKeyboard?.hide()}
         katexRenderer={katexRenderer}
         onInsert={insertFormula}
         normalizeFormula={normalizedFormula}

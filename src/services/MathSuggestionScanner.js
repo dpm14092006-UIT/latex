@@ -1,4 +1,5 @@
 import { recognizeFormula } from '../formula-recognition.js'
+import { unicodeScriptFormulas } from '../math-input.js'
 
 const BLOCK_SEPARATOR = '\u0000'
 const MAX_BLOCK_LENGTH = 12_000
@@ -100,6 +101,10 @@ function collectFromSegment(text, segmentOffset, output) {
     for (const match of text.matchAll(rule.pattern)) {
       add(match.index, match.index + match[0].length, rule.id, rule.reason, rule.confidence)
     }
+  }
+
+  for (const formula of unicodeScriptFormulas(text)) {
+    add(formula.start, formula.end, 'unicode-script', 'Có chỉ số hoặc số mũ Unicode rõ ràng, chuyển được trực tiếp sang LaTeX.', formula.latex.startsWith('\\mathrm') ? 0.94 : 0.76)
   }
 
   relationPattern.lastIndex = 0

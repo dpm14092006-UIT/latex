@@ -81,6 +81,26 @@ try {
   assert.equal(environment.compiler.available, true, JSON.stringify(environment))
   assert.equal(environment.word.available, true, JSON.stringify(environment))
   assert.ok(environment.compiler.executable.includes('.app/Contents/Resources/tex/'), 'uses bundled TeX without Terminal PATH')
+  await page.getByRole('button', { name: 'Chèn công thức toán học', exact: true }).first().click()
+  await page.waitForFunction(() => window.document.querySelector('math-field')?.setValue)
+  await page.locator('math-field').locator('[part="virtual-keyboard-toggle"]').click()
+  await page.waitForFunction(() => {
+    const keyboard = window.mathVirtualKeyboard?.boundingRect
+    const dialog = window.document.querySelector('[role="dialog"]')?.getBoundingClientRect()
+    const field = window.document.querySelector('math-field')?.getBoundingClientRect()
+    return keyboard?.height > 0 && keyboard.bottom <= window.innerHeight + 1 && dialog && field
+      && dialog.bottom <= keyboard.top + 1 && field.top >= dialog.top && field.bottom <= dialog.bottom
+  })
+  await page.screenshot({ path: join(output, 'formula-keyboard.png') })
+  await page.getByRole('dialog').getByRole('button', { name: 'Đóng bàn phím', exact: true }).click()
+  await page.waitForFunction(() => !window.mathVirtualKeyboard.visible)
+  assert.ok(await page.getByRole('dialog').isVisible())
+  await page.locator('math-field').locator('[part="virtual-keyboard-toggle"]').click()
+  await page.waitForFunction(() => window.mathVirtualKeyboard.visible)
+  await page.getByRole('dialog').getByRole('button', { name: 'Đóng', exact: true }).click()
+  await page.waitForFunction(() => !window.mathVirtualKeyboard.visible)
+  assert.equal(await page.getByRole('dialog').count(), 0)
+  console.log('Packaged formula keyboard: input above keyboard, close control and no orphan after closing the dialog.')
   const firstBackend = await backendPid()
   process.kill(firstBackend, 'SIGKILL')
   await delay(300)
@@ -93,6 +113,7 @@ try {
   const doc = { type: 'doc', content: [
     { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: '3.1.1 Kiểm tra tiếng Việt' }] },
     { type: 'paragraph', content: [{ type: 'text', text: 'Xin chào MacBook: ' }, { type: 'inlineMath', attrs: { latex: 'x^2+1' } }, { type: 'citation', attrs: { key: 'smith2026' } }] },
+    { type: 'paragraph', content: [{ type: 'text', text: 'NO₂ CO₂ H₂O m²' }] },
   ] }
   const cases = [{ id: 'default', name: 'Mẫu mặc định' }, { id: 'apa', name: 'APA 7th / Biber', citationStyle: 'apa' }, ...builtInDocumentTemplates]
   for (const template of cases) {
@@ -104,6 +125,13 @@ try {
     }, { latex, images, bibliography, id: `mac-${template.id}` })
     assert.equal(result.ok, true, `${template.name}: ${result.error}\n${result.log || ''}`)
     assert.equal(Buffer.from(result.pdf).subarray(0, 5).toString(), '%PDF-')
+    const unicodeLoading = getDocument({ data: Uint8Array.from(result.pdf), useSystemFonts: true })
+    try {
+      const pdf = await unicodeLoading.promise
+      let contents = ''
+      for (let number = 1; number <= pdf.numPages; number++) contents += (await (await pdf.getPage(number)).getTextContent()).items.map(item => item.str).join('')
+      assert.ok(contents.replace(/\s+/gu, '').includes('NO2CO2H2Om2'), `${template.name} must preserve Unicode scripts in real PDF output`)
+    } finally { await unicodeLoading.destroy() }
     console.log(`Packaged PDF: ${template.name}, ${result.pdf.length} bytes`)
   }
   // Exercise the upstream table library with the bundled TeX, including the

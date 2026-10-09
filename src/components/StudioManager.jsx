@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { formatShortcut } from '../services/KeyboardShortcuts.js'
 import { X, FolderOpen, Download, Upload, Copy, Pencil, Trash2, Settings, History, FileCode2, BookOpen, Activity } from 'lucide-react'
 import AbstractSettings from './AbstractSettings.jsx'
 import LanSyncPanel from './LanSyncPanel.jsx'
@@ -59,7 +60,7 @@ export default function StudioManager({ readOnly = false, open, initialTab = 'do
         </div><AbstractSettings settings={settings} onSettings={onSettings} /></>}
         {tab === 'assets' && <><p>Tài nguyên được lưu cùng tài liệu và đưa vào thư mục biên dịch. Dùng đúng tên trong lệnh LaTeX. Tối đa 100 tệp, 10 MB/tệp và 24 MB tổng.</p><button type="button" onClick={() => assetsInput.current.click()}>Thêm tệp tài nguyên</button><input ref={assetsInput} hidden type="file" multiple accept=".tex,.bib,.bst,.sty,.cls,.png,.jpg,.jpeg,.pdf,.eps,.csv,.txt" onChange={event => { const files = [...event.target.files]; event.target.value = ''; void run(() => onAssets('add', files)) }} />{assets.map(asset => <div className="studio-manager-row" key={asset.filename}><code>{asset.filename}</code><button type="button" onClick={() => run(() => onAssets('remove', asset.filename))}>Gỡ tệp</button></div>)}</>}
         {tab === 'academic' && <>
-          <p>Trích dẫn và danh mục tài liệu tham khảo (DOI, BibTeX, kiểu IEEE/APA…) được quản lý trong hộp thoại riêng. Phím tắt: Ctrl+Shift+C.</p>
+          <p>{formatShortcut('Trích dẫn và danh mục tài liệu tham khảo (DOI, BibTeX, kiểu IEEE/APA…) được quản lý trong hộp thoại riêng. Phím tắt: Ctrl+Shift+C.')}</p>
           <div className="studio-manager-actions"><button type="button" onClick={() => onOpenReferences?.('cite')}>Chèn trích dẫn</button><button type="button" onClick={() => onOpenReferences?.('library')}>Danh mục tài liệu</button></div>
           <div className="studio-settings-grid">
           <label>Nhãn tiêu đề hoặc công thức đang chọn<input value={label} onChange={event => setLabel(event.target.value)} placeholder="eq:result" /><button type="button" disabled={!/^[A-Za-z0-9:._-]{1,100}$/.test(label)} onClick={() => { const type = editor?.isActive('blockMath') ? 'blockMath' : editor?.isActive('heading') ? 'heading' : null; if (!type) { setMessage('Chọn tiêu đề hoặc công thức căn giữa trong bản thảo trước khi gắn nhãn.'); return } editor.chain().focus().updateAttributes(type, { label }).run(); setMessage(`Đã gắn nhãn ${label}.`) }}>Gắn nhãn</button></label>

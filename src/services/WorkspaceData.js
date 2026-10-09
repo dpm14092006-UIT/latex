@@ -1,8 +1,11 @@
-import { clampHeadingLevels, isValidDocument } from './DocumentData.js'
+import { isValidDocument } from './DocumentData.js'
 import { starter } from './DocumentSerializer.js'
 import { normalizeDocumentContent } from './RichTextFormats.js'
 import { sanitizeSettings } from './DocumentSettings.js'
-import { validateAssets } from './ProjectAssets.js'
+import { MAX_ASSETS, MAX_TOTAL_ASSET_BYTES, base64ByteLength, validateAssets } from './ProjectAssets.js'
+import { MAX_DOCUMENT_IMAGES, MAX_TOTAL_DOCUMENT_IMAGE_BYTES } from './DocumentLimits.js'
+
+const MAX_DOCUMENT_NODES = 100_000
 
 export const WORKSPACE_STORAGE_KEY = 'latex-workspace-v1'
 
@@ -36,24 +39,121 @@ function persistWorkspaceMigration(store, workspace, savedAt) {
   writeWorkspaceData(store, savedAt ? { ...workspace, savedAt } : workspace)
 }
 
+function documentWithChild(parentType, child) {
+  const paragraph = content => ({ type: 'paragraph', content })
+  const listItem = content => ({ type: 'listItem', content })
+  const tableRow = content => ({ type: 'tableRow', content })
+  const table = content => ({ type: 'table', content })
+  switch (parentType) {
+    case 'doc': return { type: 'doc', content: [child] }
+    case 'paragraph': return { type: 'doc', content: [paragraph([child])] }
+    case 'heading': return { type: 'doc', content: [{ type: 'heading', attrs: { level: 1 }, content: [child] }] }
+    case 'bulletList':
+    case 'orderedList': return { type: 'doc', content: [{ type: parentType, content: [child] }] }
+    case 'listItem': return { type: 'doc', content: [{ type: 'bulletList', content: [listItem([child])] }] }
+    case 'blockquote': return { type: 'doc', content: [{ type: 'blockquote', content: [child] }] }
+    case 'codeBlock': return { type: 'doc', content: [{ type: 'codeBlock', content: [child] }] }
+    case 'table': return { type: 'doc', content: [table([child])] }
+    case 'tableRow': return { type: 'doc', content: [table([tableRow([child])])] }
+    case 'tableCell':
+    case 'tableHeader': return { type: 'doc', content: [table([tableRow([{ type: parentType, content: [child] }])])] }
+    default: return null
+  }
+}
+
+function repairDocumentNode(node, parentType, depth, budget) {
+  if (!node || typeof node !== 'object' || Array.isArray(node) || depth > 128 || ++budget.visited > MAX_DOCUMENT_NODES) return null
+  const repaired = { ...node }
+  if (Array.isArray(node.content)) {
+    const content = []
+    for (const child of node.content) {
+      if (budget.visited >= MAX_DOCUMENT_NODES) break
+      const validChild = repairDocumentNode(child, node.type, depth + 1, budget)
+      if (validChild) content.push(validChild)
+    }
+    repaired.content = content
+  } else if (node.content !== undefined) return null
+  if (repaired.type === 'heading' && Number.isSafeInteger(repaired.attrs?.level) && repaired.attrs.level > 3 && repaired.attrs.level <= 6) {
+    repaired.attrs = { ...repaired.attrs, level: 3 }
+  }
+  const wrapped = documentWithChild(parentType, repaired)
+  return wrapped && isValidDocument(wrapped) ? repaired : null
+}
+
+function documentNodeCounts(node) {
+  let nodes = 0, images = 0, imageBytes = 0
+  const pending = [node]
+  while (pending.length) {
+    const current = pending.pop()
+    nodes += 1
+    if (current?.type === 'imageBlock') {
+      images += 1
+      if (typeof current.attrs?.src === 'string') {
+        const match = /^data:image\/(?:png|jpeg);base64,/.exec(current.attrs.src)
+        if (match) imageBytes += base64ByteLength(current.attrs.src.slice(match[0].length))
+      }
+    }
+    if (Array.isArray(current?.content)) for (const child of current.content) pending.push(child)
+  }
+  return { nodes, images, imageBytes }
+}
+
+function sanitizeDocument(value) {
+  if (isValidDocument(value)) return normalizeDocumentContent(value)
+  const document = value
+  if (!document || document.type !== 'doc' || !Array.isArray(document.content)) return normalizeDocumentContent(starter)
+
+  const content = []
+  const budget = { visited: 0 }
+  let nodeCount = 0, imageCount = 0, imageBytes = 0
+  for (const node of document.content) {
+    if (budget.visited >= MAX_DOCUMENT_NODES) break
+    const repaired = repairDocumentNode(node, 'doc', 1, budget)
+    if (!repaired) continue
+    const counts = documentNodeCounts(repaired)
+    if (nodeCount + counts.nodes > MAX_DOCUMENT_NODES || imageCount + counts.images > MAX_DOCUMENT_IMAGES || imageBytes + counts.imageBytes > MAX_TOTAL_DOCUMENT_IMAGE_BYTES) continue
+    content.push(repaired)
+    nodeCount += counts.nodes
+    imageCount += counts.images
+    imageBytes += counts.imageBytes
+  }
+  return normalizeDocumentContent({ type: 'doc', content: content.length ? content : structuredClone(starter.content) })
+}
+
+function sanitizeAssets(value) {
+  if (!Array.isArray(value)) return []
+  const assets = [], names = new Set()
+  let totalBytes = 0
+  for (const candidate of value) {
+    if (assets.length >= MAX_ASSETS) break
+    try {
+      const [asset] = validateAssets([candidate])
+      const name = asset.filename.toLowerCase()
+      const size = base64ByteLength(asset.data)
+      if (names.has(name) || totalBytes + size > MAX_TOTAL_ASSET_BYTES) continue
+      assets.push(asset)
+      names.add(name)
+      totalBytes += size
+    } catch { /* Keep valid assets from a partially damaged project. */ }
+  }
+  return assets
+}
+
 function sanitizeTask(value, seenIds) {
   if (!value || typeof value !== 'object' || typeof value.id !== 'string' || !value.id || seenIds.has(value.id)) return null
-  const document = clampHeadingLevels(value.document)
-  if (!isValidDocument(document)) return null
-  let assets
-  try { assets = validateAssets(value.assets || []) } catch { return null }
+  const document = sanitizeDocument(value.document)
   seenIds.add(value.id)
   return {
     id: value.id,
     title: typeof value.title === 'string' ? value.title.slice(0, 160) : 'Chưa đặt tên',
-    document: normalizeDocumentContent(document),
+    document,
     sourceDraft: typeof value.sourceDraft === 'string' ? value.sourceDraft : '',
     sourceEdited: value.sourceEdited === true,
     sourceDraftBackup: value.sourceDraftBackup === true,
     activeDocumentTemplateId: typeof value.activeDocumentTemplateId === 'string' ? value.activeDocumentTemplateId : '',
     updatedAt: Number.isFinite(value.updatedAt) ? value.updatedAt : Date.now(),
     settings: sanitizeSettings(value.settings),
-    assets,
+    assets: sanitizeAssets(value.assets),
     sourceTrusted: value.sourceTrusted !== false,
     includeInCompilation: value.includeInCompilation !== false,
     compilationPageBreak: value.compilationPageBreak === true,

@@ -1,4 +1,5 @@
 import { ZoomIn, ZoomOut } from 'lucide-react'
+import { formatShortcut } from '../services/KeyboardShortcuts.js'
 
 export const ZOOM_LEVELS = [0.5, 0.67, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2]
 
@@ -11,7 +12,7 @@ export default function ZoomControls({ value, onChange, label, subject, fitLabel
       <button
         type="button"
         aria-label={`Thu nhỏ ${subject}`}
-        title={`Thu nhỏ ${subject} (Ctrl+-)`}
+        title={formatShortcut(`Thu nhỏ ${subject} (Ctrl+-)`)}
         disabled={currentIndex === 0}
         onClick={() => onChange(ZOOM_LEVELS[Math.max(0, currentIndex - 1)])}
       >
@@ -33,7 +34,7 @@ export default function ZoomControls({ value, onChange, label, subject, fitLabel
       <button
         type="button"
         aria-label={`Phóng to ${subject}`}
-        title={`Phóng to ${subject} (Ctrl+=)`}
+        title={formatShortcut(`Phóng to ${subject} (Ctrl+=)`)}
         disabled={currentIndex === ZOOM_LEVELS.length - 1}
         onClick={() => onChange(ZOOM_LEVELS[Math.min(ZOOM_LEVELS.length - 1, currentIndex + 1)])}
       >

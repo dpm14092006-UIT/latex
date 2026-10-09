@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { formatShortcut } from '../services/KeyboardShortcuts.js'
 import { AlertTriangle, BookMarked, FileUp, Plus, Quote, Search, Trash2, X } from 'lucide-react'
 import {
   CITATION_STYLES, citationDiagnostics, citationLabel, citationNumbers, citationOccurrences,
@@ -98,7 +99,7 @@ export default function ReferencesDialog({ open, initialTab = 'cite', editing = 
     editor.view.dispatch(result.transaction)
     editor.view.dispatch(closeHistory(editor.state.tr))
     editor.commands.focus()
-    setMessage(`Đã xóa ${result.count} vị trí trích dẫn khỏi bản thảo. Danh mục tài liệu vẫn được giữ nguyên; nhấn Ctrl+Z để hoàn tác riêng thao tác xóa.`)
+    setMessage(formatShortcut(`Đã xóa ${result.count} vị trí trích dẫn khỏi bản thảo. Danh mục tài liệu vẫn được giữ nguyên; nhấn Ctrl+Z để hoàn tác riêng thao tác xóa.`))
   }
 
   const applyCitation = keysToInsert => {
@@ -228,7 +229,7 @@ export default function ReferencesDialog({ open, initialTab = 'cite', editing = 
               <button type="button" className="btn btn--solid" disabled={!selected.length && !editing} onClick={() => applyCitation(selected)}>{editing ? 'Cập nhật' : `Chèn${selected.length > 1 ? ` ${selected.length} tài liệu` : ''}`}</button>
             </div>
           </div>
-          <p className="cite-preview">Bôi đen câu cần trích dẫn rồi nhấn Ctrl+Shift+C: trích dẫn được chèn ngay sau đoạn đã chọn. ↑/↓ để di chuyển, Shift+Enter để chọn thêm, Enter để chèn. Số thứ tự tự đánh lại khi bạn thêm hoặc xóa trích dẫn.</p>
+          <p className="cite-preview">{formatShortcut('Bôi đen câu cần trích dẫn rồi nhấn Ctrl+Shift+C: trích dẫn được chèn ngay sau đoạn đã chọn. ↑/↓ để di chuyển, Shift+Enter để chọn thêm, Enter để chèn. Số thứ tự tự đánh lại khi bạn thêm hoặc xóa trích dẫn.')}</p>
           {sourceEdited && <p className="studio-notice" role="status">PDF đang dùng source riêng. Để xóa tất cả citation của bản thảo, hãy chọn “Dùng lại bản thảo” trước. Các lệnh cite viết trong source riêng được sửa trong trình LaTeX.</p>}
         </div>}
 

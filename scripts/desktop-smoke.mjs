@@ -5,6 +5,7 @@ import { mkdtemp, readFile, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate'
+import { primaryKey } from './platform-keys.mjs'
 
 const userData = await mkdtemp(join(tmpdir(), 'vietlatex-e2e-'))
 const output = resolve(process.env.DESKTOP_SMOKE_OUTPUT || 'artifacts/desktop-smoke')
@@ -53,6 +54,25 @@ try {
   page.on('pageerror', error => errors.push(error.message))
   if (process.env.VIETLATEX_TEST_PACKAGED_RENDERER === 'true') assert.equal(new URL(page.url()).protocol, 'vietlatex:')
   await page.getByRole('textbox', { name: 'Tên tài liệu' }).waitFor({ timeout: 30_000 })
+  if (process.platform === 'darwin') {
+    assert.equal(await page.evaluate(() => window.desktopAPI.platform), 'darwin')
+    await page.getByRole('button', { name: 'In đậm (⌘+B)', exact: true }).first().waitFor()
+    const draft = page.locator('.tiptap')
+    await draft.fill('Phím tắt trên Mac')
+    await draft.press(`${primaryKey}+A`)
+    await draft.press(`${primaryKey}+B`)
+    assert.equal(await draft.locator('strong').innerText(), 'Phím tắt trên Mac')
+    await draft.press(`${primaryKey}+Z`)
+    assert.equal(await draft.locator('strong').count(), 0)
+    await draft.press(`${primaryKey}+Shift+C`)
+    const references = page.getByRole('dialog')
+    await references.waitFor()
+    assert.match(await references.innerText(), /⌘\+Shift\+C/)
+    await references.getByRole('button', { name: 'Đóng', exact: true }).click()
+    await draft.press(`${primaryKey}+K`)
+    await page.getByRole('dialog', { name: 'Bảng lệnh', exact: true }).waitFor()
+    await page.getByRole('button', { name: 'Đóng bảng lệnh', exact: true }).click()
+  }
   const expandPdfTools = page.getByRole('button', { name: 'Mở công cụ PDF', exact: true })
   if (await expandPdfTools.count()) await expandPdfTools.click()
   const manuscriptZoom = page.getByRole('combobox', { name: 'Thu phóng bản thảo' })

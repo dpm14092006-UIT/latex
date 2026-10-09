@@ -63,3 +63,17 @@ test('stop kills a backend that never answers its shutdown request', async () =>
     if (client.alive) client.child.kill()
   }
 })
+
+test('stop also terminates a hung backend that ignores SIGTERM', { skip: process.platform === 'win32' }, async () => {
+  const script = "process.on('SIGTERM', () => {});\n" + HANGING_SHUTDOWN_BACKEND
+  const client = await startGoBackend({ executable: process.execPath, cwd: __dirname, appPath: __dirname, args: fakeBackendArgs(script) })
+  try {
+    const startedAt = Date.now()
+    const result = await client.stop()
+    assert.ok(Date.now() - startedAt < 4000)
+    assert.equal(client.alive, false, 'backend must be gone before stop resolves')
+    assert.equal(result.signal, 'SIGKILL')
+  } finally {
+    if (client.alive) { client.child.kill('SIGKILL'); await client.exitPromise }
+  }
+})

@@ -1,6 +1,6 @@
 # Viet LaTeX Studio 0.5.6 — macOS
 
-Ứng dụng desktop soạn tài liệu tiếng Việt, nhập công thức trực quan, chỉnh LaTeX và xem PDF. Bản thảo, tài nguyên, sao lưu và chuyển đổi Word được xử lý trên máy.
+Ứng dụng desktop soạn tài liệu tiếng Việt, nhập công thức trực quan, chỉnh LaTeX và xem PDF. Bản thảo, tài nguyên, sao lưu và chuyển đổi Word được xử lý trên máy. Tra DOI gửi DOI tới doi.org và các dịch vụ metadata liên quan; đồng bộ LAN chỉ hoạt động khi người dùng bật và ghép máy.
 
 Bản 0.5.6 đồng bộ PDF đã biên dịch để máy nhận xem và xuất mà không phải chạy LaTeX. LAN chạy mỗi 5 giây khi cửa sổ bị ẩn, hiển thị trạng thái máy đã ghép và xung đột chưa xử lý. Đã bỏ chức năng đồng bộ cuộn; bản thảo và PDF cuộn độc lập. Giữ sửa chữ bị cắt, tràn lề và cập nhật PDF tự động. Xem [thay đổi 0.5.6](docs/UPGRADE-0.5.6.md).
 

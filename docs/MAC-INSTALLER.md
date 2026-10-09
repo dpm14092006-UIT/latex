@@ -25,8 +25,8 @@ Bản build cục bộ dùng chữ ký ad-hoc, chưa có Apple Developer ID ho�
 Cần Node.js 24 LTS/npm 11, Go 1.26.8+ và Apple Command Line Tools (`xcode-select --install`).
 
 ```bash
-unzip Viet-Latex-Studio-0.5.2-Mac-Build-Source.zip
-cd Viet-Latex-Studio-0.5.2
+unzip Viet-Latex-Studio-0.5.6-Mac-Build-Source.zip
+cd Viet-Latex-Studio-0.5.6
 bash scripts/build-mac.command
 ```
 
@@ -47,7 +47,7 @@ Kiểm tra file nhận được:
 
 ```bash
 cd release-desktop
-shasum -a 256 -c Viet-Latex-Studio-0.5.2-universal.dmg.sha256
+shasum -a 256 -c Viet-Latex-Studio-0.5.6-universal.dmg.sha256
 ```
 
 ## GitHub Actions và chữ ký nhà phát hành

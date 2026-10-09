@@ -46,7 +46,7 @@ try{
   await page.getByRole('button',{name:'Đóng tìm kiếm',exact:true}).click()
   assert.equal(await page.getByRole('textbox',{name:'Tìm trong bản thảo',exact:true}).count(),0)
   const tab=page.getByRole('button',{name:'Chèn',exact:true});if(await tab.getAttribute('aria-expanded')!=='true')await tab.click()
-  await page.getByRole('button',{name:'Chèn liên kết (Ctrl+Shift+K)',exact:true}).click()
+  await page.getByRole('button',{name:/^Chèn liên kết \((?:Ctrl|⌘)\+Shift\+K\)$/}).click()
   await page.getByRole('textbox',{name:'Địa chỉ liên kết',exact:true}).focus()
   await page.keyboard.press('Escape')
   assert.equal(await page.getByRole('textbox',{name:'Địa chỉ liên kết',exact:true}).count(),0)

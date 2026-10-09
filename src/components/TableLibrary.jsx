@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { formatShortcut } from '../services/KeyboardShortcuts.js'
 import { TableMap } from '@tiptap/pm/tables'
 import { AlignCenter, AlignLeft, AlignRight, Check, Copy, Table2, Wand2, X } from 'lucide-react'
 import { tableLatexPreview } from '../services/DocumentSerializer.js'
@@ -236,7 +237,7 @@ export default function TableLibrary({ editor, onClose }) {
 
         <footer className="table-library-foot">
           {editMode
-            ? <><span className="studio-dialog-note">Thay đổi được áp dụng ngay; Ctrl+Z để hoàn tác.</span><button type="button" className="btn btn--solid" onClick={onClose}>Xong</button></>
+            ? <><span className="studio-dialog-note">{formatShortcut('Thay đổi được áp dụng ngay; Ctrl+Z để hoàn tác.')}</span><button type="button" className="btn btn--solid" onClick={onClose}>Xong</button></>
             : <><button type="button" className="btn" onClick={onClose}>Hủy</button><button type="button" className="btn btn--solid" onClick={insertTable}>Chèn bảng</button></>}
         </footer>
       </div>

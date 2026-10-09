@@ -101,3 +101,10 @@ test('marks a standalone equation as eligible for display math', () => {
   assert.equal(suggestion.blockEligible, true)
   assert.equal(suggestion.defaultType, 'block')
 })
+
+test('Unicode chemical formulas are complete high-confidence suggestions in Vietnamese prose', () => {
+  const result = scanMathText('Nồng độ NO₂, CO₂ và H₂O; ion SO₄²⁻ được đo.')
+  assert.deepEqual(result.suggestions.map(item => item.source), ['NO₂', 'CO₂', 'H₂O', 'SO₄²⁻'])
+  assert.ok(result.suggestions.every(item => item.level === 'high'))
+  assert.equal(result.suggestions[0].latex, String.raw`\mathrm{NO}_{2}`)
+})

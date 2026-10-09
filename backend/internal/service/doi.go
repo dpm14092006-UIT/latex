@@ -192,6 +192,11 @@ func (s *Service) doiLookup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.doiQueue.leave()
+	releaseBody, ok := s.reserveRequestBody(w, r, 4096)
+	if !ok {
+		return
+	}
+	defer releaseBody()
 	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	var input struct {
 		DOI string `json:"doi"`

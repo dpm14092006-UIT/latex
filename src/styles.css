@@ -348,6 +348,8 @@ textarea.field { font-family: var(--font-mono); font-size: 12px; line-height: 1.
 .studio-page-break.ProseMirror-selectednode { border-top-style: solid; }
 
 /* ---------- Formula input ---------- */
+.studio-formula-input-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.studio-formula-input-head .label { font-weight: 600; }
 .mathlive-field::part(virtual-keyboard-toggle), .mathlive-field::part(menu-toggle) { color: var(--fg); }
 .mathlive-field:focus, .mathlive-field:focus-within { outline: 2px solid var(--fg); outline-offset: 1px; }
 .mathlive-field { display: block; width: 100%; min-height: 64px; padding: 12px; border: var(--rule); border-radius: 3px; color: var(--fg); background: var(--bg); font-size: 22px; --caret-color: var(--fg); --selection-background-color: var(--fg); --selection-color: var(--bg); --contains-highlight-background-color: transparent; }

@@ -22,7 +22,7 @@ const backend = await startGoBackendForTests({ env: { TMP: testTempRoot, TEMP: t
 const stats = async () => (await backend.stats()).compiler
 const latencies = []
 const healthLatencies = []
-const peaks = { active: 0, queued: 0, admitted: 0, cacheBytes: 0, backendHeapBytes: 0, goroutines: 0 }
+const peaks = { active: 0, queued: 0, admitted: 0, cacheBytes: 0, backendHeapBytes: 0, goroutines: 0, requestBodyBytesInFlight: 0 }
 let completed = 0, retries = 0, cancelled = 0, rejectedInvalid = 0, shedInvalid = 0
 const failures = []
 
@@ -82,7 +82,8 @@ async function probeHealth() {
     const sample = await backend.stats()
     const { compiler, system } = sample
     for (const key of ['active', 'queued', 'admitted', 'cacheBytes']) peaks[key] = Math.max(peaks[key], compiler[key])
-    for (const key of ['backendHeapBytes', 'goroutines']) peaks[key] = Math.max(peaks[key], system[key])
+    for (const key of ['backendHeapBytes', 'goroutines', 'requestBodyBytesInFlight']) peaks[key] = Math.max(peaks[key], system[key])
+    assert.ok(system.requestBodyBytesInFlight <= system.requestBodyBudgetBytes, 'request body memory budget must stay bounded')
     assert.ok(compiler.queued <= compiler.maxQueue, 'waiting queue must stay bounded')
     assert.ok(compiler.cacheBytes <= 32 * 1024 * 1024, 'PDF cache must stay bounded')
     if (process.env.VIETLATEX_COMPILE_WORKERS) {
@@ -132,6 +133,7 @@ try {
   assert.equal(final.active, 0, 'no compile may be left running')
   assert.equal(final.queued, 0, 'no compile may be left queued')
   assert.equal(final.admitted, 0, 'no HTTP admission slot may leak')
+  assert.equal((await backend.stats()).system.requestBodyBytesInFlight, 0, 'no request body budget reservation may leak')
   assert.ok(final.cacheHits > 0, 'repeated documents should hit the cache')
   assert.ok(percentile(healthLatencies, 0.95) < 500, 'health endpoint must stay responsive under load')
   assert.equal(leakedTempDirs, 0, 'only the backend\'s warm idle directories may remain before shutdown')

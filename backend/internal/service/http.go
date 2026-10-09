@@ -16,6 +16,7 @@ import (
 )
 
 const maxJSONRequestBytes = 40 << 20
+const maxInFlightRequestBodyBytes = 40 << 20
 
 type Service struct {
 	token            string
@@ -24,6 +25,7 @@ type Service struct {
 	started          time.Time
 	doiQueue         *compileQueue
 	diagnosticsQueue *compileQueue
+	requestBodies    *requestBodyBudget
 	lifecycle        context.Context
 	cancel           context.CancelFunc
 
@@ -42,6 +44,7 @@ func New(token string) *Service {
 		started:          time.Now(),
 		doiQueue:         newCompileQueue(4, 8),
 		diagnosticsQueue: newCompileQueue(1, 2),
+		requestBodies:    newRequestBodyBudget(maxInFlightRequestBodyBytes),
 		lifecycle:        lifecycle,
 		cancel:           cancel,
 		shutdownCh:       make(chan struct{}),
@@ -112,12 +115,15 @@ func allowedOrigin(raw string) bool {
 func (s *Service) health(w http.ResponseWriter, _ *http.Request) {
 	var memory runtime.MemStats
 	runtime.ReadMemStats(&memory)
+	requestBodyUsed, requestBodyLimit := s.requestBodies.stats()
 	system := map[string]any{
-		"availableMemoryBytes": availableMemoryBytes(),
-		"cpus":                 runtime.NumCPU(),
-		"uptimeSec":            int(time.Since(s.started).Seconds()),
-		"backendHeapBytes":     memory.HeapAlloc,
-		"goroutines":           runtime.NumGoroutine(),
+		"availableMemoryBytes":     availableMemoryBytes(),
+		"cpus":                     runtime.NumCPU(),
+		"uptimeSec":                int(time.Since(s.started).Seconds()),
+		"backendHeapBytes":         memory.HeapAlloc,
+		"goroutines":               runtime.NumGoroutine(),
+		"requestBodyBytesInFlight": requestBodyUsed,
+		"requestBodyBudgetBytes":   requestBodyLimit,
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "backend": "go", "compiler": s.latex.stats(), "word": s.word.stats(), "doi": s.doiQueue.stats(), "diagnostics": s.diagnosticsQueue.stats(), "system": system})
 }
@@ -146,6 +152,11 @@ func (s *Service) compile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.latex.queue.leave()
+	releaseBody, ok := s.reserveRequestBody(w, r, maxJSONRequestBytes)
+	if !ok {
+		return
+	}
+	defer releaseBody()
 	r.Body = http.MaxBytesReader(w, r.Body, maxJSONRequestBytes)
 	var input compileRequest
 	if err := decodeSingleJSON(r.Body, &input); err != nil {
@@ -169,6 +180,11 @@ func (s *Service) importWord(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.word.queue.leave()
+	releaseBody, ok := s.reserveRequestBody(w, r, maxWordDocumentBytes)
+	if !ok {
+		return
+	}
+	defer releaseBody()
 	r.Body = http.MaxBytesReader(w, r.Body, maxWordDocumentBytes)
 	bytes, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -191,6 +207,11 @@ func (s *Service) exportWord(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.word.queue.leave()
+	releaseBody, ok := s.reserveRequestBody(w, r, maxJSONRequestBytes)
+	if !ok {
+		return
+	}
+	defer releaseBody()
 	r.Body = http.MaxBytesReader(w, r.Body, maxJSONRequestBytes)
 	var input json.RawMessage
 	if err := decodeSingleJSON(r.Body, &input); err != nil {
@@ -214,6 +235,11 @@ func (s *Service) parseLatex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.word.queue.leave()
+	releaseBody, ok := s.reserveRequestBody(w, r, 800<<10)
+	if !ok {
+		return
+	}
+	defer releaseBody()
 	r.Body = http.MaxBytesReader(w, r.Body, 800<<10)
 	input, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -229,6 +255,26 @@ func (s *Service) parseLatex(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(ast)
+}
+
+// reserveRequestBody bounds the total serialized request data held by heavy
+// handlers at once. A missing Content-Length reserves the endpoint maximum
+// until the handler finishes, so chunked requests cannot bypass the budget.
+func (s *Service) reserveRequestBody(w http.ResponseWriter, r *http.Request, maxBytes int64) (func(), bool) {
+	if r.ContentLength > maxBytes {
+		writeDecodeError(w, &http.MaxBytesError{Limit: maxBytes})
+		return nil, false
+	}
+	amount := r.ContentLength
+	if amount < 0 {
+		amount = maxBytes
+	}
+	release, ok := s.requestBodies.reserve(amount)
+	if !ok {
+		writeServiceError(w, appError(http.StatusServiceUnavailable, "Máy chủ đang xử lý nhiều dữ liệu. Vui lòng thử lại sau vài giây."))
+		return nil, false
+	}
+	return release, true
 }
 
 func admitHeavyRequest(w http.ResponseWriter, queue *compileQueue) bool {

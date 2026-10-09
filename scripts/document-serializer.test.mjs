@@ -54,6 +54,18 @@ test('serializer escapes ordinary text and defines package-free strikethrough fo
   assert.doesNotMatch(result.latex, /\\usepackage\{ulem\}/)
 })
 
+test('plain Unicode subscripts and superscripts become LaTeX scripts without changing manuscript text', () => {
+  const original = 'NO₂ CO₂ H₂O SO₄²⁻ m² xₜ ¹⁴C A₁₂ & 50%'
+  const document = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: original, marks: [{ type: 'bold' }] }] }] }
+  const { latex } = toLatex(document, 'NO₂', undefined, { author: 'CO₂', abstractEnabled: true, abstract: 'm² xₜ' })
+  assert.ok(latex.includes(String.raw`\textbf{NO\textsubscript{2} CO\textsubscript{2} H\textsubscript{2}O SO\textsubscript{4}\textsuperscript{2-} m\textsuperscript{2} x\textsubscript{t} \textsuperscript{14}C A\textsubscript{12} \& 50\%}`))
+  assert.ok(latex.includes(String.raw`\title{NO\textsubscript{2}}`))
+  assert.ok(latex.includes(String.raw`\author{CO\textsubscript{2}}`))
+  assert.ok(latex.includes(String.raw`m\textsuperscript{2} x\textsubscript{t}`))
+  assert.doesNotMatch(latex, /[₂₄ₜ₁²⁻¹⁴]/u)
+  assert.equal(document.content[0].content[0].text, original)
+})
+
 test('serializer inserts replacement tokens literally and does not reprocess body placeholders', () => {
   const apostropheToken = '\\' + '$' + "'"
   const backtickToken = '\\' + '$' + '`'

@@ -7,7 +7,7 @@ const { join } = require('node:path')
 const { tmpdir } = require('node:os')
 const { randomUUID } = require('node:crypto')
 const { createLanSync } = require('./lan-sync.cjs')
-const { seal, unseal, secret, request, validateEndpoint, readBody } = require('./lan-sync-transport.cjs')
+const { seal, unseal, secret, request, validateEndpoint, readBody, requestTimeoutForWireBytes, MAX_WIRE_BYTES, MAX_REQUEST_TIMEOUT_MS } = require('./lan-sync-transport.cjs')
 
 const doc = text => ({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] })
 const workspace = (prefix, text) => ({ version: 1, projects: [{ id: `project-${prefix}`, name: prefix, activeTaskId: `task-${prefix}`, tasks: [{ id: `task-${prefix}`, title: prefix, document: doc(text), sourceDraft: '', sourceEdited: false, sourceTrusted: true, assets: [], settings: {} }] }], activeProjectId: `project-${prefix}`, customTemplates: [], documentTemplates: [] })
@@ -38,6 +38,14 @@ test('encrypted transport rejects tampering, wrong keys, wrong direction and non
   assert.throws(() => validateEndpoint('8.8.8.8', 4317))
   assert.throws(() => validateEndpoint('example.com', 4317))
   assert.throws(() => validateEndpoint('192.168.1.1', 0))
+})
+
+test('LAN request deadline scales with encrypted payload size and has a hard cap', () => {
+  assert.equal(requestTimeoutForWireBytes(0), 30_000)
+  assert.equal(requestTimeoutForWireBytes(1024 * 1024), 34_000)
+  assert.ok(requestTimeoutForWireBytes(MAX_WIRE_BYTES) > 30_000)
+  assert.ok(requestTimeoutForWireBytes(MAX_WIRE_BYTES) < MAX_REQUEST_TIMEOUT_MS)
+  assert.equal(requestTimeoutForWireBytes(MAX_WIRE_BYTES * 100), MAX_REQUEST_TIMEOUT_MS)
 })
 
 test('two LAN services merge independent projects, preserve IDs/assets/templates and keep trust local', async t => {
@@ -246,6 +254,16 @@ test('replay protection covers requests stamped ahead of the host clock', async 
   // Any later request prunes the replay cache.
   await send({ requestId: randomUUID(), at: Date.now(), ops: [], sinceRev: persisted.revision })
   await assert.rejects(send(ahead), /hết hạn|ngắt quyền/)
+})
+
+test('clock skew reports how to repair the time mismatch', async t => {
+  const { directory } = await setup(t)
+  const persisted = JSON.parse(await readFile(join(directory, 'client', 'lan-sync-v1.json'), 'utf8'))
+  const payload = { requestId: randomUUID(), at: Date.now() + 6 * 60_000, ops: [], sinceRev: persisted.revision }
+  await assert.rejects(
+    request(persisted.connection.host, persisted.connection.port, '/exchange', payload, persisted.connection.key, persisted.deviceId),
+    /Đồng hồ giữa hai máy lệch quá 5 phút.*đồng bộ thời gian tự động/,
+  )
 })
 
 test('pairing rejects oversized bodies before reading them and readBody enforces a shared budget', async t => {
