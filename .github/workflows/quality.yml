@@ -61,6 +61,23 @@ jobs:
       - run: npm run lint
       - run: npm run test:backend
       - run: npm run test:sync
+      - name: Cache bundled Pandoc and TeX
+        uses: actions/cache@v4
+        with:
+          path: |
+            tools/pandoc
+            tools/tex
+          key: mac-tools-${{ hashFiles('scripts/setup-pandoc.mjs', 'scripts/setup-tex.mjs', 'build/fontspec/**') }}
+      - name: Prepare bundled Pandoc and TeX
+        run: |
+          [ -x tools/pandoc/pandoc ] || npm run setup:pandoc
+          npm run setup:tex
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      # The only per-push check that compiles real PDFs and Word files on macOS,
+      # using the same TinyTeX, fonts and Pandoc that the DMG ships.
+      - name: Compile real PDFs and Word files with bundled TeX
+        run: npm run test:upgrade
       - run: npx playwright install chromium
       - run: npm run test:project-tabs
         env:
