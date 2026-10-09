@@ -50,6 +50,16 @@ cd release-desktop
 shasum -a 256 -c Viet-Latex-Studio-0.5.6-universal.dmg.sha256
 ```
 
+## Cập nhật bản đang dùng, giữ dữ liệu
+
+Sau khi build và xác minh thành công, chạy `npm run desktop:update:local` để cập nhật app trong Applications. Script mở một bản sao workspace bằng app mới, so sánh nội dung/source/cấu hình/REF/tài nguyên sau khi lưu và thoát; nếu khác thì dừng trước khi thay app.
+
+App cũ nhận SIGTERM và tự lưu trước khi thoát. Script chờ tối đa 30 giây; nếu chưa thoát thì giữ nguyên app. Sau đó sao lưu toàn bộ hồ sơ cùng app cũ vào `~/Library/Application Support/VietLatex Upgrade Backups/<thời điểm>/`, thay app bằng bản đã kiểm tra chữ ký rồi mở lại. Kiểm tra SHA-256 xác nhận thao tác cài không ghi vào workspace; dữ liệu sau mở lại được so sánh thêm một lần. Không đổi schema workspace v1, ID dự án/tài liệu hoặc hồ sơ LAN.
+
+Nếu đã đặt vị trí dữ liệu riêng trong `user-data-location.json`, script dùng đúng đường dẫn đó. Với `VIETLATEX_USER_DATA`, cần giữ cùng biến khi chạy script để kiểm tra hồ sơ tương ứng.
+
+Quyền mạng nội bộ có mô tả trong Info.plist. Chỉ bật **Đồng bộ LAN** khi cần ghép máy. Kiểm thử hai app trên một Mac không thay thế kiểm thử quyền mạng và kết nối Wi-Fi giữa hai Mac thật. Tham khảo [Apple TN3179](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy).
+
 ## GitHub Actions và chữ ký nhà phát hành
 
 Workflow **Build Mac installer** chạy thủ công trên runner macOS. Cấu hình có thể dùng secrets `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` cho ký/notarize. Chưa có các thông tin này trong bản build cục bộ.

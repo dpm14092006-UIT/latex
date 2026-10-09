@@ -61,6 +61,8 @@ async function verifyTexTree(directory) {
 await access(executable)
 const { stdout: minimumVersion } = await promisify(execFile)('/usr/libexec/PlistBuddy', ['-c', 'Print :LSMinimumSystemVersion', join(app, 'Contents', 'Info.plist')])
 if (minimumVersion.trim() !== pkg.build.mac.minimumSystemVersion) throw new Error('Yêu cầu macOS trong Info.plist không khớp cấu hình bộ cài.')
+const { stdout: localNetworkDescription } = await promisify(execFile)('/usr/libexec/PlistBuddy', ['-c', 'Print :NSLocalNetworkUsageDescription', join(app, 'Contents', 'Info.plist')])
+if (localNetworkDescription.trim() !== pkg.build.mac.extendInfo.NSLocalNetworkUsageDescription) throw new Error('Thiếu hoặc sai mô tả quyền mạng nội bộ trong app đã đóng gói.')
 await run('/usr/bin/codesign', ['--verify', '--deep', '--strict', app])
 for (const binary of [executable, join(resources, 'backend', 'vietlatex-backend'), join(resources, 'pandoc', 'pandoc'), join(resources, 'tex', 'bin', 'universal-darwin', 'xetex'), join(resources, 'tex', 'bin', 'universal-darwin', 'biber')]) {
   await run('/usr/bin/lipo', [binary, '-verify_arch', 'x86_64', 'arm64'])

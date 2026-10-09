@@ -19,7 +19,7 @@
     "check:full": "node scripts/check-full.mjs",
     "preview": "npm run backend:build && node scripts/run-web.mjs --preview",
     "backend:build": "node scripts/build-backend.mjs",
-    "test:backend": "npm run backend:build && node --test scripts/bibliography.test.mjs scripts/project-assets.test.mjs scripts/latex-compiler.test.mjs scripts/electron-proxy.test.mjs scripts/citation-linker.test.mjs scripts/citation-review.test.mjs scripts/document-data.test.mjs scripts/project-compilation.test.mjs scripts/document-serializer.test.mjs scripts/math-input.test.mjs scripts/formula-recognition.test.mjs scripts/math-suggestion-scanner.test.mjs scripts/math-node-transforms.test.mjs scripts/rich-text.test.mjs scripts/external-links.test.mjs scripts/untrusted-latex-trust.test.mjs scripts/pdf-compile-scheduler.test.mjs scripts/table-styles.test.mjs electron/app-protocol.test.cjs electron/backend-client.test.cjs electron/workspace-store.test.cjs electron/macos-environment.test.cjs",
+    "test:backend": "npm run backend:build && node --test scripts/bibliography.test.mjs scripts/project-assets.test.mjs scripts/latex-compiler.test.mjs scripts/electron-proxy.test.mjs scripts/citation-linker.test.mjs scripts/citation-review.test.mjs scripts/document-data.test.mjs scripts/project-compilation.test.mjs scripts/document-serializer.test.mjs scripts/math-input.test.mjs scripts/formula-recognition.test.mjs scripts/math-suggestion-scanner.test.mjs scripts/math-node-transforms.test.mjs scripts/upgrade-snapshot.test.mjs scripts/rich-text.test.mjs scripts/external-links.test.mjs scripts/untrusted-latex-trust.test.mjs scripts/pdf-compile-scheduler.test.mjs scripts/table-styles.test.mjs electron/app-protocol.test.cjs electron/backend-client.test.cjs electron/workspace-store.test.cjs electron/macos-environment.test.cjs",
     "smoke:latex": "npm run backend:build && node scripts/smoke-latex.mjs",
     "smoke:math-paste": "node scripts/smoke-math-paste.mjs",
     "desktop:dev": "node scripts/run-desktop-dev.mjs",
@@ -28,6 +28,7 @@
     "desktop:build": "npm run desktop:build:mac",
     "desktop:build:mac": "node scripts/build-mac.mjs",
     "desktop:verify:mac": "node scripts/verify-mac-package.mjs",
+    "desktop:update:local": "node scripts/install-mac-local.mjs",
     "test:sync": "node --test electron/lan-sync.test.cjs",
     "test:sync:desktop": "node scripts/lan-sync-desktop.mjs",
     "test:quit-failure": "node scripts/quit-failure-desktop.mjs",
@@ -156,6 +157,9 @@
       ],
       "icon": "build/app-icon.icns",
       "minimumSystemVersion": "26.0",
+      "extendInfo": {
+        "NSLocalNetworkUsageDescription": "Viet Latex Studio cần truy cập mạng nội bộ để đồng bộ tài liệu và PDF với máy bạn đã ghép. Chia sẻ chỉ bắt đầu khi bạn bật Đồng bộ LAN."
+      },
       "hardenedRuntime": true,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",

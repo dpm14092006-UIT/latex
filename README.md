@@ -70,6 +70,8 @@ npm run desktop:build:mac
 
 Electron chạy backend trên cổng loopback ngẫu nhiên với token riêng. Backend tự tìm bộ TeX/Pandoc trong Resources; PATH được chuẩn bị cho Finder. Huỷ biên dịch dừng cả nhóm tiến trình trên macOS. Font Latin Modern đi kèm nạp theo tên file, cache sinh ra nằm ngoài app có chữ ký.
 
+Định dạng HTTP/ready/token, PDF, Word AST và DOI: [giao thức backend](docs/BACKEND-HTTP.md). Để cập nhật app đang dùng sau khi build, chạy `npm run desktop:update:local`; script kiểm tra bản sao hồ sơ, chờ app lưu/thoát rồi giữ lại toàn bộ hồ sơ và app cũ trước khi thay bản mới. Xem [hướng dẫn cập nhật giữ dữ liệu](docs/MAC-INSTALLER.md).
+
 Bộ TeX gồm XeLaTeX, BibTeX, Biber, biblatex-apa, csquotes và các gói phục vụ mẫu có sẵn. Mẫu LaTeX tự nhập có thể cần gói/font bổ sung. Word dùng Pandoc 3.11 và CSL APA cục bộ. Giấy phép và provenance đi kèm runtime.
 
 Vite 8 dùng Rolldown; MathLive và PDF.js tải lười. Giao diện đóng gói dùng `vietlatex://`; ASAR integrity bật, các fuse Node/inspector bị tắt. Các bài kiểm thử app đóng gói kết nối debugger renderer trên loopback và không thay fuse.

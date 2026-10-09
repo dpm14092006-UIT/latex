@@ -16,6 +16,7 @@ export function convertUnicodeScriptMath(state, { ranges, deferAtCursor = false 
       for (const formula of unicodeScriptFormulas(child.text)) {
         const from = position + 1 + offset + formula.start
         const to = position + 1 + offset + formula.end
+        if (ranges && !ranges.some(range => range.from <= to && range.to >= from)) continue
         if (deferAtCursor && state.selection.from >= from && state.selection.to <= to) continue
         matches.push({ from, to, latex: formula.latex, marks: child.marks })
       }

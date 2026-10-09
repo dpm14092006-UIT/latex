@@ -187,6 +187,7 @@ const UnicodeScriptRecognition = Extension.create({
   name: 'unicodeScriptRecognition',
   addProseMirrorPlugins() {
     let editorView
+    let pendingRange = null
     return [new Plugin({
       view(view) { editorView = view; return { destroy() { editorView = null } } },
       props: { handleDOMEvents: { blur(view) {
@@ -196,17 +197,30 @@ const UnicodeScriptRecognition = Extension.create({
         return false
       } } },
       appendTransaction(transactions, oldState, newState) {
-        if (editorView?.composing || transactions.some(isHistoryTransaction)) return null
+        if (editorView?.composing) return null
+        if (transactions.some(isHistoryTransaction)) { pendingRange = null; return null }
+        // Loading/switching a saved document must never rewrite its formulas.
+        if (transactions.some(transaction => transaction.getMeta('preventUpdate') || transaction.getMeta('compilationLoad') || transaction.getMeta('unicodeScriptsSkip'))) {
+          pendingRange = null
+          return null
+        }
+        const changed = transactions.some(transaction => transaction.docChanged && !transaction.getMeta('unicodeScriptsConverted'))
+        if (!changed && transactions.some(transaction => transaction.getMeta('unicodeScriptsConverted'))) {
+          if (pendingRange) pendingRange = { from: newState.selection.from, to: newState.selection.to }
+          return null
+        }
         const complete = transactions.some(transaction => transaction.getMeta('unicodeScriptsComplete'))
-        const changed = transactions.some(transaction => transaction.docChanged)
         const moved = !oldState.selection.eq(newState.selection)
         if (!complete && !changed && !moved) return null
-        const ranges = changedDocumentRanges(transactions, newState.doc)
-        if (moved && !changed) ranges.push({ from: oldState.selection.from, to: oldState.selection.to })
-        return convertUnicodeScriptMath(newState, {
-          ranges: complete ? undefined : ranges,
+        if (!changed && !pendingRange) return null
+        const ranges = changed ? changedDocumentRanges(transactions, newState.doc) : [pendingRange]
+        const pasted = transactions.some(isClipboardPasteTransaction)
+        pendingRange = changed && !complete && !pasted ? { from: newState.selection.from, to: newState.selection.to } : null
+        const conversion = convertUnicodeScriptMath(newState, {
+          ranges,
           deferAtCursor: !complete && !transactions.some(isClipboardPasteTransaction),
         })
+        return conversion?.setMeta('unicodeScriptsConverted', true) || null
       },
     })]
   },
@@ -458,9 +472,7 @@ function App({ initialWorkspace }) {
       // editor runs any normalization that could be mistaken for a user edit.
       if (sourceEditedRef.current) return
       const transaction = convertDelimitedMath(createdEditor.state)
-      if (transaction) createdEditor.view.dispatch(transaction)
-      const unicode = convertUnicodeScriptMath(createdEditor.state)
-      if (unicode) createdEditor.view.dispatch(unicode)
+      if (transaction) createdEditor.view.dispatch(transaction.setMeta('unicodeScriptsSkip', true))
     },
     onUpdate: ({ editor: updatedEditor, transaction, appendedTransactions }) => {
       if (summaryModeRef.current) return

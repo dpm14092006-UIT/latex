@@ -21,6 +21,16 @@ const schema = new Schema({
 const paragraph = (content, attrs = null) => schema.node('paragraph', attrs, content)
 const math = (name, latex, extra = {}) => schema.node(name, { latex, ...extra })
 
+test('editing one Unicode token leaves existing tokens in the same paragraph intact', () => {
+  const doc = schema.node('doc', null, [paragraph([schema.text('NO₂ và H₂O')])])
+  const state = EditorState.create({ doc })
+  assert.equal(convertUnicodeScriptMath(state, { ranges: [] }), null)
+  const transaction = convertUnicodeScriptMath(state, { ranges: [{ from: 8, to: 11 }] })
+  assert.ok(transaction)
+  assert.equal(transaction.doc.firstChild.child(0).text, 'NO₂ và ')
+  assert.equal(transaction.doc.firstChild.child(1).attrs.latex, String.raw`\mathrm{H}_{2}\mathrm{O}`)
+})
+
 test('editing a display formula as inline joins adjacent matching paragraphs', () => {
   const before = paragraph([schema.text('and', [schema.mark('strong')])])
   const display = math('blockMath', 'E_t^{(k)}', { label: 'eq:predictor' })

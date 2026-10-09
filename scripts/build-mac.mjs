@@ -21,4 +21,7 @@ await run('/usr/bin/lipo', [join(root, 'build', 'backend', 'vietlatex-backend'),
 await run(process.execPath, [join(root, 'node_modules', 'vite', 'bin', 'vite.js'), 'build'], { ...process.env, BUILD_DESKTOP_APP: 'true' })
 await run(process.execPath, [join(root, 'node_modules', 'electron-builder', 'cli.js'), '--config', 'electron-builder.config.cjs', '--mac', ...(process.argv.includes('--dir') ? ['--dir'] : ['dmg']), '--universal', '--publish', 'never'])
 await node('verify-mac-package.mjs')
-if (!process.argv.includes('--dir')) await node('copy-mac-installer.cjs')
+if (!process.argv.includes('--dir')) {
+  await run(process.env.PYTHON_BINARY || 'python3', [join(root, 'scripts', 'package-mac-source.py')])
+  await node('copy-mac-installer.cjs')
+}
