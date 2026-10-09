@@ -1,7 +1,7 @@
 {
   "name": "latex-word-studio",
   "version": "0.5.6",
-  "description": "Ứng dụng macOS cục bộ để soạn văn bản, LaTeX, Word và PDF.",
+  "description": "Ứng dụng desktop cục bộ (macOS và Windows) để soạn văn bản, LaTeX, Word và PDF.",
   "author": "Viet LaTeX Studio",
   "main": "electron/main.cjs",
   "private": true,
@@ -19,16 +19,16 @@
     "check:full": "node scripts/check-full.mjs",
     "preview": "npm run backend:build && node scripts/run-web.mjs --preview",
     "backend:build": "node scripts/build-backend.mjs",
-    "test:backend": "npm run backend:build && node --test scripts/bibliography.test.mjs scripts/project-assets.test.mjs scripts/latex-compiler.test.mjs scripts/electron-proxy.test.mjs scripts/citation-linker.test.mjs scripts/citation-review.test.mjs scripts/document-data.test.mjs scripts/project-compilation.test.mjs scripts/document-serializer.test.mjs scripts/math-input.test.mjs scripts/formula-recognition.test.mjs scripts/math-suggestion-scanner.test.mjs scripts/math-node-transforms.test.mjs scripts/upgrade-snapshot.test.mjs scripts/rich-text.test.mjs scripts/external-links.test.mjs scripts/untrusted-latex-trust.test.mjs scripts/pdf-compile-scheduler.test.mjs scripts/table-styles.test.mjs electron/app-protocol.test.cjs electron/backend-client.test.cjs electron/workspace-store.test.cjs electron/macos-environment.test.cjs",
+    "test:backend": "npm run backend:build && node --test scripts/bibliography.test.mjs scripts/project-assets.test.mjs scripts/latex-compiler.test.mjs scripts/electron-proxy.test.mjs scripts/citation-linker.test.mjs scripts/citation-review.test.mjs scripts/document-data.test.mjs scripts/project-compilation.test.mjs scripts/document-serializer.test.mjs scripts/math-input.test.mjs scripts/formula-recognition.test.mjs scripts/math-suggestion-scanner.test.mjs scripts/math-node-transforms.test.mjs scripts/upgrade-snapshot.test.mjs scripts/rich-text.test.mjs scripts/external-links.test.mjs scripts/untrusted-latex-trust.test.mjs scripts/pdf-compile-scheduler.test.mjs scripts/table-styles.test.mjs electron/app-protocol.test.cjs electron/backend-client.test.cjs electron/workspace-store.test.cjs electron/mac/environment.test.cjs electron/win/environment.test.cjs",
     "smoke:latex": "npm run backend:build && node scripts/smoke-latex.mjs",
     "smoke:math-paste": "node scripts/smoke-math-paste.mjs",
     "desktop:dev": "node scripts/run-desktop-dev.mjs",
     "desktop:preview": "node scripts/run-desktop.mjs",
-    "desktop:build:dir": "node scripts/build-mac.mjs --dir",
-    "desktop:build": "npm run desktop:build:mac",
-    "desktop:build:mac": "node scripts/build-mac.mjs",
-    "desktop:verify:mac": "node scripts/verify-mac-package.mjs",
-    "desktop:update:local": "node scripts/install-mac-local.mjs",
+    "desktop:build:dir": "node mac/build-mac.mjs --dir",
+    "desktop:build": "node scripts/build-current-platform.mjs",
+    "desktop:build:mac": "node mac/build-mac.mjs",
+    "desktop:verify:mac": "node mac/verify-mac-package.mjs",
+    "desktop:update:local": "node mac/install-mac-local.mjs",
     "test:sync": "node --test electron/lan-sync.test.cjs",
     "test:updater": "node --test electron/updater.test.cjs scripts/bump-version.test.mjs",
     "release:patch": "node scripts/bump-version.mjs patch --commit",
@@ -38,7 +38,8 @@
     "test:quit-failure": "node scripts/quit-failure-desktop.mjs",
     "test:pdf-batching": "npm run backend:build && node scripts/pdf-batching-smoke.mjs",
     "test:load": "npm run backend:build && node scripts/load-compile.mjs",
-    "setup:pandoc": "node scripts/setup-pandoc.mjs",
+    "setup:pandoc": "node mac/setup-pandoc.mjs",
+    "setup:pandoc:win": "node win/setup-pandoc.mjs",
     "test:upgrade": "npm run backend:build && node --test scripts/upgrade.test.mjs",
     "test:desktop": "npm run backend:build && node scripts/desktop-smoke.mjs",
     "test:ui": "node scripts/monochrome-ui-smoke.mjs",
@@ -54,11 +55,14 @@
     "test:bench": "npm run backend:build && node scripts/bench-compile.mjs",
     "test:citation-scan": "node --test scripts/citation-linker.test.mjs scripts/citation-review.test.mjs && node scripts/citation-linker-ui.mjs && node scripts/citation-screenshot-ui.mjs",
     "test:review-fixes": "node scripts/review-fixes-ui.mjs",
-    "setup:tex": "node scripts/setup-tex.mjs",
-    "test:mac": "node --test electron/macos-environment.test.cjs",
-    "test:packaged:mac": "node scripts/mac-packaged-smoke.mjs",
+    "setup:tex": "node mac/setup-tex.mjs",
+    "test:mac": "node --test electron/mac/environment.test.cjs",
+    "test:packaged:mac": "node mac/mac-packaged-smoke.mjs",
     "test:dark-text": "node scripts/build-desktop.mjs && node scripts/dark-text-pdf-desktop.mjs",
-    "test:preview-layout": "node scripts/preview-layout-desktop.mjs"
+    "test:preview-layout": "node scripts/preview-layout-desktop.mjs",
+    "backend:build:windows": "node scripts/build-backend.mjs",
+    "desktop:build:win": "node win/build-win.mjs",
+    "desktop:build:win:dir": "node win/build-win.mjs --dir"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",
@@ -114,9 +118,6 @@
   "build": {
     "appId": "vn.vietlatex.studio",
     "productName": "Viet Latex Studio",
-    "directories": {
-      "output": "release-desktop"
-    },
     "files": [
       "dist/**/*",
       "electron/**/*",
@@ -136,56 +137,6 @@
       "enableEmbeddedAsarIntegrityValidation": true,
       "onlyLoadAppFromAsar": true,
       "grantFileProtocolExtraPrivileges": false
-    },
-    "extraResources": [
-      {
-        "from": "build/backend",
-        "to": "backend",
-        "filter": [
-          "vietlatex-backend"
-        ]
-      },
-      {
-        "from": "tools/pandoc",
-        "to": "pandoc",
-        "filter": [
-          "**/*"
-        ]
-      }
-    ],
-    "mac": {
-      "category": "public.app-category.productivity",
-      "artifactName": "Viet-Latex-Studio-${version}-${arch}.${ext}",
-      "target": [
-        "dmg"
-      ],
-      "icon": "build/app-icon.icns",
-      "minimumSystemVersion": "26.0",
-      "extendInfo": {
-        "NSLocalNetworkUsageDescription": "Viet Latex Studio cần truy cập mạng nội bộ để đồng bộ tài liệu và PDF với máy bạn đã ghép. Chia sẻ chỉ bắt đầu khi bạn bật Đồng bộ LAN."
-      },
-      "hardenedRuntime": true,
-      "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist",
-      "x64ArchFiles": "Contents/Resources/{backend/vietlatex-backend,pandoc/pandoc}",
-      "sign": "scripts/sign-mac.cjs"
-    },
-    "dmg": {
-      "sign": false,
-      "contents": [
-        {
-          "x": 160,
-          "y": 180,
-          "type": "file"
-        },
-        {
-          "x": 440,
-          "y": 180,
-          "type": "link",
-          "path": "/Applications"
-        }
-      ]
-    },
-    "afterPack": "scripts/package-tex.cjs"
+    }
   }
 }

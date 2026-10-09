@@ -8,4 +8,4 @@ Thanh tiêu đề và tên bộ cài DMG hiển thị 0.5.1. Thoát bản cũ b�
 
 Kiểm thử hồi quy: `npm run test:headings` build giao diện production, kiểm tra mục lục, nhập Shift+Enter, dán nội dung và đối chiếu số trong PDF thật. Có thể kiểm tra app Mac đã đóng gói bằng `DESKTOP_EXE` trỏ đến `Viet Latex Studio.app/Contents/MacOS/Viet Latex Studio`; bài kiểm thử dùng hồ sơ tạm riêng.
 
-Bộ cài Mac universal và quy trình kiểm tra được mô tả trong [hướng dẫn Mac](MAC-INSTALLER.md). Bản cục bộ chưa có notarization bằng Apple Developer ID.
+Bộ cài Mac universal và quy trình kiểm tra được mô tả trong [hướng dẫn Mac](../mac/docs/MAC-INSTALLER.md). Bản cục bộ chưa có notarization bằng Apple Developer ID.

@@ -52,7 +52,7 @@ func TestWordImportReportsOversizedASTAsTooLarge(t *testing.T) {
 
 func TestFindPandocReturnsAbsolutePath(t *testing.T) {
 	root := t.TempDir()
-	name := "pandoc"
+	name := executableName("pandoc")
 	if err := os.MkdirAll(filepath.Join(root, "tools", "pandoc"), 0o700); err != nil {
 		t.Fatal(err)
 	}

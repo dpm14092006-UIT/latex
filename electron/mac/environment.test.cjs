@@ -1,6 +1,6 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { backendEnvironment } = require('./macos-environment.cjs')
+const { backendEnvironment } = require('./environment.cjs')
 
 test('Finder environment finds bundled TeX and keeps caches outside Applications', () => {
   const env = backendEnvironment({ appPath: '/Applications/Viết.app/Contents/Resources/app.asar', resourcesPath: '/Applications/Viết.app/Contents/Resources', home: '/Users/test', env: { PATH: '/usr/bin:/bin' } })

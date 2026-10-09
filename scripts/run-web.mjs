@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const preview = process.argv.includes('--preview')
-const backendExecutable = join(root, 'build', 'backend', 'vietlatex-backend')
+const backendExecutable = join(root, 'build', 'backend', process.platform === 'win32' ? 'vietlatex-backend.exe' : 'vietlatex-backend')
 const token = randomBytes(32).toString('hex')
 const env = { ...process.env, VIETLATEX_API_TOKEN: token, VIETLATEX_APP_PATH: root }
 const children = new Set()

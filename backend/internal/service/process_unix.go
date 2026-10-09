@@ -27,3 +27,11 @@ func killCommandGroup(command *exec.Cmd) error {
 	}
 	return err
 }
+
+const texDistribution = "MacTeX hoặc TeX Live"
+
+func executableName(name string) string { return name }
+
+func isExecutableFile(info os.FileInfo) bool { return !info.IsDir() && info.Mode()&0111 != 0 }
+
+func platformXeLatexCandidates() []string { return nil }

@@ -470,17 +470,17 @@ func validateWordAST(value any, imageTotal, imageCount *int) error {
 func findPandoc() (string, error) {
 	candidates := []string{os.Getenv("PANDOC_PATH")}
 	if resources := os.Getenv("VIETLATEX_RESOURCES_PATH"); resources != "" {
-		candidates = append(candidates, filepath.Join(resources, "pandoc", "pandoc"))
+		candidates = append(candidates, filepath.Join(resources, "pandoc", executableName("pandoc")))
 	}
 	if appPath := os.Getenv("VIETLATEX_APP_PATH"); appPath != "" {
-		candidates = append(candidates, filepath.Join(appPath, "tools", "pandoc", "pandoc"))
+		candidates = append(candidates, filepath.Join(appPath, "tools", "pandoc", executableName("pandoc")))
 	}
-	candidates = append(candidates, filepath.Join("tools", "pandoc", "pandoc"), "/opt/homebrew/bin/pandoc", "/usr/local/bin/pandoc", "/opt/local/bin/pandoc")
+	candidates = append(candidates, filepath.Join("tools", "pandoc", executableName("pandoc")), "/opt/homebrew/bin/pandoc", "/usr/local/bin/pandoc", "/opt/local/bin/pandoc")
 	for _, candidate := range candidates {
 		if candidate == "" {
 			continue
 		}
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0111 != 0 {
+		if info, err := os.Stat(candidate); err == nil && isExecutableFile(info) {
 			// Pandoc runs with Dir set to a temp directory, and exec resolves a
 			// relative executable against Dir, not against where it was found.
 			return filepath.Abs(candidate)

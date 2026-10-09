@@ -1,5 +1,7 @@
 import { useState } from 'react'
 
+const isWindows = () => typeof window !== 'undefined' && window.desktopAPI?.platform === 'win32'
+
 export const updateBusy = status => ['checking', 'downloading', 'installing'].includes(status?.status)
 
 export function updateSummary(status) {
@@ -23,7 +25,7 @@ export default function UpdatePanel({ updates }) {
     setMessage('')
     try {
       const result = await call(action, ...args)
-      if (result?.manual) setMessage('Đã mở bộ cài. Kéo Viet Latex Studio vào Applications để thay bản cũ.')
+      if (result?.manual) setMessage(isWindows() ? 'Đã mở bộ cài. Làm theo các bước cài đặt; dữ liệu tài liệu được giữ nguyên.' : 'Đã mở bộ cài. Kéo Viet Latex Studio vào Applications để thay bản cũ.')
     } catch (error) { setMessage(error.message || 'Không thực hiện được thao tác cập nhật.') }
   }
   const busy = updateBusy(status)
@@ -40,6 +42,6 @@ export default function UpdatePanel({ updates }) {
       {status?.status === 'available' && <button type="button" onClick={() => act('skip')}>Bỏ qua bản này</button>}
     </div>
     <label className="studio-checkbox"><input type="checkbox" checked={status?.autoCheck !== false} disabled={!status} onChange={event => act('setAutoCheck', event.target.checked)} />Tự kiểm tra bản mới khi mở app và mỗi 6 giờ</label>
-    <p>Bản cập nhật tải từ GitHub Releases, được kiểm tra SHA-256, chữ ký và mã ứng dụng trước khi cài. Tài liệu được lưu và tạo điểm khôi phục trước khi thay app; bản cũ được giữ trong “VietLatex Upgrade Backups”.</p>
+    <p>{isWindows() ? 'Bản cập nhật tải từ GitHub Releases và được kiểm tra SHA-256. Tài liệu được lưu và tạo điểm khôi phục, app thoát rồi bộ cài chạy im lặng và mở lại app.' : 'Bản cập nhật tải từ GitHub Releases, được kiểm tra SHA-256, chữ ký và mã ứng dụng trước khi cài. Tài liệu được lưu và tạo điểm khôi phục trước khi thay app; bản cũ được giữ trong “VietLatex Upgrade Backups”.'}</p>
   </section>
 }

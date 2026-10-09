@@ -67,11 +67,11 @@ Không phân tích LaTeX tùy ý ngược sang Tiptap. Word chỉ chuyển cấu
 
 0.5.0 thêm đồng bộ phiên bản LAN, chưa có cộng tác gõ đồng thời. 0.5.6 bổ sung PDF đã biên dịch qua endpoint `/pdf` mã hóa, kiểm tra SHA-256 và hai dấu phiên bản: bản thảo/mẫu, source/ảnh/tài nguyên. PDF không nằm trong record bản thảo, nên client v1 cũ vẫn tương thích. Cache cục bộ tối đa 32 MiB, 24 MiB/tệp; renderer nhận PDF qua IPC, kiểm tra phiên bản hiện tại rồi đưa vào scheduler. Xem/xuất PDF nhận được không cấp quyền thực thi source. Tick 5 giây đến từ tiến trình chính và tiếp tục khi resume. Luồng thoát hoàn thành flush trước khi dừng dịch vụ; lỗi lưu giữ cả cửa sổ lẫn backend hoạt động. Menu App/Edit/Window được bật trên macOS.
 
-Setup Pandoc kiểm tra SHA-256 và giữ giấy phép. Vite đóng gói font MathLive cục bộ. Builder dùng thư mục tạm theo phiên bản để tránh lỗi đường dẫn workspace có dấu, rồi copy installer và SHA-256 về release-desktop.
+Setup Pandoc kiểm tra SHA-256 và giữ giấy phép. Vite đóng gói font MathLive cục bộ. Builder dùng thư mục tạm theo phiên bản để tránh lỗi đường dẫn workspace có dấu, rồi copy installer và SHA-256 về release-desktop/mac hoặc release-desktop/win.
 
 Toolchain được ghim bằng package-lock/npm ci, Node 22.13+ (CI dùng Node 24), Go 1.26.8+, ESLint flat config và React Hooks rules. Backend Go chỉ dùng thư viện chuẩn; CI biên dịch backend cho Linux và chạy lint/backend tests, Vite/Rolldown production build cùng npm audit. Desktop đóng gói helper riêng theo nền tảng; macOS universal ghép hai binary bằng lipo. `test:desktop:dist` chạy production renderer trong Electron dev binary qua giao thức nội bộ.
 
-Tests: backend, serializer, math paste, XeLaTeX/BibTeX, Word OMML roundtrip, load và Electron smoke. Desktop test dùng VIETLATEX_USER_DATA trỏ mkdtemp, không mở hồ sơ thật. Bản macOS universal được kiểm tra chữ ký ad-hoc, kiến trúc và runtime Apple Silicon theo quy trình trong docs/MAC-INSTALLER.md. Chạy trên Intel, Developer ID/notarization và Docker runtime chưa được xác minh.
+Tests: backend, serializer, math paste, XeLaTeX/BibTeX, Word OMML roundtrip, load và Electron smoke. Desktop test dùng VIETLATEX_USER_DATA trỏ mkdtemp, không mở hồ sơ thật. Bản macOS universal được kiểm tra chữ ký ad-hoc, kiến trúc và runtime Apple Silicon theo quy trình trong mac/docs/MAC-INSTALLER.md. Chạy trên Intel, Developer ID/notarization và Docker runtime chưa được xác minh.
 
 ## PDF theo đợt
 

@@ -15,7 +15,7 @@ import { createPresetTable, TABLE_PRESETS } from '../src/services/TableStyles.js
 import { builtInDocumentTemplates, toLatex } from '../src/services/DocumentSerializer.js'
 
 const require = createRequire(import.meta.url)
-const pkg = require('../package.json'), config = require('../electron-builder.config.cjs')
+const pkg = require('../package.json'), config = require('./electron-builder.config.cjs')
 const executable = process.env.DESKTOP_EXE || join(config.directories.output, 'mac-universal', `${pkg.build.productName}.app`, 'Contents', 'MacOS', pkg.build.productName)
 const userData = await mkdtemp(join(tmpdir(), 'vietlatex-mac-install-'))
 const output = join('artifacts', 'mac-smoke')

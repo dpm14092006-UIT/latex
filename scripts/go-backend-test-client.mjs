@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)))
-const executable = join(root, 'build', 'backend', 'vietlatex-backend')
+const executable = join(root, 'build', 'backend', process.platform === 'win32' ? 'vietlatex-backend.exe' : 'vietlatex-backend')
 
 export async function startGoBackendForTests({ env = {} } = {}) {
   const token = randomBytes(32).toString('hex')

@@ -783,7 +783,7 @@ func runBibtex(ctx context.Context, directory string) error {
 	_, err = runCommand(ctx, bibtex, []string{"document"}, directory, maxTexCommandTime)
 	var command *commandError
 	if errors.As(err, &command) && command.missing {
-		return appError(http.StatusServiceUnavailable, fmt.Sprintf("Không tìm thấy %s để xử lý tài liệu tham khảo. APA 7th cần Biber, biblatex-apa và csquotes trong MacTeX hoặc TeX Live.", program))
+		return appError(http.StatusServiceUnavailable, fmt.Sprintf("Không tìm thấy %s để xử lý tài liệu tham khảo. APA 7th cần Biber, biblatex-apa và csquotes trong %s.", program, texDistribution))
 	}
 	return err
 }
@@ -810,7 +810,7 @@ func texCompanion(name string) (string, error) {
 	if !filepath.IsAbs(xelatex) {
 		return name, nil
 	}
-	companion := filepath.Join(filepath.Dir(xelatex), name)
+	companion := filepath.Join(filepath.Dir(xelatex), executableName(name))
 	return companion, nil
 }
 
@@ -892,7 +892,7 @@ func latexError(err error) error {
 	var command *commandError
 	if errors.As(err, &command) {
 		if command.missing {
-			return appError(http.StatusServiceUnavailable, "Không tìm thấy XeLaTeX. Cài MacTeX hoặc TeX Live, rồi mở lại ứng dụng.")
+			return appError(http.StatusServiceUnavailable, "Không tìm thấy XeLaTeX. Cài "+texDistribution+", rồi mở lại ứng dụng.")
 		}
 		if command.timeout {
 			return appError(http.StatusGatewayTimeout, "Biên dịch vượt quá thời gian 30 giây.")
@@ -954,7 +954,9 @@ func findXeLatex() (string, error) {
 			candidates = append(candidates, filepath.Join(root, "tex", "bin", "universal-darwin", "xelatex"))
 		}
 	}
+	candidates = append(candidates, platformXeLatexCandidates()...)
 	switch runtime.GOOS {
+	case "windows":
 	case "darwin":
 		candidates = append(candidates, "/Library/TeX/texbin/xelatex", "/opt/homebrew/bin/xelatex", "/usr/local/bin/xelatex", "/opt/local/bin/xelatex")
 		if home, err := os.UserHomeDir(); err == nil {
@@ -967,7 +969,7 @@ func findXeLatex() (string, error) {
 		if candidate == "" || !filepath.IsAbs(candidate) {
 			continue
 		}
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0111 != 0 {
+		if info, err := os.Stat(candidate); err == nil && isExecutableFile(info) {
 			return candidate, nil
 		}
 	}
@@ -990,11 +992,11 @@ func (s *latexService) environment(ctx context.Context) map[string]any {
 	}
 	executable, err := findXeLatex()
 	if err != nil {
-		return map[string]any{"available": false, "error": "Không tìm thấy XeLaTeX. Cài MacTeX hoặc TeX Live rồi khởi động lại ứng dụng.", "help": "Cài MacTeX hoặc TeX Live rồi khởi động lại ứng dụng."}
+		return map[string]any{"available": false, "error": "Không tìm thấy XeLaTeX. Cài " + texDistribution + " rồi khởi động lại ứng dụng.", "help": "Cài " + texDistribution + " rồi khởi động lại ứng dụng."}
 	}
 	version, err := runCommand(ctx, executable, []string{"--version"}, "", 5*time.Second)
 	if err != nil {
-		return map[string]any{"available": false, "executable": executable, "error": err.Error(), "help": "Cài MacTeX hoặc TeX Live rồi khởi động lại ứng dụng."}
+		return map[string]any{"available": false, "executable": executable, "error": err.Error(), "help": "Cài " + texDistribution + " rồi khởi động lại ứng dụng."}
 	}
 	firstLine := strings.SplitN(strings.TrimSpace(string(version)), "\n", 2)[0]
 	return map[string]any{"available": true, "executable": executable, "version": strings.TrimSuffix(firstLine, "\r"), "sandbox": "local"}

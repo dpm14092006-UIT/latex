@@ -1,9 +1,12 @@
-// In-app updates from GitHub Releases. The local builds use an ad-hoc signature,
-// which Squirrel.Mac (electron-updater) refuses, so the app downloads the DMG
-// itself, verifies it, stages the new bundle beside the installed one and swaps
-// the bundles from a detached script after the normal save-and-quit handshake.
+// In-app updates from GitHub Releases for macOS and Windows.
+// macOS: the local builds use an ad-hoc signature, which Squirrel.Mac
+// (electron-updater) refuses, so the app downloads the DMG itself, verifies it,
+// stages the new bundle beside the installed one and swaps the bundles from a
+// detached script after the normal save-and-quit handshake.
+// Windows: the verified NSIS Setup.exe runs silently (/S) into the existing
+// per-user install once the app has saved and quit, then relaunches it.
 const { createHash } = require('node:crypto')
-const { createReadStream, createWriteStream } = require('node:fs')
+const { createReadStream, createWriteStream, existsSync } = require('node:fs')
 const { access, constants, mkdir, readFile, readdir, rename, rm, stat, writeFile } = require('node:fs/promises')
 const { execFile, spawn } = require('node:child_process')
 const { basename, dirname, join } = require('node:path')
@@ -30,7 +33,7 @@ function compareVersions(a, b) {
   return 0
 }
 
-const installerName = version => `Viet-Latex-Studio-${version}-universal.dmg`
+const installerName = (version, platform = 'darwin') => platform === 'win32' ? `Viet-Latex-Studio-${version}-Setup.exe` : `Viet-Latex-Studio-${version}-universal.dmg`
 
 function isReleaseDownloadUrl(value) {
   try {
@@ -40,13 +43,14 @@ function isReleaseDownloadUrl(value) {
 }
 
 // Returns the newer release described by a GitHub "latest release" payload, or null.
-function selectRelease(release, currentVersion) {
+function selectRelease(release, currentVersion, platform = 'darwin') {
   if (!release || release.draft || release.prerelease) return null
   const version = parseVersion(release.tag_name)?.join('.')
   if (!version || compareVersions(version, currentVersion) <= 0) return null
   const assets = Array.isArray(release.assets) ? release.assets : []
   const find = name => assets.find(asset => asset?.name === name && isReleaseDownloadUrl(asset.browser_download_url))
-  const installer = find(installerName(version)), checksum = find(`${installerName(version)}.sha256`)
+  const name = installerName(version, platform)
+  const installer = find(name), checksum = find(`${name}.sha256`)
   return {
     version,
     name: typeof release.name === 'string' && release.name.trim() ? release.name.trim().slice(0, 200) : `Viet Latex Studio ${version}`,
@@ -59,7 +63,7 @@ function selectRelease(release, currentVersion) {
   }
 }
 
-// Accepts the `shasum -a 256` line written by scripts/copy-mac-installer.cjs.
+// Accepts the `shasum -a 256` line written by mac/copy-mac-installer.cjs and win/copy-win-installer.cjs.
 function parseChecksum(text, filename) {
   for (const line of String(text).split(/\r?\n/)) {
     const match = /^([a-f0-9]{64})\s+\*?(.+)$/i.exec(line.trim())
@@ -98,7 +102,8 @@ fi
 function createUpdater({
   app, shell, fetch, directory, currentVersion = app.getVersion(), feedUrl = DEFAULT_FEED,
   platform = process.platform, run = promisify(execFile), launch = spawn, onStatus = () => {},
-  beforeInstall = async () => {}, requestQuit = () => app.quit(),
+  beforeInstall = async () => {}, requestQuit = () => app.quit(), onQuit = callback => app.once('quit', callback),
+  env = process.env, exists = existsSync,
 }) {
   const settingsPath = join(directory, 'settings.json')
   let settings = { autoCheck: true, skippedVersion: null }
@@ -110,7 +115,13 @@ function createUpdater({
   const headers = { 'User-Agent': `VietLatexStudio/${currentVersion}`, Accept: 'application/vnd.github+json' }
 
   function installTarget() {
-    if (platform !== 'darwin' || !app.isPackaged) return null
+    if (!app.isPackaged) return null
+    if (platform === 'win32') {
+      // Only an NSIS install can be updated in place; a portable .exe opens the installer instead.
+      const folder = dirname(app.getPath('exe'))
+      return !env.PORTABLE_EXECUTABLE_FILE && exists(join(folder, `Uninstall ${app.getName()}.exe`)) ? folder : null
+    }
+    if (platform !== 'darwin') return null
     const bundle = appBundlePath(app.getPath('exe'))
     // Gatekeeper runs quarantined apps from a read-only translocated copy.
     return bundle && !bundle.includes('/AppTranslocation/') ? bundle : null
@@ -145,7 +156,7 @@ function createUpdater({
         const response = await fetch(feedUrl, { headers })
         // GitHub answers 404 for /releases/latest until the first release is published.
         if (!response.ok && response.status !== 404) throw new Error(`Máy chủ cập nhật trả về HTTP ${response.status}.`)
-        const found = response.ok ? selectRelease(await response.json(), currentVersion) : null
+        const found = response.ok ? selectRelease(await response.json(), currentVersion, platform) : null
         const checkedAt = new Date().toISOString()
         if (!found || (!manual && found.version === settings.skippedVersion)) {
           release = null
@@ -263,12 +274,27 @@ function createUpdater({
     if (state.status !== 'ready' || !downloadPath) throw new Error('Hãy tải bản cập nhật trước.')
     const target = installTarget()
     if (!target) {
-      // Unpackaged, translocated or non-macOS runs: hand the verified DMG to Finder.
+      // Unpackaged, translocated or portable runs: open the verified installer for a manual install.
       const error = await shell.openPath(downloadPath)
       if (error) throw new Error(error)
       return { ...snapshot(), manual: true }
     }
     installing = true
+    if (platform === 'win32') {
+      try {
+        update({ status: 'installing', error: null })
+        await beforeInstall()
+        // Started from 'quit', after the workspace flush and backend shutdown;
+        // a cancelled quit (failed save) therefore never replaces the app.
+        const installer = downloadPath
+        onQuit(() => launch(installer, ['/S', '--updated', '--force-run'], { detached: true, stdio: 'ignore', windowsHide: true }).unref())
+        requestQuit()
+        return snapshot()
+      } catch (error) {
+        update({ status: 'ready', error: `Không cài được bản cập nhật: ${error.message}` })
+        throw error
+      } finally { installing = false }
+    }
     try {
       await access(dirname(target), constants.W_OK).catch(() => { throw new Error(`Không có quyền ghi vào ${dirname(target)}. Hãy mở bộ cài và kéo app vào Applications.`) })
       update({ status: 'installing', error: null })

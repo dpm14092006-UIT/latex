@@ -8,7 +8,7 @@ import { createRequire } from 'node:module'
 if (process.platform !== 'darwin') throw new Error('Kiểm tra ứng dụng Mac đã đóng gói trên macOS.')
 const require = createRequire(import.meta.url)
 const pkg = require('../package.json')
-const config = require('../electron-builder.config.cjs')
+const config = require('./electron-builder.config.cjs')
 const root = fileURLToPath(new URL('..', import.meta.url))
 const app = join(config.directories.output, 'mac-universal', `${pkg.build.productName}.app`)
 const executable = join(app, 'Contents', 'MacOS', pkg.build.productName)
@@ -21,7 +21,7 @@ const run = (command, args, env = process.env) => new Promise((resolve, reject) 
 })
 
 const visited = new Set()
-const configuredMinimum = pkg.build.mac.minimumSystemVersion.split('.').map(Number)
+const configuredMinimum = config.mac.minimumSystemVersion.split('.').map(Number)
 async function verifyMinimumMacOS(binary) {
   const { stdout } = await promisify(execFile)('/usr/bin/vtool', ['-show-build', binary])
   const versions = [...stdout.matchAll(/^\s+minos ([\d.]+)/gm), ...stdout.matchAll(/cmd LC_VERSION_MIN_MACOSX\s+cmdsize \d+\s+version ([\d.]+)/g)]
@@ -60,16 +60,16 @@ async function verifyTexTree(directory) {
 
 await access(executable)
 const { stdout: minimumVersion } = await promisify(execFile)('/usr/libexec/PlistBuddy', ['-c', 'Print :LSMinimumSystemVersion', join(app, 'Contents', 'Info.plist')])
-if (minimumVersion.trim() !== pkg.build.mac.minimumSystemVersion) throw new Error('Yêu cầu macOS trong Info.plist không khớp cấu hình bộ cài.')
+if (minimumVersion.trim() !== config.mac.minimumSystemVersion) throw new Error('Yêu cầu macOS trong Info.plist không khớp cấu hình bộ cài.')
 const { stdout: localNetworkDescription } = await promisify(execFile)('/usr/libexec/PlistBuddy', ['-c', 'Print :NSLocalNetworkUsageDescription', join(app, 'Contents', 'Info.plist')])
-if (localNetworkDescription.trim() !== pkg.build.mac.extendInfo.NSLocalNetworkUsageDescription) throw new Error('Thiếu hoặc sai mô tả quyền mạng nội bộ trong app đã đóng gói.')
+if (localNetworkDescription.trim() !== config.mac.extendInfo.NSLocalNetworkUsageDescription) throw new Error('Thiếu hoặc sai mô tả quyền mạng nội bộ trong app đã đóng gói.')
 await run('/usr/bin/codesign', ['--verify', '--deep', '--strict', app])
 for (const binary of [executable, join(resources, 'backend', 'vietlatex-backend'), join(resources, 'pandoc', 'pandoc'), join(resources, 'tex', 'bin', 'universal-darwin', 'xetex'), join(resources, 'tex', 'bin', 'universal-darwin', 'biber')]) {
   for (const arch of ['x86_64', 'arm64']) await run('/usr/bin/lipo', [binary, '-verify_arch', arch])
   await verifyMinimumMacOS(binary)
 }
 await verifyTexTree(join(resources, 'tex'))
-await run(process.execPath, [join(root, 'scripts', 'mac-packaged-smoke.mjs')], { ...process.env, DESKTOP_EXE: executable })
+await run(process.execPath, [join(root, 'mac', 'mac-packaged-smoke.mjs')], { ...process.env, DESKTOP_EXE: executable })
 await run(process.execPath, [join(root, 'scripts', 'dark-text-pdf-desktop.mjs')], { ...process.env, DESKTOP_EXE: executable })
 await run(process.execPath, [join(root, 'scripts', 'heading-numbering-desktop.mjs')], { ...process.env, DESKTOP_EXE: executable })
 await run(process.execPath, [join(root, 'scripts', 'lan-sync-desktop.mjs')], { ...process.env, DESKTOP_EXE: executable })

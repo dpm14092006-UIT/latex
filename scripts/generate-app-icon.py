@@ -48,5 +48,5 @@ draw.ellipse(xy((325, 368, 353, 396)), fill=(112, 151, 141, 255))
 
 image = image.resize((1024, 1024), Image.Resampling.LANCZOS)
 image.save(ROOT / "build" / "app-icon.png")
-image.save(ROOT / "build" / "app-icon.icns", format="ICNS")
+image.save(ROOT / "mac" / "resources" / "app-icon.icns", format="ICNS")
 print("Wrote macOS app icons to the build folder.")

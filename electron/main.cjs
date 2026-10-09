@@ -71,6 +71,7 @@ let startupComplete = false
 let closeSavePending = false
 let closeSaveTimer
 
+if (process.platform === 'win32') app.setAppUserModelId('vn.vietlatex.studio')
 
 Menu.setApplicationMenu(process.platform === 'darwin' ? Menu.buildFromTemplate([
   { role: 'appMenu' }, { role: 'editMenu' }, { role: 'windowMenu' },
@@ -158,7 +159,7 @@ function registerNativeActions() {
   for (const [channel, action] of Object.entries({ status: 'status', configure: 'configure', exchange: 'exchange', acknowledge: 'acknowledge', resolve: 'resolve', invitation: 'invitation', revoke: 'revoke', 'pdf-publish': 'publishPdf', 'pdf-get': 'getPdf' })) ipcMain.handle(`sync:${channel}`, syncAction(action))
   ipcMain.handle('system:help', (event, topic) => {
     assertTrustedSender(event)
-    const pages = { tex: 'https://www.tug.org/mactex/', word: 'https://pandoc.org/installing.html' }
+    const pages = { tex: process.platform === 'win32' ? 'https://miktex.org/download' : 'https://www.tug.org/mactex/', word: 'https://pandoc.org/installing.html' }
     if (!pages[topic]) throw new Error('Trang trợ giúp không hợp lệ.')
     return shell.openExternal(pages[topic])
   })
@@ -314,7 +315,7 @@ async function createMainWindow() {
 }
 
 function goBackendExecutable() {
-  const executable = 'vietlatex-backend'
+  const executable = process.platform === 'win32' ? 'vietlatex-backend.exe' : 'vietlatex-backend'
   if (app.isPackaged) return join(process.resourcesPath, 'backend', executable)
   return join(app.getAppPath(), 'build', 'backend', executable)
 }

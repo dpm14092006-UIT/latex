@@ -11,7 +11,7 @@ fail() {
 [ "$(uname -s)" = 'Darwin' ] || fail 'File nay can chay tren macOS de tao bo cai .dmg.'
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/local/go/bin:$PATH"
 for tool in node npm go; do
-  command -v "$tool" >/dev/null 2>&1 || fail "Thieu $tool. Cai Node.js 24 LTS/npm 11 va Go 1.26.8+ theo docs/MAC-INSTALLER.md, sau do chay lai."
+  command -v "$tool" >/dev/null 2>&1 || fail "Thieu $tool. Cai Node.js 24 LTS/npm 11 va Go 1.26.8+ theo mac/docs/MAC-INSTALLER.md, sau do chay lai."
 done
 node -e 'const [major,minor]=process.versions.node.split(".").map(Number); if(major<22 || (major===22 && minor<13)) process.exit(1)' || fail 'Can Node.js 22.13+; khuyen nghi Node.js 24 LTS.'
 trap 'printf "\nBuild that bai. Xem thong bao phia tren; chua co bo cai Mac hoan chinh.\n" >&2' ERR
@@ -21,8 +21,8 @@ npm run desktop:build:mac
 app_version="$(node -p 'require("./package.json").version')"
 installer_name="Viet-Latex-Studio-${app_version}-universal.dmg"
 (
-  cd release-desktop
+  cd release-desktop/mac
   shasum -a 256 -c "${installer_name}.sha256"
 )
-printf '\nDa tao bo cai: release-desktop/%s\n' "$installer_name"
-open release-desktop
+printf '\nDa tao bo cai: release-desktop/mac/%s\n' "$installer_name"
+open release-desktop/mac

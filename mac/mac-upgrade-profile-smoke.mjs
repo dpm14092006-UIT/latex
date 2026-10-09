@@ -10,7 +10,7 @@ import { isDeepStrictEqual } from 'node:util'
 import { setTimeout as delay } from 'node:timers/promises'
 import { chromium } from 'playwright'
 import { sanitizeWorkspace } from '../src/services/WorkspaceData.js'
-import { upgradeSnapshot } from './upgrade-snapshot.mjs'
+import { upgradeSnapshot } from '../scripts/upgrade-snapshot.mjs'
 
 if (process.platform !== 'darwin' || !process.env.DESKTOP_EXE || !process.env.UPGRADE_PROFILE) {
   throw new Error('Cần macOS, DESKTOP_EXE và UPGRADE_PROFILE để kiểm tra bản sao hồ sơ.')

@@ -6,15 +6,17 @@ import { fileURLToPath } from 'node:url'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const outputDir = join(root, 'build', 'backend')
 const universal = process.argv.includes('--universal')
-if (!['darwin', 'linux'].includes(process.platform)) throw new Error('Build backend trên macOS (hoặc Linux cho CI).')
+const goos = { darwin: 'darwin', linux: 'linux', win32: 'windows' }[process.platform]
+if (!goos) throw new Error('Build backend trên macOS, Windows hoặc Linux.')
+const binaryName = process.platform === 'win32' ? 'vietlatex-backend.exe' : 'vietlatex-backend'
 if (universal && process.platform !== 'darwin') throw new Error('Build universal cần macOS và lipo.')
 const run = (command, args, env = process.env) => new Promise((done, reject) => {
-  const child = spawn(command, args, { cwd: join(root, 'backend'), env, stdio: 'inherit' })
+  const child = spawn(command, args, { cwd: join(root, 'backend'), env, stdio: 'inherit', windowsHide: true })
   child.once('error', reject)
   child.once('exit', (code, signal) => code === 0 ? done() : reject(new Error(`${command} thất bại (${code ?? signal}).`)))
 })
 const build = (arch, destination) => run(process.env.GO_BINARY || 'go', ['build', '-trimpath', '-ldflags=-s -w', '-o', destination, './cmd/vietlatex-backend'], {
-  ...process.env, GOOS: process.platform === 'darwin' ? 'darwin' : 'linux', GOARCH: arch, CGO_ENABLED: '0',
+  ...process.env, GOOS: goos, GOARCH: arch, CGO_ENABLED: '0',
 })
 await mkdir(outputDir, { recursive: true })
 const temporary = join(outputDir, '.vietlatex-backend.tmp')
@@ -25,9 +27,9 @@ try {
     for (const arch of ['amd64', 'arm64']) await build(arch, join(staging, arch))
     await run('/usr/bin/lipo', ['-create', join(staging, 'amd64'), join(staging, 'arm64'), '-output', temporary])
   } else await build(process.arch === 'arm64' ? 'arm64' : 'amd64', temporary)
-  await chmod(temporary, 0o755)
+  if (process.platform !== 'win32') await chmod(temporary, 0o755)
   if (process.platform === 'darwin') await run('/usr/bin/codesign', ['--force', '--sign', '-', temporary])
-  await rename(temporary, join(outputDir, 'vietlatex-backend'))
+  await rename(temporary, join(outputDir, binaryName))
 } finally {
   await rm(temporary, { force: true })
   await rm(staging, { recursive: true, force: true })

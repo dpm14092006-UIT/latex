@@ -143,3 +143,62 @@ test('feed errors are reported without throwing', async t => {
   const empty = createUpdater({ app: { getVersion: () => '0.5.6', isPackaged: false, getPath: () => '/tmp' }, shell: {}, fetch: async () => new Response('', { status: 404 }), directory: join(tmpdir(), 'unused'), feedUrl: 'https://feed.test/x' })
   assert.equal((await empty.check({ manual: true })).status, 'up-to-date', 'no published release yet')
 })
+
+test('Windows picks the NSIS Setup.exe asset', () => {
+  const info = release('0.5.7')
+  const setup = installerName('0.5.7', 'win32')
+  assert.equal(setup, 'Viet-Latex-Studio-0.5.7-Setup.exe')
+  assert.equal(selectRelease(info, '0.5.6', 'win32').installer, null, 'a DMG-only release has nothing for Windows')
+  info.assets.push(
+    { name: setup, size: 11, browser_download_url: `${base}/v0.5.7/${setup}` },
+    { name: `${setup}.sha256`, size: 90, browser_download_url: `${base}/v0.5.7/${setup}.sha256` },
+  )
+  assert.equal(selectRelease(info, '0.5.6', 'win32').installer.name, setup)
+  assert.equal(selectRelease(info, '0.5.6', 'darwin').installer.name, installerName('0.5.7'))
+})
+
+test('Windows NSIS install runs the verified Setup.exe silently after the app quits', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'vls-updater-win-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const payload = Buffer.from('setup bytes')
+  const setup = installerName('0.5.7', 'win32')
+  const info = release('0.5.7', { assets: [
+    { name: setup, size: payload.length, browser_download_url: `${base}/v0.5.7/${setup}` },
+    { name: `${setup}.sha256`, size: 90, browser_download_url: `${base}/v0.5.7/${setup}.sha256` },
+  ] })
+  const calls = []
+  let quitCallback = null
+  const exe = join('C:', 'Users', 'u', 'AppData', 'Local', 'Programs', 'viet-latex-studio', 'Viet Latex Studio.exe')
+  const updater = createUpdater({
+    app: { getVersion: () => '0.5.6', isPackaged: true, getName: () => 'Viet Latex Studio', getPath: () => exe },
+    shell: {}, directory, platform: 'win32', feedUrl: 'https://feed.test/latest', env: {},
+    exists: path => path.endsWith('Uninstall Viet Latex Studio.exe'),
+    fetch: fakeFetch({
+      'https://feed.test/latest': info,
+      [info.assets[0].browser_download_url]: payload,
+      [info.assets[1].browser_download_url]: `${createHash('sha256').update(payload).digest('hex')}  ${setup}\n`,
+    }),
+    beforeInstall: async () => calls.push('backup'),
+    requestQuit: () => calls.push('quit'),
+    onQuit: callback => { quitCallback = callback },
+    launch: (file, args, options) => { calls.push({ file, args, detached: options.detached }); return { unref() {} } },
+  })
+  await updater.start({ automatic: false })
+  assert.equal((await updater.check({ manual: true })).canInstall, true)
+  await updater.download()
+  await updater.install()
+  assert.deepEqual(calls, ['backup', 'quit'], 'nothing runs before the app has quit')
+  quitCallback()
+  assert.deepEqual(calls[2], { file: join(directory, 'downloads', setup), args: ['/S', '--updated', '--force-run'], detached: true })
+})
+
+test('a portable Windows run is not updated in place', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'vls-updater-portable-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const updater = createUpdater({
+    app: { getVersion: () => '0.5.6', isPackaged: true, getName: () => 'Viet Latex Studio', getPath: () => join('C:', 'Temp', 'x', 'Viet Latex Studio.exe') },
+    shell: {}, fetch: async () => new Response('', { status: 404 }), directory, platform: 'win32',
+    env: { PORTABLE_EXECUTABLE_FILE: join('D:', 'Viet-Latex-Studio-0.5.1-Portable.exe') }, exists: () => true,
+  })
+  assert.equal(updater.status().canInstall, false)
+})

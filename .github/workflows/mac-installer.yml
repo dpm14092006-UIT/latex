@@ -41,7 +41,7 @@ jobs:
       - name: Verify installer checksum
         shell: bash
         run: |
-          cd release-desktop
+          cd release-desktop/mac
           shasum -a 256 -c *.dmg.sha256
       - uses: actions/upload-artifact@v4
         with:
@@ -49,5 +49,5 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           path: |
-            release-desktop/*.dmg
-            release-desktop/*.dmg.sha256
+            release-desktop/mac/*.dmg
+            release-desktop/mac/*.dmg.sha256

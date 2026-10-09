@@ -1,6 +1,6 @@
 # Cài Viet LaTeX Studio 0.5.6 trên MacBook
 
-Bộ cài: `release-desktop/Viet-Latex-Studio-0.5.6-universal.dmg`.
+Bộ cài: `release-desktop/mac/Viet-Latex-Studio-<phiên bản>-universal.dmg`.
 Bản universal chứa Electron, backend Go, Pandoc 3.11 và TeX Live 2026 (TinyTeX) cho Apple Silicon và Intel. Cần macOS 26 trở lên. Apple Silicon được kiểm thử trực tiếp; kiến trúc Intel được kiểm tra trong các binary, chưa chạy thử trên máy Intel.
 
 Runtime đi kèm: Electron cần macOS 13+, Pandoc cần macOS 15+, Biber arm64 trong TinyTeX 2026.10 cần macOS 26+. Bộ cài universal khai báo macOS 26+ để mọi chức năng đi kèm hoạt động; đã kiểm thử trên macOS 26.5.1 Apple Silicon.
@@ -27,12 +27,12 @@ Cần Node.js 24 LTS/npm 11, Go 1.26.8+ và Apple Command Line Tools (`xcode-sel
 ```bash
 unzip Viet-Latex-Studio-0.5.6-Mac-Build-Source.zip
 cd Viet-Latex-Studio-0.5.6
-bash scripts/build-mac.command
+bash mac/build-mac.command
 ```
 
 Nếu đã clone thì cập nhật bằng `git pull --ff-only` trước khi sửa mã. Các thay đổi trong phiên làm việc này nằm ở checkout cục bộ cho đến khi được commit/push.
 
-Luồng build dùng lockfile npm, tải Pandoc có SHA-256 công bố và TinyTeX v2026.10 có SHA-256 được ghim. Các gói TeX bổ sung được cài từ kho TeX Live qua `tlmgr`, dùng kiểm tra checksum mặc định của TeX Live. Danh sách gói nằm trong `scripts/setup-tex.mjs`; provenance nằm cạnh từng runtime. Font Latin Modern được nạp từ file trong bộ TeX, không cài font vào macOS.
+Luồng build dùng lockfile npm, tải Pandoc có SHA-256 công bố và TinyTeX v2026.10 có SHA-256 được ghim. Các gói TeX bổ sung được cài từ kho TeX Live qua `tlmgr`, dùng kiểm tra checksum mặc định của TeX Live. Danh sách gói nằm trong `mac/setup-tex.mjs`; provenance nằm cạnh từng runtime. Font Latin Modern được nạp từ file trong bộ TeX, không cài font vào macOS.
 
 ```bash
 npm ci
@@ -41,12 +41,12 @@ npm run test:go:race
 npm run desktop:build:mac
 ```
 
-Build chạy xác minh chữ ký, kiến trúc universal, PDF các mẫu/APA, Word round-trip, lưu/khôi phục và đồng bộ hai app đã đóng gói trước khi sao chép DMG sang `release-desktop`. App trung gian nằm trong `artifacts/mac-package/mac-universal`. Build không publish lên GitHub.
+Build chạy xác minh chữ ký, kiến trúc universal, PDF các mẫu/APA, Word round-trip, lưu/khôi phục và đồng bộ hai app đã đóng gói trước khi sao chép DMG sang `release-desktop/mac`. App trung gian nằm trong `artifacts/mac-package/mac-universal`. Build không publish lên GitHub.
 
 Kiểm tra file nhận được:
 
 ```bash
-cd release-desktop
+cd release-desktop/mac
 shasum -a 256 -c Viet-Latex-Studio-0.5.6-universal.dmg.sha256
 ```
 

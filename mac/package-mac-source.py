@@ -8,18 +8,18 @@ import zipfile
 
 root = Path(__file__).resolve().parents[1]
 selected = []
-for name in ["src", "electron", "backend", "scripts", "public", "sandbox", ".github"]:
+for name in ["src", "electron", "backend", "scripts", "mac", "public", "sandbox", ".github"]:
     selected.extend(path for path in (root / name).rglob("*") if path.is_file())
 selected.extend(path for path in (root / "docs").rglob("*.md") if path.is_file())
 selected.extend(path for path in (root / "build" / "fontspec").rglob("*") if path.is_file())
 selected.extend(root / name for name in [
     "package.json", "package-lock.json", ".nvmrc", ".gitignore", "index.html",
-    "vite.config.js", "eslint.config.js", "electron-builder.config.cjs",
-    "README.md", "ARCHITECTURE.md", "build/app-icon.icns", "build/entitlements.mac.plist", "build/app-icon.png",
-    "build/app-icon.svg", "docs/MAC-INSTALLER.md", "docs/LAN-SYNC.md", "docs/UPGRADE-0.5.0.md",
+    "vite.config.js", "eslint.config.js",
+    "README.md", "ARCHITECTURE.md", "build/app-icon.png",
+    "build/app-icon.svg", "docs/LAN-SYNC.md", "docs/UPGRADE-0.5.0.md",
 ])
 version = json.loads((root / "package.json").read_text(encoding="utf-8"))["version"]
-output = root / "release-desktop" / ("Viet-Latex-Studio-" + version + "-Mac-Build-Source.zip")
+output = root / "release-desktop" / "mac" / ("Viet-Latex-Studio-" + version + "-Mac-Build-Source.zip")
 prefix = "Viet-Latex-Studio-" + version + "/"
 expected = {}
 output.parent.mkdir(parents=True, exist_ok=True)
@@ -57,7 +57,7 @@ with zipfile.ZipFile(output) as archive:
     for name in archive.namelist():
         if any(part in ["user-data", "node_modules", "artifacts", "dist", "release-desktop"] for part in Path(name).parts):
             raise RuntimeError("Unexpected private/generated directory in ZIP")
-    if ((archive.getinfo(prefix + "scripts/build-mac.command").external_attr >> 16) & 0o777) != 0o755:
+    if ((archive.getinfo(prefix + "mac/build-mac.command").external_attr >> 16) & 0o777) != 0o755:
         raise RuntimeError("Mac command permissions were not preserved")
 digest = hashlib.sha256(output.read_bytes()).hexdigest()
 Path(str(output) + ".sha256").write_text(digest + "  " + output.name + "\n", encoding="utf-8")

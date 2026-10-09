@@ -28,7 +28,7 @@ export default defineConfig([
     },
   },
   {
-    files: ['electron/**/*.{js,cjs,mjs}', 'scripts/**/*.{js,cjs,mjs}', 'vite.config.js', 'electron-builder.config.cjs'],
+    files: ['electron/**/*.{js,cjs,mjs}', 'scripts/**/*.{js,cjs,mjs}', 'mac/**/*.{js,cjs,mjs}', 'win/**/*.{js,cjs,mjs}', 'vite.config.js'],
     languageOptions: { globals: globals.node },
   },
   {
@@ -40,7 +40,7 @@ export default defineConfig([
     rules: { 'no-control-regex': 'off' },
   },
   {
-    files: ['electron/**/*.cjs', '*.config.cjs'],
+    files: ['electron/**/*.cjs', 'mac/**/*.cjs', 'win/**/*.cjs'],
     languageOptions: { sourceType: 'commonjs' },
   },
 ])

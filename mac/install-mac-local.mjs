@@ -10,11 +10,11 @@ import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
 import { setTimeout as delay } from 'node:timers/promises'
 import { sanitizeWorkspace } from '../src/services/WorkspaceData.js'
-import { upgradeSnapshot } from './upgrade-snapshot.mjs'
+import { upgradeSnapshot } from '../scripts/upgrade-snapshot.mjs'
 
 if (process.platform !== 'darwin') throw new Error('Cập nhật cục bộ này dành cho macOS.')
 const require = createRequire(import.meta.url)
-const pkg = require('../package.json'), config = require('../electron-builder.config.cjs')
+const pkg = require('../package.json'), config = require('./electron-builder.config.cjs')
 const root = fileURLToPath(new URL('..', import.meta.url)), exec = promisify(execFile)
 const source = resolve(config.directories.output, 'mac-universal', `${pkg.build.productName}.app`)
 const installed = join('/Applications', `${pkg.build.productName}.app`)
@@ -37,7 +37,7 @@ await exec('/usr/bin/codesign', ['--verify', '--deep', '--strict', source])
 const { stdout: version } = await exec('/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleShortVersionString', join(source, 'Contents', 'Info.plist')])
 assert.equal(version.trim(), pkg.version)
 // Reopen a copy with the actual package before touching the running app.
-const { stdout: copyCheck } = await exec(process.execPath, [join(root, 'scripts', 'mac-upgrade-profile-smoke.mjs')], {
+const { stdout: copyCheck } = await exec(process.execPath, [join(root, 'mac', 'mac-upgrade-profile-smoke.mjs')], {
   cwd: root, env: { ...process.env, UPGRADE_DEV: 'false', UPGRADE_PROFILE: profile, DESKTOP_EXE: join(source, 'Contents', 'MacOS', pkg.build.productName) }, timeout: 90000,
 })
 console.log(copyCheck.trim())

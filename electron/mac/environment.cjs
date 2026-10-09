@@ -1,4 +1,5 @@
-const { join, dirname } = require('node:path')
+// Always macOS paths, also when tests run on another OS.
+const { join, dirname } = require('node:path').posix
 const { homedir } = require('node:os')
 
 // Finder launches do not load the user's shell profile.

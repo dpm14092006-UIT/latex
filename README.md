@@ -1,4 +1,4 @@
-# Viet LaTeX Studio 0.5.6 — macOS
+# Viet LaTeX Studio — macOS và Windows
 
 Ứng dụng desktop soạn tài liệu tiếng Việt, nhập công thức trực quan, chỉnh LaTeX và xem PDF. Bản thảo, tài nguyên, sao lưu và chuyển đổi Word được xử lý trên máy. Tra DOI gửi DOI tới doi.org và các dịch vụ metadata liên quan; đồng bộ LAN chỉ hoạt động khi người dùng bật và ghép máy.
 
@@ -10,11 +10,24 @@ Phiên bản 0.5.1 giữ đúng số tiêu đề và nhận diện tiêu đề t
 
 ## Cài trên MacBook
 
-Mở `release-desktop/Viet-Latex-Studio-0.5.6-universal.dmg`, kéo **Viet Latex Studio.app** vào **Applications** rồi mở app. Bộ cài universal dành cho macOS 26+, gồm Electron, backend Go, Pandoc và TeX Live gọn. Không cần Node/Go/MacTeX riêng để sử dụng các mẫu có sẵn, PDF và Word. Bản cục bộ có chữ ký ad-hoc, chưa notarize bằng Apple Developer ID.
+Mở `release-desktop/mac/Viet-Latex-Studio-<phiên bản>-universal.dmg`, kéo **Viet Latex Studio.app** vào **Applications** rồi mở app. Bộ cài universal dành cho macOS 26+, gồm Electron, backend Go, Pandoc và TeX Live gọn. Không cần Node/Go/MacTeX riêng để sử dụng các mẫu có sẵn, PDF và Word. Bản cục bộ có chữ ký ad-hoc, chưa notarize bằng Apple Developer ID.
 
-Từ bản có cơ chế cập nhật, app tự kiểm tra GitHub Releases và cài bản mới sau khi lưu tài liệu; quy trình phát hành và cách hoạt động xem [docs/AUTO-UPDATE.md](docs/AUTO-UPDATE.md).
+Chi tiết build/cài và giới hạn: [Bộ cài MacBook](mac/docs/MAC-INSTALLER.md).
 
-Chi tiết build/cài và giới hạn: [Bộ cài MacBook](docs/MAC-INSTALLER.md). Các bản EXE/NSIS, launcher CMD và backend riêng Windows đã được loại bỏ khỏi checkout này. Lịch sử kiểm thử Windows trong tài liệu audit là ghi nhận của phiên trước.
+## Cài trên Windows
+
+Chạy `release-desktop/win/Viet-Latex-Studio-<phiên bản>-Setup.exe` (x64, cài cho người dùng hiện tại, không cần quyền admin). Bản Windows có sẵn Pandoc; XeLaTeX dùng MiKTeX hoặc TeX Live đã cài trên máy. Dữ liệu ở `%APPDATA%\latex-word-studio`, dùng chung với các bản Portable trước. Xem [Bộ cài Windows](win/docs/WINDOWS-INSTALLER.md).
+
+## Tự động cập nhật
+
+Từ 0.5.7, app tự kiểm tra GitHub Releases và cài bản mới sau khi lưu tài liệu, trên cả macOS và Windows. Quy trình phát hành và cách hoạt động: [docs/AUTO-UPDATE.md](docs/AUTO-UPDATE.md).
+
+## Cấu trúc thư mục theo nền tảng
+
+- `mac/`: script build/ký/kiểm tra DMG, cấu hình electron-builder, icon `.icns`, entitlements và tài liệu Mac.
+- `win/`: script build/kiểm tra bộ cài NSIS, cấu hình electron-builder, icon `.ico`, tải Pandoc Windows và tài liệu Windows.
+- `electron/mac`, `electron/win`: môi trường chạy backend riêng từng hệ điều hành. Mã Go riêng nền tảng nằm cạnh mã chung theo quy ước `*_unix.go` / `*_windows.go`.
+- Bộ cài: `release-desktop/mac` và `release-desktop/win`.
 
 Dữ liệu nằm trong hồ sơ `userData` của Electron, ngoài thư mục cài ứng dụng. Trước khi chuyển máy, dùng **Quản lý tài liệu → Sao lưu** để xuất gói `.vls`. Đóng cửa sổ giữ app chạy; **Cmd+Q** lưu tài liệu rồi thoát.
 
@@ -68,11 +81,11 @@ npm run test:go:race
 npm run desktop:build:mac
 ```
 
-`desktop:build` cũng tạo bộ cài Mac. `desktop:build:dir` tạo app universal trong `artifacts/mac-package/mac-universal`; `desktop:verify:mac` kiểm tra app đã đóng gói. DMG và SHA-256 đã qua kiểm tra nằm trong `release-desktop`. Xem [MAC-INSTALLER.md](docs/MAC-INSTALLER.md).
+`desktop:build` tạo bộ cài cho hệ điều hành đang chạy (`desktop:build:mac` hoặc `desktop:build:win`). `desktop:build:dir` tạo app universal trong `artifacts/mac-package/mac-universal`; `desktop:verify:mac` kiểm tra app đã đóng gói. DMG và SHA-256 đã qua kiểm tra nằm trong `release-desktop/mac`, Setup.exe Windows trong `release-desktop/win`. Xem [MAC-INSTALLER.md](mac/docs/MAC-INSTALLER.md) và [WINDOWS-INSTALLER.md](win/docs/WINDOWS-INSTALLER.md).
 
 Electron chạy backend trên cổng loopback ngẫu nhiên với token riêng. Backend tự tìm bộ TeX/Pandoc trong Resources; PATH được chuẩn bị cho Finder. Huỷ biên dịch dừng cả nhóm tiến trình trên macOS. Font Latin Modern đi kèm nạp theo tên file, cache sinh ra nằm ngoài app có chữ ký.
 
-Định dạng HTTP/ready/token, PDF, Word AST và DOI: [giao thức backend](docs/BACKEND-HTTP.md). Để cập nhật app đang dùng sau khi build, chạy `npm run desktop:update:local`; script kiểm tra bản sao hồ sơ, chờ app lưu/thoát rồi giữ lại toàn bộ hồ sơ và app cũ trước khi thay bản mới. Xem [hướng dẫn cập nhật giữ dữ liệu](docs/MAC-INSTALLER.md).
+Định dạng HTTP/ready/token, PDF, Word AST và DOI: [giao thức backend](docs/BACKEND-HTTP.md). Để cập nhật app đang dùng sau khi build, chạy `npm run desktop:update:local`; script kiểm tra bản sao hồ sơ, chờ app lưu/thoát rồi giữ lại toàn bộ hồ sơ và app cũ trước khi thay bản mới. Xem [hướng dẫn cập nhật giữ dữ liệu](mac/docs/MAC-INSTALLER.md).
 
 Bộ TeX gồm XeLaTeX, BibTeX, Biber, biblatex-apa, csquotes và các gói phục vụ mẫu có sẵn. Mẫu LaTeX tự nhập có thể cần gói/font bổ sung. Word dùng Pandoc 3.11 và CSL APA cục bộ. Giấy phép và provenance đi kèm runtime.
 
