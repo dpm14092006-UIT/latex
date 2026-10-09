@@ -1,6 +1,13 @@
 ﻿ĐỌC TRƯỚC KHI CÀI — Viet Latex Studio
 =====================================
 
+YÊU CẦU
+  macOS 26 (Tahoe) trở lên, máy Mac chip Apple (M1 trở lên) hoặc Intel.
+  Xem phiên bản: menu Apple  → Giới thiệu về máy Mac này.
+  Máy chạy macOS 15 trở xuống sẽ báo không dùng được phiên bản này;
+  hãy cập nhật macOS trước (Cài đặt hệ thống → Cài đặt chung → Cập nhật phần mềm).
+  Cần khoảng 1,7 GB dung lượng trống.
+
 CÀI ĐẶT
   1. Kéo biểu tượng "Viet Latex Studio" sang thư mục "Applications" bên cạnh.
   2. Mở thư mục Applications (Ứng dụng), nhấp đúp "Viet Latex Studio".
