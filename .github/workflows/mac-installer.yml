@@ -43,7 +43,7 @@ jobs:
         run: |
           cd release-desktop
           shasum -a 256 -c *.dmg.sha256
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: Viet-Latex-Studio-macOS-universal
           if-no-files-found: error
