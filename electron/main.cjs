@@ -8,6 +8,7 @@ const { createWorkspaceStore } = require('./workspace-store.cjs')
 const { safeExternalUrl } = require('./external-links.cjs')
 const { startGoBackend } = require('./backend-client.cjs')
 const { createLanSync } = require('./lan-sync.cjs')
+const { createUpdater } = require('./updater.cjs')
 
 protocol.registerSchemesAsPrivileged([{
   scheme: APP_SCHEME.slice(0, -1),
@@ -27,6 +28,7 @@ let allowApplicationQuit = false
 let quitRequested = false
 let lanSync
 let syncTickTimer
+let updater
 const requestSyncTick = () => {
   if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) mainWindow.webContents.send('sync:tick')
 }
@@ -136,6 +138,7 @@ function requestWindowFlush() {
 async function shutdownApplication() {
   if (backendShutdownPromise) return backendShutdownPromise
   clearInterval(syncTickTimer)
+  updater?.stop()
   powerMonitor.removeListener('resume', requestSyncTick)
   for (const controller of compileControllers.values()) controller.abort()
   backendShutdownPromise = Promise.resolve(backendRestartPromise).catch(() => {}).then(async () => {
@@ -158,6 +161,19 @@ function registerNativeActions() {
     const pages = { tex: 'https://www.tug.org/mactex/', word: 'https://pandoc.org/installing.html' }
     if (!pages[topic]) throw new Error('Trang trợ giúp không hợp lệ.')
     return shell.openExternal(pages[topic])
+  })
+  const updateAction = action => async (event, ...args) => { assertTrustedSender(event); if (!updater) throw new Error('Dịch vụ cập nhật chưa sẵn sàng.'); return updater[action](...args) }
+  ipcMain.handle('update:status', updateAction('status'))
+  ipcMain.handle('update:check', (event) => updateAction('check')(event, { manual: true }))
+  ipcMain.handle('update:download', updateAction('download'))
+  ipcMain.handle('update:install', updateAction('install'))
+  ipcMain.handle('update:skip', updateAction('skip'))
+  ipcMain.handle('update:auto-check', (event, enabled) => updateAction('setAutoCheck')(event, enabled === true))
+  ipcMain.handle('update:open-page', event => {
+    assertTrustedSender(event)
+    const page = safeExternalUrl(updater?.status().pageUrl || 'https://github.com/dpm14092006-UIT/latex/releases')
+    if (!page) throw new Error('Trang phát hành không hợp lệ.')
+    return shell.openExternal(page)
   })
   ipcMain.handle('workspace:backups', event => { assertTrustedSender(event); return workspaceStore.listBackups() })
   ipcMain.handle('workspace:backup', event => { assertTrustedSender(event); return workspaceStore.backup() })
@@ -372,6 +388,16 @@ Bạn vẫn có thể soạn thảo; biên dịch PDF sẽ thử khởi động 
         lanSync = null
         dialog.showErrorBox('Đồng bộ chưa sẵn sàng', `${error.message}\nDữ liệu tài liệu vẫn được giữ trên máy.`)
       }
+      updater = createUpdater({
+        app, shell,
+        fetch: (url, init) => net.fetch(url, init),
+        directory: join(app.getPath('userData'), 'updates'),
+        ...(process.env.VIETLATEX_UPDATE_FEED?.startsWith('https://') ? { feedUrl: process.env.VIETLATEX_UPDATE_FEED } : {}),
+        onStatus: status => { if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) mainWindow.webContents.send('update:status', status) },
+        // Keep a restore point of the final workspace before the app is replaced.
+        beforeInstall: () => workspaceStore.backup().catch(error => { if (error.code !== 'ENOENT') throw error }),
+      })
+      await updater.start({ automatic: app.isPackaged && process.env.VIETLATEX_DISABLE_UPDATE_CHECK !== 'true' })
       registerNativeActions()
       registerPermissionPolicy()
       startupComplete = true

@@ -33,6 +33,7 @@ jobs:
       - run: npm run lint
       - run: npm run test:backend
       - run: npm run test:sync
+      - run: npm run test:updater
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
       - name: Run UI smoke

@@ -26,6 +26,21 @@ contextBridge.exposeInMainWorld('desktopAPI', Object.freeze({
   resolveSync: (id, choice, currentRev) => ipcRenderer.invoke('sync:resolve', id, choice, currentRev),
   syncInvitation: address => ipcRenderer.invoke('sync:invitation', address),
   revokeSyncPeer: id => ipcRenderer.invoke('sync:revoke', id),
+  updates: Object.freeze({
+    status: () => ipcRenderer.invoke('update:status'),
+    check: () => ipcRenderer.invoke('update:check'),
+    download: () => ipcRenderer.invoke('update:download'),
+    install: () => ipcRenderer.invoke('update:install'),
+    skip: () => ipcRenderer.invoke('update:skip'),
+    setAutoCheck: enabled => ipcRenderer.invoke('update:auto-check', enabled),
+    openPage: () => ipcRenderer.invoke('update:open-page'),
+    onStatus: callback => {
+      if (typeof callback !== 'function') return () => {}
+      const listener = (_event, status) => callback(status)
+      ipcRenderer.on('update:status', listener)
+      return () => ipcRenderer.removeListener('update:status', listener)
+    },
+  }),
   listBackups: () => ipcRenderer.invoke('workspace:backups'),
   backupWorkspace: () => ipcRenderer.invoke('workspace:backup'),
   readBackup: id => ipcRenderer.invoke('workspace:read-backup', id),

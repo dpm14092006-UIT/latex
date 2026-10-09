@@ -1,0 +1,76 @@
+name: Release
+
+# Push a tag created by `npm run release:patch` (or minor/major). The published
+# DMG and its .sha256 are what installed apps download through the in-app updater.
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to publish (vX.Y.Z), must already exist
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - name: Check tag matches package.json
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "v$version" ]; then echo "Tag $TAG khác package.json ($version)"; exit 1; fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.8'
+          cache-dependency-path: backend/go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm install --global npm@11.12.1
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run test:go
+      - run: npm run test:sync
+      - run: npm run test:updater
+      - name: Build universal DMG
+        run: npm run desktop:build:mac
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - name: Verify installer checksum
+        shell: bash
+        run: |
+          cd release-desktop
+          shasum -a 256 -c "Viet-Latex-Studio-$VERSION-universal.dmg.sha256"
+      - name: Publish GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes="docs/UPGRADE-$VERSION.md"
+          if [ -f "$notes" ]; then notes_args=(--notes-file "$notes"); else notes_args=(--generate-notes); fi
+          gh release create "$TAG" \
+            "release-desktop/Viet-Latex-Studio-$VERSION-universal.dmg" \
+            "release-desktop/Viet-Latex-Studio-$VERSION-universal.dmg.sha256" \
+            release-desktop/manifest.json \
+            --title "Viet Latex Studio $VERSION" --verify-tag "${notes_args[@]}"

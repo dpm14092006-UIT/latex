@@ -27,6 +27,8 @@ import { bibtexForCompile, parseBibtex, resolveCitationStyle } from './services/
 import { CITATION_REFRESH } from './services/AcademicNodes.js'
 import ReferencesDialog from './components/ReferencesDialog.jsx'
 import StudioManager from './components/StudioManager.jsx'
+import useAppUpdates from './hooks/useAppUpdates.js'
+import { updateSummary } from './components/UpdatePanel.jsx'
 import { BookOpen, Eye, FileCode2, FileDown, FilePenLine, FolderPlus, GripVertical, PanelTopOpen, Settings2, Sigma } from 'lucide-react'
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels'
 import { normalizeFormulaInput, standaloneLatexPaste, unicodeScriptFormulas } from './math-input.js'
@@ -387,6 +389,7 @@ function App({ initialWorkspace }) {
   const [referencesDialog, setReferencesDialog] = useState(null)
   const [workspaceNotice, setWorkspaceNotice] = useState(initialWorkspace?.recoveryMessage || '')
   const [syncStatus, setSyncStatus] = useState(null)
+  const updates = useAppUpdates()
   const syncBusyRef = useRef(null)
   const syncCanApplyRef = useRef(true)
   const syncActionRef = useRef(null)
@@ -1587,6 +1590,8 @@ function App({ initialWorkspace }) {
       {workspaceNotice && <div className="studio-trust-banner" role="status"><span>{workspaceNotice}</span><button type="button" onClick={() => setWorkspaceNotice('')}>Đã hiểu</button></div>}
       {(syncStatus?.error || syncStatus?.conflicts?.length > 0) && <div className="studio-trust-banner" role="status"><span>{syncStatus.error || `Đồng bộ LAN: ${syncStatus.conflicts.length} xung đột cần chọn phiên bản.`}</span><button type="button" onClick={() => { setManagerContext({ tab: 'sync' }); setManagerOpen(true) }}>Mở Đồng bộ LAN</button></div>}
 
+      {['available', 'ready'].includes(updates.status?.status) && <div className="studio-trust-banner" role="status"><span>{updateSummary(updates.status)}</span><button type="button" onClick={() => { setManagerContext({ tab: 'system' }); setManagerOpen(true) }}>Xem bản cập nhật</button></div>}
+
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <main className="studio-workspace">
             <ProjectTabs key={activeProject.id} project={activeProject} activeId={activeTask.id} currentTitle={title} summary={summaryMode}
@@ -1687,7 +1692,7 @@ function App({ initialWorkspace }) {
         onImport={async file => { await appendIncoming(await importWorkspace(file)); return 'Đã nhập bản sao các dự án.' }}
         onImportLatex={importLatex} onImportWord={importWord} onExportWord={async () => { await writeWord(editor?.getJSON() || docData, title, settings, activeDocumentTemplate?.source); return 'Đã xuất Word. Trích dẫn và danh mục tài liệu theo kiểu đã chọn; tham chiếu chéo được giữ dưới dạng tên nhãn — hãy rà soát bố cục trong Word.' }}
         onOpenReferences={tab => { setManagerOpen(false); setManagerContext(null); openReferencesDialog(tab) }}
-        clearCache={clearCache} notice={workspaceNotice} syncStatus={syncStatus} onSyncAction={(action, value) => syncActionRef.current(action, value)} />}
+        clearCache={clearCache} notice={workspaceNotice} updates={updates} syncStatus={syncStatus} onSyncAction={(action, value) => syncActionRef.current(action, value)} />}
       {referencesDialog && <ReferencesDialog open key={`${referencesDialog.tab}-${referencesDialog.editing?.pos ?? 'new'}`} initialTab={referencesDialog.tab} editing={referencesDialog.editing} insertionSelection={referencesDialog.insertionSelection} editor={editor}
         settings={settings} onSettings={setSettings} templateSource={activeDocumentTemplate?.source} sourceEdited={sourceEdited} onClose={closeReferencesDialog} />}
       <WorkspaceDialog

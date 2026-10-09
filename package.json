@@ -15,7 +15,7 @@
     "dev": "npm run backend:build && node scripts/run-web.mjs",
     "build": "vite build",
     "lint": "eslint .",
-    "check": "npm run lint && npm run test:go && npm run test:backend && npm run test:sync && npm run test:upgrade && npm run build",
+    "check": "npm run lint && npm run test:go && npm run test:backend && npm run test:sync && npm run test:updater && npm run test:upgrade && npm run build",
     "check:full": "node scripts/check-full.mjs",
     "preview": "npm run backend:build && node scripts/run-web.mjs --preview",
     "backend:build": "node scripts/build-backend.mjs",
@@ -30,6 +30,10 @@
     "desktop:verify:mac": "node scripts/verify-mac-package.mjs",
     "desktop:update:local": "node scripts/install-mac-local.mjs",
     "test:sync": "node --test electron/lan-sync.test.cjs",
+    "test:updater": "node --test electron/updater.test.cjs scripts/bump-version.test.mjs",
+    "release:patch": "node scripts/bump-version.mjs patch --commit",
+    "release:minor": "node scripts/bump-version.mjs minor --commit",
+    "release:major": "node scripts/bump-version.mjs major --commit",
     "test:sync:desktop": "node scripts/lan-sync-desktop.mjs",
     "test:quit-failure": "node scripts/quit-failure-desktop.mjs",
     "test:pdf-batching": "npm run backend:build && node scripts/pdf-batching-smoke.mjs",
@@ -168,7 +172,6 @@
     },
     "dmg": {
       "sign": false,
-      "title": "Viet Latex Studio 0.5.6",
       "contents": [
         {
           "x": 160,

@@ -12,6 +12,8 @@ Phiên bản 0.5.1 giữ đúng số tiêu đề và nhận diện tiêu đề t
 
 Mở `release-desktop/Viet-Latex-Studio-0.5.6-universal.dmg`, kéo **Viet Latex Studio.app** vào **Applications** rồi mở app. Bộ cài universal dành cho macOS 26+, gồm Electron, backend Go, Pandoc và TeX Live gọn. Không cần Node/Go/MacTeX riêng để sử dụng các mẫu có sẵn, PDF và Word. Bản cục bộ có chữ ký ad-hoc, chưa notarize bằng Apple Developer ID.
 
+Từ bản có cơ chế cập nhật, app tự kiểm tra GitHub Releases và cài bản mới sau khi lưu tài liệu; quy trình phát hành và cách hoạt động xem [docs/AUTO-UPDATE.md](docs/AUTO-UPDATE.md).
+
 Chi tiết build/cài và giới hạn: [Bộ cài MacBook](docs/MAC-INSTALLER.md). Các bản EXE/NSIS, launcher CMD và backend riêng Windows đã được loại bỏ khỏi checkout này. Lịch sử kiểm thử Windows trong tài liệu audit là ghi nhận của phiên trước.
 
 Dữ liệu nằm trong hồ sơ `userData` của Electron, ngoài thư mục cài ứng dụng. Trước khi chuyển máy, dùng **Quản lý tài liệu → Sao lưu** để xuất gói `.vls`. Đóng cửa sổ giữ app chạy; **Cmd+Q** lưu tài liệu rồi thoát.
