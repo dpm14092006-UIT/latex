@@ -215,11 +215,21 @@ test('pairing rejects oversized bodies before reading them and readBody enforces
   const { host } = await setup(t)
   await host.invitation('127.0.0.1')
   const responseStatus = (headers, send) => new Promise((resolve, reject) => {
-    const req = http.request({ hostname: '127.0.0.1', port: host.status().port, path: '/pair', method: 'POST', agent: false, headers: { ...headers, 'X-Vietlatex-Device': randomUUID() } }, response => { response.resume(); resolve(response.statusCode) })
-    req.on('error', reject)
+    let status
+    const req = http.request({ hostname: '127.0.0.1', port: host.status().port, path: '/pair', method: 'POST', agent: false, headers: { ...headers, 'X-Vietlatex-Device': randomUUID() } }, response => {
+      status = response.statusCode
+      response.resume()
+      resolve(status)
+      req.destroy()
+    })
+    // Once the host has answered, a reset from it closing the socket is expected.
+    req.on('error', error => { if (status === undefined) reject(error) })
     send(req)
   })
-  assert.equal(await responseStatus({ 'Content-Length': 1024 * 1024 }, req => req.end(Buffer.alloc(1024 * 1024))), 413)
+  // The host must reject from the Content-Length header alone. Sending the
+  // declared 1 MB body raced the host closing the socket after its 413 and
+  // failed with "write ECONNRESET" on loaded macOS runners.
+  assert.equal(await responseStatus({ 'Content-Length': 1024 * 1024 }, req => req.flushHeaders()), 413)
   // A chunked request cannot be rejected from its headers; overflowing while
   // reading must keep the socket alive long enough to deliver the 413 response.
   assert.equal(await responseStatus({}, req => { req.write(Buffer.alloc(64 * 1024)); req.end(Buffer.alloc(1)) }), 413)
