@@ -18,7 +18,7 @@ Không cần cài Node.js, Go, Pandoc hoặc MacTeX riêng để dùng các mẫ
 
 Đóng cửa sổ giữ ứng dụng chạy theo hành vi macOS. **Cmd+Q** thoát ứng dụng sau khi lưu tài liệu và dừng backend/XeLaTeX. Thanh menu hỗ trợ thao tác sửa và cửa sổ theo macOS.
 
-Bản build cục bộ dùng chữ ký ad-hoc, chưa có Apple Developer ID hoặc notarization. Nếu macOS chặn bản tải về, mở **System Settings → Privacy & Security → Open Anyway** cho ứng dụng bạn đã kiểm tra nguồn. Không cần tắt Gatekeeper. Muốn phân phối rộng rãi mà không có bước này, cần ký bằng chứng thư Apple và notarize.
+Bản build cục bộ dùng chữ ký ad-hoc, chưa có Apple Developer ID hoặc notarization. Nếu macOS chặn bản tải về, mở **System Settings → Privacy & Security → Open Anyway** cho ứng dụng bạn đã kiểm tra nguồn. Nếu macOS báo app "bị hỏng" hoặc không có nút Open Anyway, chạy `xattr -dr com.apple.quarantine "/Applications/Viet Latex Studio.app"`. DMG kèm tệp `Đọc trước khi cài.txt` (nguồn: `build/dmg/`) hướng dẫn các bước này bằng tiếng Việt cho người cài. Không cần tắt Gatekeeper. Muốn phân phối rộng rãi mà không có bước này, cần ký bằng chứng thư Apple và notarize.
 
 ## Build lại trên macOS
 

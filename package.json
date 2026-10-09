@@ -180,8 +180,18 @@
           "y": 180,
           "type": "link",
           "path": "/Applications"
+        },
+        {
+          "x": 300,
+          "y": 330,
+          "type": "file",
+          "path": "build/dmg/Đọc trước khi cài.txt"
         }
-      ]
+      ],
+      "window": {
+        "width": 600,
+        "height": 440
+      }
     },
     "afterPack": "scripts/package-tex.cjs"
   }

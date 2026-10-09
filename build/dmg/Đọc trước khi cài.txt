@@ -1,0 +1,35 @@
+﻿ĐỌC TRƯỚC KHI CÀI — Viet Latex Studio
+=====================================
+
+CÀI ĐẶT
+  1. Kéo biểu tượng "Viet Latex Studio" sang thư mục "Applications" bên cạnh.
+  2. Mở thư mục Applications (Ứng dụng), nhấp đúp "Viet Latex Studio".
+
+
+NẾU MACOS KHÔNG CHO MỞ
+  Thông báo kiểu "Apple không thể xác minh..." hoặc "không thể mở ứng dụng"
+  xuất hiện vì bản này chưa đăng ký chứng chỉ trả phí của Apple
+  (Apple Developer, 99 USD/năm). App không bị lỗi.
+
+  Cách mở miễn phí, chỉ cần làm MỘT LẦN:
+    a) Bấm "Xong" (Done) để đóng thông báo. Đừng chọn "Chuyển vào Thùng rác".
+    b) Mở Cài đặt hệ thống (System Settings)
+       → Quyền riêng tư & Bảo mật (Privacy & Security).
+    c) Kéo xuống phần Bảo mật, thấy dòng báo "Viet Latex Studio" đã bị chặn,
+       bấm "Vẫn mở" (Open Anyway).
+    d) Nhập mật khẩu máy nếu được hỏi, rồi bấm "Mở" (Open).
+  Từ lần sau, app mở bình thường.
+
+  Nếu macOS báo app "bị hỏng" (is damaged), hoặc không thấy nút "Vẫn mở":
+    Mở ứng dụng Terminal, dán lệnh sau rồi nhấn Enter:
+
+      xattr -dr com.apple.quarantine "/Applications/Viet Latex Studio.app"
+
+    Sau đó mở app lại như bước 2.
+
+
+AN TOÀN
+  Chỉ làm các bước trên với bộ cài tải từ nguồn chính thức:
+    https://github.com/dpm14092006-UIT/latex
+  Có thể đối chiếu mã SHA-256 bằng tệp .sha256 phát hành kèm bộ cài.
+  Không cần và không nên tắt Gatekeeper cho toàn máy.
