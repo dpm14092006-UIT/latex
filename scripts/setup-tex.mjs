@@ -55,7 +55,7 @@ try {
   await run(join(texBin, 'tlmgr'), ['install', ...packages], env)
   await run(join(texBin, 'fmtutil-sys'), ['--byfmt', 'xelatex'], env)
   await configureFonts()
-  await run('/usr/bin/lipo', [join(texBin, 'xetex'), '-verify_arch', 'x86_64', 'arm64'])
+  for (const arch of ['x86_64', 'arm64']) await run('/usr/bin/lipo', [join(texBin, 'xetex'), '-verify_arch', arch])
   await writeFile(marker, JSON.stringify({ version, source, sha256, packages, preparedAt: new Date().toISOString() }, null, 2) + '\n')
 } finally { await rm(staging, { recursive: true, force: true }) }
 console.log(`Bundled TeX ready: ${directory}`)

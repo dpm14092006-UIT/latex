@@ -51,7 +51,7 @@ async function verifyTexTree(directory) {
     try { await handle.read(header, 0, 4, 0) } finally { await handle.close() }
     if (![0xfeedface, 0xfeedfacf, 0xcafebabe, 0xcafebabf].includes(header.readUInt32BE()) && ![0xfeedface, 0xfeedfacf].includes(header.readUInt32LE())) continue
     if (!visited.has(path)) {
-      await run('/usr/bin/lipo', [path, '-verify_arch', 'x86_64', 'arm64'])
+      for (const arch of ['x86_64', 'arm64']) await run('/usr/bin/lipo', [path, '-verify_arch', arch])
       await verifyMinimumMacOS(path)
       visited.add(path)
     }
@@ -65,7 +65,7 @@ const { stdout: localNetworkDescription } = await promisify(execFile)('/usr/libe
 if (localNetworkDescription.trim() !== pkg.build.mac.extendInfo.NSLocalNetworkUsageDescription) throw new Error('Thiếu hoặc sai mô tả quyền mạng nội bộ trong app đã đóng gói.')
 await run('/usr/bin/codesign', ['--verify', '--deep', '--strict', app])
 for (const binary of [executable, join(resources, 'backend', 'vietlatex-backend'), join(resources, 'pandoc', 'pandoc'), join(resources, 'tex', 'bin', 'universal-darwin', 'xetex'), join(resources, 'tex', 'bin', 'universal-darwin', 'biber')]) {
-  await run('/usr/bin/lipo', [binary, '-verify_arch', 'x86_64', 'arm64'])
+  for (const arch of ['x86_64', 'arm64']) await run('/usr/bin/lipo', [binary, '-verify_arch', arch])
   await verifyMinimumMacOS(binary)
 }
 await verifyTexTree(join(resources, 'tex'))
