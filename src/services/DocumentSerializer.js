@@ -432,6 +432,25 @@ export function delimitedMathReplacements(blocks, { bareFormulas = false } = {})
   for (let index = 0; index < blocks.length; index++) {
     const node = blocks[index]
     if (bibliographyIndexes.has(index)) continue
+    // Cells hold paragraphs too; "$(4, 0)$" typed or pasted into a table
+    // becomes inline math like it does in body text.
+    if (node?.type === 'table') {
+      let changed = false
+      const convertCell = cell => {
+        const content = (cell.content || []).map(child => {
+          if (child.type !== 'paragraph') return child
+          const original = child.content || []
+          const inline = normalizeInlineMath(original)
+          if (inline === original) return child
+          changed = true
+          return { ...child, content: inline }
+        })
+        return changed ? { ...cell, content } : cell
+      }
+      const content = (node.content || []).map(row => ({ ...row, content: (row.content || []).map(convertCell) }))
+      if (changed) replacements.push({ start: index, end: index, nodes: [{ ...node, content }] })
+      continue
+    }
     if (node?.type !== 'paragraph' || isReferenceLikeParagraph(node)) continue
     const block = blockMathAt(blocks, index, bareFormulas)
     if (block) {

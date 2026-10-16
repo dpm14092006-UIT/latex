@@ -211,3 +211,13 @@ test('two-column tables too wide for one column span both and never overflow', (
   assert.equal((latex.match(/\\resizebox\{\\linewidth\}\{!\}\{\\box0\}/g) || []).length, 2)
   assert.match(latex, /\\usepackage\{graphicx\}/)
 })
+
+test('dollar-delimited math in table cells becomes inline math', async () => {
+  const { delimitedMathReplacements } = await import('../src/services/DocumentSerializer.js')
+  const [replacement] = delimitedMathReplacements([simple({}), table({}, [[cell('tableHeader', 'Total $p$')], [cell('tableCell', '$(4, 0)$')]])])
+  assert.equal(replacement.start, 1)
+  const cells = replacement.nodes[0].content.map(row => row.content[0].content[0].content)
+  assert.deepEqual(cells[0].map(node => node.type), ['text', 'inlineMath'])
+  assert.equal(cells[1][0].attrs.latex, '(4, 0)')
+  assert.equal(delimitedMathReplacements([simple({})]).length, 0)
+})
