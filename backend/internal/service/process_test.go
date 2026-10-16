@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -14,7 +13,7 @@ import (
 // XeLaTeX whose working directory is directory.
 func startIdleProcess(t *testing.T, directory string) *warmTeX {
 	t.Helper()
-	command := exec.Command("sleep", "30")
+	command := helperCommand(t, "idle")
 	command.Dir = directory
 	configureCommand(command)
 	stdin, err := command.StdinPipe()
@@ -25,9 +24,11 @@ func startIdleProcess(t *testing.T, directory string) *warmTeX {
 		t.Fatal(err)
 	}
 	warm := &warmTeX{cmd: command, stdin: stdin, stdout: &limitedBuffer{}, stderr: &limitedBuffer{}, directory: directory, started: time.Now(), exited: make(chan struct{})}
+	trackCommand(command)
 	warm.kill = func() { _ = killCommandGroup(command) }
 	go func() {
 		warm.waitErr = command.Wait()
+		releaseCommand(command)
 		close(warm.exited)
 	}()
 	return warm

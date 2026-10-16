@@ -85,63 +85,60 @@
 @media(max-width:620px){.mono-root{padding:6px}.mono-topbar.studio-header{height:58px;padding:0 9px;border-radius:12px}.mono-root .studio-ribbon-head{height:41px;padding:0 5px}.mono-root .studio-ribbon-tab{padding:0 6px;font-size:9px}.mono-root .studio-ribbon-panel{padding:7px 6px 9px}.mono-root .studio-ribbon-tool{min-height:29px;min-width:29px}.mono-root .studio-paper-stage{padding:6px}.mono-root .ProseMirror h1{font-size:34px}.mono-root .ProseMirror h2{font-size:24px}.project-tabs button{font-size:9px;padding:7px 10px}.mono-root .studio-statusbar{display:none}.mono-shell{padding-bottom:70px}.mono-root .studio-views button{min-width:65px}.mono-workspace-content [data-panel]>section,.mono-workspace-content>section{border-radius:14px}}
 @media(prefers-reduced-motion:reduce){.mono-root *{transition:none!important;animation:none!important;scroll-behavior:auto!important}}
 
-/* Compact horizontal mode dock, with live top/bottom comparison. */
+/* Compact mode controls stay above the document. */
 .mono-shell { padding-bottom:52px; }
 .mono-modebar { height:42px; padding:5px; gap:5px; border-radius:13px; }
 .mono-mode-caption { display:none; }
 .mono-root .studio-views { gap:3px; }
 .mono-root .studio-views button { height:30px; min-width:0; padding:0 11px; flex-direction:row; gap:6px; border-radius:8px; font-size:10px; }
 .mono-root .studio-views button svg { width:14px; height:14px; }
-.noir-dock-placement { width:27px; height:29px; border-left:var(--rule); color:var(--muted); font-size:17px; border-radius:4px; }
-.noir-dock-placement:hover { color:var(--fg); background:var(--soft); }
-[data-dock='top'] .mono-shell { padding-bottom:0; }
-[data-dock='top'] .mono-shell>.flex { margin-top:52px; }
-[data-dock='top'] .mono-modebar { top:74px; bottom:auto; }
+.mono-root .mono-shell { padding-bottom:0; }
+.mono-root .mono-shell>.flex { margin-top:52px; }
+.mono-root .mono-modebar { top:74px; bottom:auto; }
 .mono-focus .mono-shell { padding-bottom:0; }
-[data-dock='top'] .mono-focus .mono-shell>.flex { margin-top:0; }
+.mono-root.mono-focus .mono-shell>.flex { margin-top:0; }
 .mono-root .noir-pdf-tools-toggle { position:absolute; right:10px; top:10px; z-index:20; width:28px; min-height:28px; border-radius:8px; box-shadow:0 3px 9px #00000033; }
 .mono-root section[aria-label='Bản PDF xem trước']:has(.noir-pdf-tools-toggle[aria-expanded='true'])>.studio-panel-head { padding-right:46px; }
 .mono-root section[aria-label='Bản PDF xem trước']:has(.noir-pdf-tools-toggle[aria-expanded='false']) .studio-pdf-canvas { padding-top:12px; }
-@media(max-width:900px){.mono-shell{padding-bottom:51px}.mono-modebar{height:42px}.mono-root .studio-views button{height:30px;min-width:0;font-size:9px;padding:0 9px;gap:5px}.mono-root .studio-views button svg{width:13px;height:13px}[data-dock='top'] .mono-modebar{top:74px}[data-dock='top'] .mono-shell>.flex{margin-top:52px}}
-@media(max-width:620px){.mono-root .studio-views button{font-size:9px;padding:0 8px}.mono-modebar{padding:5px;gap:3px}.noir-dock-placement{width:24px}[data-dock='top'] .mono-modebar{top:68px}[data-dock='top'] .mono-shell>.flex{margin-top:52px}.mono-root .noir-pdf-tools-toggle{right:8px;top:8px}}
+@media(max-width:900px){.mono-shell{padding-bottom:51px}.mono-modebar{height:42px}.mono-root .studio-views button{height:30px;min-width:0;font-size:9px;padding:0 9px;gap:5px}.mono-root .studio-views button svg{width:13px;height:13px}.mono-root .mono-modebar{top:74px}.mono-root .mono-shell>.flex{margin-top:52px}}
+@media(max-width:620px){.mono-root .studio-views button{font-size:9px;padding:0 8px}.mono-modebar{padding:5px;gap:3px}.mono-root .mono-modebar{top:68px}.mono-root .mono-shell>.flex{margin-top:52px}.mono-root .noir-pdf-tools-toggle{right:8px;top:8px}}
 
-/* Spend vertical space on the document, with equal space for either dock position. */
+/* Spend vertical space on the document. */
 .mono-root { padding:8px; gap:10px; }
 .mono-topbar.studio-header { height:48px; min-height:48px; }
 .mono-shell { padding-bottom:40px; }
 .mono-modebar { height:34px; padding:3px; border-radius:11px; gap:4px; }
 .mono-root .studio-views button { height:26px; padding:0 10px; border-radius:7px; }
-.noir-dock-placement { height:26px; }
 .project-tabs-wrap { padding:5px 0; }
 .project-tabs button { padding:6px 12px; }
 .mono-root .studio-ribbon-head { height:32px; }
 .mono-root .studio-ribbon-panel { min-height:40px; padding:5px 10px 7px; }
 .mono-root .studio-statusbar { height:24px; }
-[data-dock='top'] .mono-shell>.flex { margin-top:40px; }
-[data-dock='top'] .mono-modebar { top:54px; }
+.mono-root .mono-shell>.flex { margin-top:40px; }
+.mono-root .mono-modebar { top:54px; }
 .mono-root [hidden] { display:none!important; }
-@media(max-width:620px){.mono-root{padding:6px}.mono-topbar.studio-header{height:48px}.mono-root .studio-views button{padding:0 8px}[data-dock='top'] .mono-modebar{top:54px}.mono-root .studio-ribbon-tab{padding:0 6px}.mono-root .studio-ribbon-panel{padding:5px 6px 7px}}
+@media(max-width:620px){.mono-root{padding:6px}.mono-topbar.studio-header{height:48px}.mono-root .studio-views button{padding:0 8px}.mono-root .mono-modebar{top:54px}.mono-root .studio-ribbon-tab{padding:0 6px}.mono-root .studio-ribbon-panel{padding:5px 6px 7px}}
 
 /* Share the document-tabs row on wide screens instead of adding another row. */
 @media(min-width:1100px){
- [data-dock='top'] .mono-shell>.flex { margin-top:0; }
- [data-dock='top'] .mono-modebar { top:51px; left:auto; right:0; transform:none; }
- [data-dock='top'] .project-tabs-wrap { min-height:40px; padding-right:375px; }
+ .mono-root .mono-shell>.flex { margin-top:0; }
+ .mono-root .mono-modebar { top:51px; left:auto; right:0; transform:none; }
+ .mono-root .project-tabs-wrap { min-height:40px; padding-right:375px; }
 }
 .mono-root .noir-ribbon-toggle { display:flex; align-items:center; justify-content:center; flex-shrink:0; width:28px; height:26px; border:var(--rule); border-radius:7px; color:var(--muted); }
 .mono-root .noir-ribbon-toggle:hover { background:var(--soft); color:var(--fg); }
 .mono-root .noir-ribbon-toggle[aria-expanded='true'] svg { transform:rotate(180deg); }
 .mono-root .studio-ribbon-tabs { min-width:0; overflow-x:auto; scrollbar-width:none; }
 .mono-root .studio-ribbon-tab { flex-shrink:0; }
-.mono-root :is(.noir-ribbon-toggle,.noir-dock-placement):focus-visible { outline:2px solid var(--fg); outline-offset:2px; }
+.mono-root .noir-ribbon-toggle:focus-visible { outline:2px solid var(--fg); outline-offset:2px; }
 @media(min-width:1100px){
- [data-dock='top'] .project-tabs-wrap { padding-right:0; }
- [data-dock='top'] .project-tabs { margin-right:375px; }
+ .mono-root .project-tabs-wrap { padding-right:0; }
+ .mono-root .project-tabs { margin-right:375px; }
 }
 /* Notices keep their own readable row, including imported-source trust checks. */
-[data-dock='top'] .mono-shell:has(>.studio-trust-banner) .mono-modebar { position:relative; top:auto; right:auto; left:auto; bottom:auto; transform:none; align-self:center; margin:5px 0; }
-[data-dock='top'] .mono-shell:has(>.studio-trust-banner)>.flex { margin-top:0; }
-[data-dock='top'] .mono-shell:has(>.studio-trust-banner) .project-tabs { margin-right:0; }
+.mono-root .mono-shell:has(>.studio-trust-banner) .mono-modebar { position:relative; top:auto; right:auto; left:auto; bottom:auto; transform:none; align-self:center; margin:5px 0; }
+.mono-root .mono-shell:has(>.studio-trust-banner)>.flex { margin-top:0; }
+.mono-root .mono-shell:has(>.studio-trust-banner) .project-tabs { margin-right:0; }
 
 /* Menus follow their trigger, even when the toolbar wraps or the window shrinks. */
 .mono-root .studio-menu { top:auto; bottom:auto; max-width:min(300px,calc(100vw - 16px)); max-height:calc(100dvh - 16px); }

@@ -1,18 +1,28 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { formatShortcut } from '../services/KeyboardShortcuts.js'
-import { X, FolderOpen, Download, Upload, Copy, Pencil, Trash2, Settings, History, FileCode2, BookOpen, Activity } from 'lucide-react'
+import { X, FolderOpen, Download, Upload, Copy, Pencil, Trash2, Settings, History, FileCode2, BookOpen, Activity, Sparkles } from 'lucide-react'
 import AbstractSettings from './AbstractSettings.jsx'
 import LanSyncPanel from './LanSyncPanel.jsx'
 import UpdatePanel from './UpdatePanel.jsx'
+import { AiSettingsPanel } from './AiAssistant.jsx'
 
-const tabs = [['documents', 'Tài liệu', FolderOpen], ['backup', 'Sao lưu', History], ['sync', 'Đồng bộ LAN', Activity], ['settings', 'Trang & tác giả', Settings], ['assets', 'Tài nguyên', FileCode2], ['academic', 'Học thuật', BookOpen], ['system', 'Hệ thống', Activity]]
-export default function StudioManager({ readOnly = false, open, initialTab = 'documents', initialDelete = null, onClose, workspace, onSelect, onAction, onExport, onImport, onImportLatex, onImportWord, onExportWord, onOpenReferences, settings, onSettings, assets, onAssets, editor, onSnapshot, onRestore, notice, clearCache, title, syncStatus, onSyncAction, updates }) {
+const tabs = [['documents', 'Tài liệu', FolderOpen], ['backup', 'Sao lưu', History], ['sync', 'Đồng bộ LAN', Activity], ['settings', 'Trang & tác giả', Settings], ['assets', 'Tài nguyên', FileCode2], ['academic', 'Học thuật', BookOpen], ['ai', 'Trợ lý AI', Sparkles], ['system', 'Hệ thống', Activity]]
+export default function StudioManager({ readOnly = false, open, initialTab = 'documents', initialDelete = null, onClose, workspace, onSelect, onAction, onExport, onImport, onImportLatex, onImportWord, onExportWord, onOpenReferences, settings, onSettings, assets, onAssets, editor, onSnapshot, onRestore, notice, title, syncStatus, onSyncAction, updates }) {
   const [tab, setTab] = useState(initialTab), [query, setQuery] = useState(''), [busy, setBusy] = useState(false), [message, setMessage] = useState('')
   const [editing, setEditing] = useState(null), [deleting, setDeleting] = useState(initialDelete), [backups, setBackups] = useState([]), [environment, setEnvironment] = useState(null)
   const [label, setLabel] = useState(''), [reference, setReference] = useState(''), [footnote, setFootnote] = useState('')
   const backupInput = useRef(null), latexInput = useRef(null), wordInput = useRef(null), assetsInput = useRef(null)
   const run = useCallback(async task => { setBusy(true); setMessage(''); try { const result = await task(); if (typeof result === 'string') setMessage(result) } catch (error) { setMessage(error.message || 'Không thực hiện được thao tác.') } finally { setBusy(false) } }, [])
-  const refreshEnvironment = useCallback(() => run(async () => { setEnvironment(window.desktopAPI?.environment ? await window.desktopAPI.environment() : { compiler: await (await fetch('/api/environment')).json() }) }), [run])
+  const refreshEnvironment = useCallback(() => run(async () => {
+    if (window.desktopAPI?.environment) {
+      setEnvironment(await window.desktopAPI.environment())
+      return
+    }
+    const response = await fetch('/api/environment')
+    const result = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(result.error || `Không kiểm tra được môi trường (HTTP ${response.status}).`)
+    setEnvironment(result)
+  }), [run])
   const loadBackups = useCallback(() => run(async () => setBackups(await window.desktopAPI.listBackups())), [run])
   useEffect(() => { if (open && tab === 'backup' && window.desktopAPI?.listBackups) void loadBackups() }, [open, tab, loadBackups])
   useEffect(() => { if (open && tab === 'system') void refreshEnvironment() }, [open, tab, refreshEnvironment])
@@ -28,6 +38,7 @@ export default function StudioManager({ readOnly = false, open, initialTab = 'do
         {busy && <p role="status">Đang xử lý…</p>}
         {readOnly && ['settings', 'assets', 'academic'].includes(tab) && <p className="studio-notice">Chọn tab gốc để sửa thiết lập, tài nguyên hoặc trích dẫn. Bản tổng hợp dùng thiết lập của tab đầu tiên được chọn.</p>}
         <fieldset disabled={busy || (readOnly && ['settings', 'assets', 'academic'].includes(tab))}>
+        {tab === 'ai' && <AiSettingsPanel />}
         {tab === 'sync' && <LanSyncPanel status={syncStatus} onAction={onSyncAction} />}
         {tab === 'documents' && <>
           <div className="studio-manager-actions"><button type="button" onClick={() => latexInput.current.click()}><Upload size={14} />Nhập dự án LaTeX ZIP</button><button type="button" onClick={() => wordInput.current.click()}><Upload size={14} />Nhập Word</button><button type="button" onClick={() => run(onExportWord)}><Download size={14} />Xuất bản thảo Word</button></div>
@@ -68,7 +79,7 @@ export default function StudioManager({ readOnly = false, open, initialTab = 'do
           <label>Nhãn cần tham chiếu<input value={reference} onChange={event => setReference(event.target.value)} placeholder="eq:result" /><button type="button" disabled={!/^[A-Za-z0-9:._-]{1,100}$/.test(reference)} onClick={() => insert({ type: 'crossReference', attrs: { target: reference } })}>Chèn tham chiếu</button></label>
           <label>Chú thích chân trang<input maxLength={5000} value={footnote} onChange={event => setFootnote(event.target.value)} /><button type="button" disabled={!footnote.trim()} onClick={() => insert({ type: 'footnote', attrs: { text: footnote } })}>Chèn chú thích</button></label></div>
         </>}
-        {tab === 'system' && <>{updates?.supported && <UpdatePanel updates={updates} />}<div className="studio-manager-actions"><button type="button" onClick={refreshEnvironment}>Kiểm tra môi trường</button><button type="button" onClick={() => run(async () => { await clearCache(); return 'Đã xóa cache; PDF sẽ biên dịch lại.' })}>Biên dịch lại từ đầu</button></div>{environment && <><p>VietLaTeX Studio {environment.version || 'web'}</p><p>XeLaTeX: {environment.compiler?.available ? environment.compiler.version : environment.compiler?.error}</p><p>Pandoc / Word: {environment.word?.available ? environment.word.version : environment.word?.error || 'Dùng tính năng Word trong bản desktop.'}</p><p>Chế độ biên dịch: {environment.compiler?.sandbox === 'docker' ? 'Docker cách ly, không có mạng.' : 'XeLaTeX cục bộ — chỉ biên dịch source và template bạn tin cậy.'}</p></>}<p>{window.desktopAPI?.platform === 'win32' ? 'Bản Windows có sẵn Pandoc; XeLaTeX dùng MiKTeX hoặc TeX Live đã cài trên máy.' : 'Bộ cài Mac có sẵn XeLaTeX và Pandoc. Mẫu LaTeX tự thêm có thể cần gói từ MacTeX/TeX Live.'}</p>{window.desktopAPI?.openHelp && <div className="studio-manager-actions"><button type="button" onClick={() => run(() => window.desktopAPI.openHelp('tex'))}>Mở trang cài XeLaTeX</button><button type="button" onClick={() => run(() => window.desktopAPI.openHelp('word'))}>Mở trang cài Pandoc</button></div>}</>}
+        {tab === 'system' && <>{updates?.supported && <UpdatePanel updates={updates} />}<div className="studio-manager-actions"><button type="button" onClick={refreshEnvironment}>Kiểm tra môi trường</button></div>{environment && <><p>VietLaTeX Studio {environment.version || 'web'}</p><p>XeLaTeX: {environment.compiler?.available ? environment.compiler.version : environment.compiler?.error}</p><p>Pandoc / Word: {environment.word?.available ? environment.word.version : environment.word?.error || 'Dùng tính năng Word trong bản desktop.'}</p><p>Chế độ biên dịch: {environment.compiler?.sandbox === 'docker' ? 'Docker cách ly, không có mạng.' : 'XeLaTeX cục bộ — chỉ biên dịch source và template bạn tin cậy.'}</p></>}<p>{window.desktopAPI?.platform === 'win32' ? 'Bản Windows có sẵn Pandoc; XeLaTeX dùng MiKTeX hoặc TeX Live đã cài trên máy.' : window.desktopAPI?.platform === 'darwin' ? 'Bộ cài Mac có sẵn XeLaTeX và Pandoc. Mẫu LaTeX tự thêm có thể cần gói từ MacTeX/TeX Live.' : 'Bản trình duyệt dùng XeLaTeX và Pandoc trên máy đang chạy backend.'}</p>{window.desktopAPI?.openHelp && (environment?.compiler?.available === false || environment?.word?.available === false) && <div className="studio-manager-actions">{environment?.compiler?.available === false && <button type="button" onClick={() => run(() => window.desktopAPI.openHelp('tex'))}>Mở trang cài XeLaTeX</button>}{environment?.word?.available === false && <button type="button" onClick={() => run(() => window.desktopAPI.openHelp('word'))}>Mở trang cài Pandoc</button>}</div>}</>}
         </fieldset>
       </div>
     </section>

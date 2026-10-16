@@ -10,9 +10,30 @@
 
 Mã ghép dùng một lần, hết hạn sau 10 phút. Tạo mã mới để thêm máy khác. Nhóm hỗ trợ tối đa 16 máy nhận. Máy chủ có thể **Ngắt quyền kết nối** từng máy. Tắt đồng bộ giữ tài liệu hiện có trên máy; bật một nhóm mới sẽ lấy toàn bộ workspace hiện tại làm dữ liệu đưa vào nhóm đó.
 
-Nếu macOS hỏi quyền truy cập mạng, cho phép ứng dụng trên mạng riêng. Máy chủ chọn một cổng TCP và giữ lại cổng đó khi mở lại. Không cần mở backend biên dịch ra mạng, không cần Internet hoặc dịch vụ cloud. Tra DOI vẫn cần Internet như trước.
+Nếu macOS hỏi quyền truy cập mạng, cho phép ứng dụng trên mạng riêng. Trên Windows xem mục tường lửa bên dưới. Máy chủ chọn một cổng TCP và giữ lại cổng đó khi mở lại. Không cần mở backend biên dịch ra mạng, không cần Internet hoặc dịch vụ cloud. Tra DOI vẫn cần Internet như trước.
 
-Hiện kết nối bằng mã ghép và IPv4 nội bộ; chưa có tìm máy tự động/QR, IPv6 hoặc chuyển host tự động. Nếu IP máy chủ thay đổi sau khi router cấp lại địa chỉ, tạo mã ghép mới và ghép lại. Có thể dùng DHCP reservation trên router để giữ IP ổn định.
+Hiện kết nối bằng mã ghép và IPv4 nội bộ; chưa có QR, IPv6 hoặc chuyển host tự động. Nếu IP máy chủ thay đổi sau khi mất mạng hoặc router cấp lại địa chỉ, máy nhận tự tìm lại máy chủ trong mạng LAN và giữ nguyên ghép nối, không cần mã mới. Máy nhận gửi gói UDP broadcast tới cổng 47862, tối đa một lần mỗi 10 giây khi không kết nối được. Chỉ máy chủ giữ khóa của máy nhận mới trả lời được (HMAC-SHA256 trên nonce ngẫu nhiên). Địa chỉ mới chỉ được lưu sau khi request mã hóa đầu tiên tới đó thành công. Nếu mạng chặn broadcast, ví dụ Wi-Fi khách, hãy tạo mã ghép mới hoặc dùng DHCP reservation trên router.
+
+## Windows: tường lửa và địa chỉ mạng
+
+Lần đầu bật máy chủ, Windows Defender Firewall hỏi có cho ứng dụng nhận kết nối không; chọn **Allow**. Bộ cài cho người dùng hiện tại nên bước này có thể cần mật khẩu quản trị. Bấm **Cancel** sẽ khiến Windows tự tạo quy tắc chặn và không hỏi lại.
+
+Khi làm máy chủ trên Windows, bảng Đồng bộ LAN tự đọc (không sửa) loại mạng của bộ điều hợp đang chọn và quy tắc tường lửa của ứng dụng:
+
+- **Đang chặn**: có quy tắc Block cho loại mạng hiện tại. Quy tắc Block thắng mọi quy tắc Allow.
+- **Chưa ghi nhận quyền**: chưa có quy tắc Allow cho loại mạng hiện tại.
+
+Cách sửa: Windows Security → Firewall & network protection → Allow an app through firewall → Change settings, tìm “Viet Latex Studio” và đánh dấu loại mạng (Private/Public). Wi-Fi ở nhà hoặc cơ quan nên đặt là **Private network** trong Settings → Network & internet; Windows thường đặt mạng mới là Public. Bảng có nút mở hai trang này và nút **Kiểm tra lại**.
+
+Danh sách **Địa chỉ máy chủ** ghi tên bộ điều hợp và xếp Wi-Fi/Ethernet lên trước. Địa chỉ của WSL, Hyper-V (`vEthernet`), VirtualBox, VMware, Docker hoặc VPN được đánh dấu **mạng ảo** và xếp cuối, vì máy khác trong Wi-Fi thường không tới được các địa chỉ đó.
+
+Laptop Windows dùng Modern Standby có thể vào chế độ chờ khi tắt màn hình dù đã bật giữ máy không ngủ. Nếu máy chủ là laptop, cắm sạc và đặt thời gian ngủ khi cắm sạc trong Settings → System → Power.
+
+## Tắt màn hình, ngủ và thức
+
+Chỉ tắt hoặc khóa màn hình thì đồng bộ vẫn chạy, vì lịch 5 giây nằm ở tiến trình chính. Khi máy ngủ, mọi tiến trình dừng. Request đang chạy dở được hủy ngay lúc bắt đầu ngủ để không giữ hàng đợi đến hết hạn truyền. Khi thức dậy, app đồng bộ ngay rồi thử lại sau 2 giây vì Wi-Fi thường nối lại chậm hơn một chút.
+
+Trên máy chủ, bật **Giữ máy này không ngủ khi làm máy chủ** để hệ điều hành không cho máy ngủ trong lúc đang chia sẻ. Màn hình vẫn tắt theo cài đặt nguồn. Tùy chọn mặc định tắt, chỉ lưu trên máy đó và chỉ có tác dụng khi máy đang làm máy chủ. Trên MacBook, gập nắp khi không nối màn hình ngoài vẫn làm máy ngủ.
 
 ## Offline và xung đột
 
@@ -43,6 +64,8 @@ Không truyền quyết định tin cậy LaTeX. Tài liệu hoặc mẫu nhận
 
 - `electron/lan-sync.cjs`: dịch vụ nhóm, mốc phiên bản, dấu xóa, xung đột, ghép máy và lưu hồ sơ nguyên tử.
 - `electron/lan-pdf.cjs`: xác minh PDF, SHA-256 và quản lý cache có giới hạn theo phiên bản tài liệu.
+- `electron/lan-discovery.cjs`: tìm lại máy chủ đổi IP qua UDP broadcast, trả lời có HMAC bằng khóa đã ghép.
+- `electron/win/firewall.cjs`: Windows, chỉ đọc loại mạng và quy tắc tường lửa inbound của ứng dụng qua PowerShell để giải thích khi máy khác không kết nối được.
 - `electron/lan-sync-transport.cjs`: HTTP nội bộ mang payload AES-256-GCM, nonce ngẫu nhiên 96 bit, khóa 256 bit riêng cho từng máy, AAD phân biệt request/response và endpoint. Giới hạn request, timeout, chống gửi lại request và giới hạn tốc độ. Header định danh thiết bị không chứa khóa.
 - `src/services/LanSyncData.js`: biểu diễn dữ liệu theo tài liệu/mẫu/dự án, tách tin cậy và trạng thái từng máy, gộp sửa trong lúc nhận dữ liệu.
 - IPC được kiểm tra frame nguồn; renderer không mở socket mạng trực tiếp. Backend Go vẫn chỉ bind loopback.

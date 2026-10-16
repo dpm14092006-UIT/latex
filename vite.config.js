@@ -3,6 +3,7 @@ import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { cpSync, mkdirSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { prepareSpellcheckAssets } from './scripts/prepare-spellcheck-assets.mjs'
 
 const mathliveAssets = {
   name: 'mathlive-local-assets',
@@ -24,7 +25,7 @@ const desktopContentSecurityPolicy = {
 
 export default defineConfig({
   base: './',
-  plugins: [mathliveAssets, tailwindcss(), react(), desktopContentSecurityPolicy],
+  plugins: [{ name: 'spellcheck-local-assets', buildStart() { prepareSpellcheckAssets() } }, mathliveAssets, tailwindcss(), react(), desktopContentSecurityPolicy],
   server: {
     watch: {
       ignored: [

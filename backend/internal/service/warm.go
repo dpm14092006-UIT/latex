@@ -89,9 +89,11 @@ func spawnWarmXeLatex(directory string) (*warmTeX, error) {
 	if err := command.Start(); err != nil {
 		return nil, err
 	}
+	trackCommand(command)
 	warm.kill = func() { _ = killCommandGroup(command) }
 	go func() {
 		warm.waitErr = command.Wait()
+		releaseCommand(command)
 		close(warm.exited)
 	}()
 	return warm, nil
@@ -248,7 +250,7 @@ func (p *warmPool) refill() {
 					warm.discard()
 				}
 				if directory != "" {
-					_ = os.RemoveAll(directory)
+					_ = removeWorkDirectory(directory)
 				}
 			}
 		}()
@@ -302,7 +304,7 @@ func (p *warmPool) trimLocked(now time.Time) []*warmTeX {
 func discardAll(items []*warmTeX) {
 	for _, item := range items {
 		item.discard()
-		_ = os.RemoveAll(item.directory)
+		_ = removeWorkDirectory(item.directory)
 	}
 }
 

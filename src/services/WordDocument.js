@@ -202,7 +202,11 @@ export function toWordAst(doc, title, settings = {}, templateSource = '') {
     { t: 'Para', c: [{ t: 'Strong', c: inline({ type: 'text', text: settings.abstractTitle || 'Abstract' }) }] },
     ...String(settings.abstract || '').split(/\n\s*\n/).filter(paragraph => paragraph.trim()).map(paragraph => ({ t: 'Para', c: inline({ type: 'text', text: paragraph.trim() }) })),
   ]] }] : []
-  return { 'pandoc-api-version': [1, 23, 1], meta: { title: { t: 'MetaString', c: title }, author: { t: 'MetaString', c: settings.author || '' }, date: { t: 'MetaString', c: settings.date || '' } }, blocks: [...frontmatter, ...(doc.content || []).map(block)], _bibliography: settings.bibliography || '', _citationStyle: resolveCitationStyle(settings.citationStyle, templateSource) }
+  return { 'pandoc-api-version': [1, 23, 1], meta: { title: { t: 'MetaString', c: title }, author: { t: 'MetaString', c: settings.author || '' }, date: { t: 'MetaString', c: settings.date || '' } }, blocks: [...frontmatter, ...(doc.content || []).flatMap(node => {
+    // Word has no table-note field, so the note follows the table as small text.
+    const note = node.type === 'table' ? String(node.attrs?.note || '').replace(/\s+/gu, ' ').trim() : ''
+    return note ? [block(node), { t: 'Para', c: [{ t: 'Emph', c: inline({ type: 'text', text: note }) }] }] : [block(node)]
+  })], _bibliography: settings.bibliography || '', _citationStyle: resolveCitationStyle(settings.citationStyle, templateSource) }
 }
 export async function readWord(file) {
   if (!window.desktopAPI?.convertWord) throw new Error('Nhập Word hiện dùng trong ứng dụng desktop.')

@@ -95,6 +95,7 @@ export function isValidDocument(value) {
     }
     if (node.type === 'table') {
       if (node.attrs?.caption !== undefined && (typeof node.attrs.caption !== 'string' || node.attrs.caption.length > 500)) return false
+      if (node.attrs?.note !== undefined && node.attrs.note !== null && (typeof node.attrs.note !== 'string' || node.attrs.note.length > 2000)) return false
       if (node.attrs?.label !== undefined && (typeof node.attrs.label !== 'string' || (node.attrs.label && !/^[A-Za-z0-9:._-]{1,100}$/.test(node.attrs.label)))) return false
     }
     if (node.type === 'imageBlock') {

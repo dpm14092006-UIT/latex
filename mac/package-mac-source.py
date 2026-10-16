@@ -16,7 +16,7 @@ selected.extend(root / name for name in [
     "package.json", "package-lock.json", ".nvmrc", ".gitignore", "index.html",
     "vite.config.js", "eslint.config.js",
     "README.md", "ARCHITECTURE.md", "build/app-icon.png",
-    "build/app-icon.svg", "docs/LAN-SYNC.md", "docs/UPGRADE-0.5.0.md",
+    "build/app-icon.svg", "docs/LAN-SYNC.md", "docs/CHANGELOG.md",
 ])
 version = json.loads((root / "package.json").read_text(encoding="utf-8"))["version"]
 output = root / "release-desktop" / "mac" / ("Viet-Latex-Studio-" + version + "-Mac-Build-Source.zip")

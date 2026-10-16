@@ -33,7 +33,7 @@ Quét và đối chiếu REF có sẵn chạy cục bộ. Nhập DOI vẫn dùng
 
 Kiểu trích dẫn là lựa chọn chung cho tài liệu, không phải định dạng riêng từng REF. Theo mẫu tài liệu mặc định dùng APA 7th, riêng IEEEtran dùng IEEE; các lựa chọn rõ ràng APA/IEEE/số/Harvard được giữ. Trích dẫn APA không đánh số; nhóm nhiều bài sắp theo tác giả, giữ dấu chấm phẩy. LaTeX APA dùng biblatex-apa + Biber + csquotes, Word dùng CSL APA 7th đầy đủ của Citation Style Language. Khóa BibTeX có `_` được giữ nguyên khi tạo tệp biên dịch; chỉ escape nội dung trường. Backend không trả PDF nếu lượt cuối vẫn báo citation undefined.
 
-Kiểm thử: xem `artifacts/full-audit/report.md` và các log bên cạnh. Các nhóm đã kiểm tra gồm parser/transaction, giao diện Edge, lưu/mở lại, desktop development/production, XeLaTeX và Pandoc thật, các mẫu tài liệu, tải và dọn thư mục tạm. Ảnh giao diện: `artifacts/citation-scan/narrative-review.png`. PDF/DOCX hồi quy nằm trong cùng thư mục.
+Kiểm thử: `npm run test:citation-scan` chạy test parser/duyệt trích dẫn và kiểm tra giao diện, lưu ảnh ở `artifacts/citation-scan/`.
 
 Nghiên cứu: đối chiếu [định dạng và quy tắc khóa/tác giả BibTeX](https://www.bibtex.org/Format/) với `Bibliography.js`, `AcademicNodes.js`, `DocumentSerializer.js` và `WordDocument.js` của dự án. Với thao tác tài liệu và history, kiểm tra [ProseMirror reference](https://prosemirror.net/docs/ref/) và định nghĩa API của phiên bản cài trong `node_modules/prosemirror-model/dist/index.d.ts`, `node_modules/prosemirror-history/dist/index.d.ts`. Không thêm model AI hoặc dịch vụ bên ngoài cho quét text.
 

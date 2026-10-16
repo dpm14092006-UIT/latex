@@ -72,6 +72,14 @@ try {
   assert.equal(requests.length, 4)
   assert.match(requests.at(-1).latex, /Fourth version/)
 
+  // An explicit update recompiles even an unchanged document. This replaces
+  // the old global cache-clear action without evicting other documents.
+  await updatePdfButton.click()
+  await page.locator('.studio-panel-status[data-tone="ready"]').filter({ hasText: 'Đã cập nhật' }).waitFor({ timeout: 30000 })
+  assert.equal(requests.length, 5, 'explicit update must bypass an unchanged cached PDF')
+  assert.equal(requests.at(-1).fresh, true)
+  assert.match(requests.at(-1).latex, /Fourth version/)
+
   await page.locator('.tiptap').fill(String.raw`Uncompiled draft \(E=mc^2\).`)
   await page.getByText('Có thay đổi chưa cập nhật vào PDF.', { exact: false }).waitFor()
   await page.locator('.tiptap .katex').waitFor()
@@ -82,7 +90,7 @@ try {
   await page.getByLabel('Chế độ cập nhật PDF').waitFor()
   assert.equal(await page.getByLabel('Chế độ cập nhật PDF').inputValue(), 'manual')
   await page.waitForTimeout(1000)
-  assert.equal(requests.length, 4, 'manual preference survives reload without compile')
+  assert.equal(requests.length, 5, 'manual preference survives reload without compile')
   assert.deepEqual(compileErrors, [])
   assert.deepEqual(errors, [])
   completed = true

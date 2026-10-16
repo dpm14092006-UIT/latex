@@ -18,6 +18,10 @@ func TestMain(m *testing.M) {
 		runFakePandoc(mode)
 		os.Exit(0)
 	}
+	if mode := os.Getenv(helperProcessVariable); mode != "" {
+		runHelperProcess(mode)
+		os.Exit(0)
+	}
 	os.Exit(m.Run())
 }
 

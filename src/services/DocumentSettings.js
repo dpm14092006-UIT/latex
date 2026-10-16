@@ -1,9 +1,11 @@
 import { CITATION_STYLE_IDS } from './Bibliography.js'
 import { sanitizeSourceMaps } from './CitationLinker.js'
-export const defaultSettings = Object.freeze({ author: '', date: '', paper: 'a4paper', fontSize: 11, margin: 25.4, lineSpacing: 1.2, numberedEquations: false, tableOfContents: false, abstractEnabled: false, abstract: '', abstractTitle: 'Abstract', bibliography: '', citationStyle: 'auto' })
+import { sanitizeSpellcheckSettings } from './SpellcheckSettings.js'
+export const defaultSettings = Object.freeze({ author: '', date: '', paper: 'a4paper', fontSize: 11, margin: 25.4, lineSpacing: 1.2, numberedEquations: false, tableOfContents: false, abstractEnabled: false, abstract: '', abstractTitle: 'Abstract', bibliography: '', citationStyle: 'auto', spellcheck: Object.freeze({ enabled: false, locale: 'en-US' }) })
 
 export function sanitizeSettings(value = {}) {
   return {
+    spellcheck: sanitizeSpellcheckSettings(value?.spellcheck),
     author: String(value?.author || '').slice(0, 500),
     date: String(value?.date || '').slice(0, 100),
     paper: ['a4paper', 'letterpaper', 'a5paper'].includes(value?.paper) ? value.paper : 'a4paper',

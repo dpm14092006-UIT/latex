@@ -131,7 +131,7 @@ func (s *wordService) importDocument(ctx context.Context, input []byte) ([]byte,
 	if err != nil {
 		return nil, appError(http.StatusInternalServerError, "Không tạo được thư mục chuyển Word tạm.")
 	}
-	defer os.RemoveAll(directory)
+	defer func() { _ = removeWorkDirectory(directory) }()
 	inputPath := filepath.Join(directory, "input.docx")
 	if err := os.WriteFile(inputPath, input, 0o600); err != nil {
 		return nil, appError(http.StatusInternalServerError, "Không ghi được tài liệu Word tạm.")
@@ -178,7 +178,7 @@ func (s *wordService) parseLatex(ctx context.Context, input []byte) ([]byte, err
 	if err != nil {
 		return nil, appError(http.StatusInternalServerError, "Không tạo được thư mục chuyển LaTeX tạm.")
 	}
-	defer os.RemoveAll(directory)
+	defer func() { _ = removeWorkDirectory(directory) }()
 	if err := os.WriteFile(filepath.Join(directory, "input.tex"), input, 0o600); err != nil {
 		return nil, appError(http.StatusInternalServerError, "Không ghi được source LaTeX tạm.")
 	}
@@ -246,7 +246,7 @@ func (s *wordService) exportDocument(ctx context.Context, input []byte) ([]byte,
 	if err != nil {
 		return nil, appError(http.StatusInternalServerError, "Không tạo được thư mục chuyển Word tạm.")
 	}
-	defer os.RemoveAll(directory)
+	defer func() { _ = removeWorkDirectory(directory) }()
 	if err := os.WriteFile(filepath.Join(directory, "input.json"), serialized, 0o600); err != nil {
 		return nil, appError(http.StatusInternalServerError, "Không ghi được cấu trúc Word tạm.")
 	}

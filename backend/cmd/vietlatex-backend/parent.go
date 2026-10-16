@@ -12,10 +12,10 @@ import (
 const parentPollInterval = 2 * time.Second
 
 // parentExited returns a channel closed once the process named by
-// VIETLATEX_PARENT_PID (the Electron main process) has exited, so a crashed
+// VIETLATEX_PARENT_PID (the Electron main process or web runner) has exited, so a crashed
 // app does not leave an orphaned backend. It returns nil, which blocks
-// forever in a select, when the variable is unset or invalid: the web dev
-// runner and `go run` start the backend without a parent watch.
+// forever in a select, when the variable is unset or invalid, such as when
+// starting the backend directly with `go run`.
 func parentExited(value string) <-chan struct{} {
 	value = strings.TrimSpace(value)
 	if value == "" {

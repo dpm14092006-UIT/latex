@@ -1,0 +1,12 @@
+.ai-panel { position: fixed; z-index: 1900; top: 96px; right: 16px; width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 120px); overflow: auto; display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; background: var(--bg); color: var(--fg); border: 1px solid currentColor; border-radius: 8px; box-shadow: 0 8px 32px #0004; font-size: 12px; }
+.ai-panel p { margin: 0; opacity: .85; }
+.ai-row { display: flex; align-items: center; gap: 8px; }
+.ai-row select { flex: 1; min-width: 0; }
+.ai-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.ai-preview summary { cursor: pointer; }
+.ai-preview pre { max-height: 180px; overflow: auto; margin: 6px 0 0; padding: 8px; white-space: pre-wrap; overflow-wrap: anywhere; border: 1px dashed currentColor; border-radius: 5px; font: 11px/1.5 var(--font-mono, monospace); }
+.ai-result { width: 100%; min-height: 120px; resize: vertical; box-sizing: border-box; font: inherit; line-height: 1.6; color: var(--fg); background: var(--bg); border: 1px solid currentColor; border-radius: 5px; padding: 8px; }
+.ai-panel small { opacity: .65; }
+.ai-settings label { display: flex; flex-direction: column; gap: 4px; flex: 1 1 260px; }
+@media (max-width: 600px) { .ai-panel { top: auto; bottom: 8px; right: 8px; width: calc(100vw - 16px); max-height: 70vh; } }
+@media print { .ai-panel { display: none; } }

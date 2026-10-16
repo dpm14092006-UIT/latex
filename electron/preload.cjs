@@ -9,6 +9,26 @@ ipcRenderer.on('workspace:flush-before-close', () => {
 
 contextBridge.exposeInMainWorld('desktopAPI', Object.freeze({
   platform: process.platform,
+  spelling: Object.freeze({
+    load: () => ipcRenderer.invoke('spellcheck:load'),
+    mutate: (action, input) => ipcRenderer.invoke('spellcheck:mutate', action, input),
+    onChange: callback => {
+      if (typeof callback !== 'function') return () => {}
+      const listener = (_event, value) => callback(value)
+      ipcRenderer.on('spellcheck:changed', listener)
+      return () => ipcRenderer.removeListener('spellcheck:changed', listener)
+    },
+  }),
+  ai: Object.freeze({
+    status: () => ipcRenderer.invoke('ai:status'),
+    actions: () => ipcRenderer.invoke('ai:actions'),
+    setKey: key => ipcRenderer.invoke('ai:set-key', String(key ?? '')),
+    clearKey: () => ipcRenderer.invoke('ai:clear-key'),
+    models: () => ipcRenderer.invoke('ai:models'),
+    setModel: id => ipcRenderer.invoke('ai:set-model', String(id ?? '')),
+    generate: request => ipcRenderer.invoke('ai:generate', { action: String(request?.action ?? ''), text: String(request?.text ?? ''), context: String(request?.context ?? '') }),
+    cancel: () => ipcRenderer.invoke('ai:cancel'),
+  }),
   loadWorkspace: () => ipcRenderer.invoke('workspace:load'),
   saveWorkspace: workspace => ipcRenderer.invoke('workspace:save', workspace),
   syncStatus: () => ipcRenderer.invoke('sync:status'),
@@ -26,6 +46,8 @@ contextBridge.exposeInMainWorld('desktopAPI', Object.freeze({
   resolveSync: (id, choice, currentRev) => ipcRenderer.invoke('sync:resolve', id, choice, currentRev),
   syncInvitation: address => ipcRenderer.invoke('sync:invitation', address),
   revokeSyncPeer: id => ipcRenderer.invoke('sync:revoke', id),
+  setSyncKeepAwake: enabled => ipcRenderer.invoke('sync:keep-awake', enabled === true),
+  syncFirewall: (address, refresh) => ipcRenderer.invoke('sync:firewall', address, refresh === true),
   updates: Object.freeze({
     status: () => ipcRenderer.invoke('update:status'),
     check: () => ipcRenderer.invoke('update:check'),
@@ -46,7 +68,6 @@ contextBridge.exposeInMainWorld('desktopAPI', Object.freeze({
   readBackup: id => ipcRenderer.invoke('workspace:read-backup', id),
   environment: () => ipcRenderer.invoke('system:environment'),
   openHelp: topic => ipcRenderer.invoke('system:help', topic),
-  clearCompileCache: () => ipcRenderer.invoke('latex:clear-cache'),
   parseLatexSource: source => ipcRenderer.invoke('latex:parse-source', source),
   lookupDoi: doi => ipcRenderer.invoke('citation:doi', doi),
   convertWord: (direction, input) => ipcRenderer.invoke('word:convert', direction, input),

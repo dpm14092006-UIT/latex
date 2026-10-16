@@ -1,4 +1,4 @@
-# Giao thức backend Go trên macOS
+# Giao thức backend Go trên macOS và Windows
 
 Backend được Electron khởi chạy với `--listen=127.0.0.1:0`. Biến môi trường `VIETLATEX_API_TOKEN` chứa token riêng, ít nhất 32 ký tự; Electron tạo token ngẫu nhiên cho từng tiến trình. Backend xóa biến này trước khi chạy TeX/Pandoc. `VIETLATEX_PARENT_PID` giúp backend dừng khi Electron mất đột ngột.
 
@@ -14,7 +14,6 @@ Backend gửi một dòng JSON kết thúc bằng newline trên stdout:
 |---|---|---|
 | `GET /api/health` | Không có body | JSON trạng thái, hàng đợi, cache và bộ nhớ |
 | `GET /api/environment` | Không có body | JSON `compiler` và `word`, gồm `available`/`version` |
-| `POST /api/cache/clear` | `{}` | JSON thống kê xóa cache |
 | `POST /api/compile` | JSON `latex`, `images`, `assets`, `fresh` | Byte PDF, `application/pdf` |
 | `POST /api/word/import` | Byte DOCX, MIME Word | Pandoc JSON AST trực tiếp |
 | `POST /api/word/export` | Pandoc JSON AST trực tiếp | Byte DOCX, MIME Word |
@@ -23,6 +22,8 @@ Backend gửi một dòng JSON kết thúc bằng newline trên stdout:
 | `POST /api/shutdown` | `{}` | JSON xác nhận, sau đó dừng dịch vụ |
 
 `images` và `assets` là mảng `{filename, data}`; `data` là base64 của byte tệp, không có tiền tố data URL. `images` dùng tên `image-N.png`/`image-N.jpg`. Trích dẫn nằm trong tài nguyên `.bib`. `id` từ Electron dùng để quản lý việc hủy ở phía client, không tham gia nội dung biên dịch. `fresh: true` bỏ qua cache.
+
+Nút **Cập nhật PDF** và **Thử lại** đều gửi `fresh: true` để biên dịch mới tài liệu hiện tại. API xóa toàn bộ cache đã được bỏ; các lượt tự động vẫn dùng cache và cache tự loại bản cũ theo LRU.
 
 Word dùng `pandoc-api-version`, `meta`, `blocks`; export hỗ trợ thêm `_bibliography` (BibTeX) và `_citationStyle`. Backend loại hai trường riêng này trước khi gửi AST tới Pandoc và dùng CSL nhúng. IPC bọc kết quả nhập thành `{ast}`, xuất thành `{bytes}`; đây là wrapper của Electron, không phải body HTTP.
 

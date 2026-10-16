@@ -5,6 +5,7 @@ const { mkdir, readFile, readdir, open, lstat, rm, stat } = require('node:fs/pro
 const { join } = require('node:path')
 const { pathToFileURL } = require('node:url')
 const transport = require('./lan-sync-transport.cjs')
+const lanDiscovery = require('./lan-discovery.cjs')
 const pdfCache = require('./lan-pdf.cjs')
 const { renameWithRetry, syncDirectory } = require('./workspace-store.cjs')
 const MAX_STATE = 512 * 1024 * 1024
@@ -12,13 +13,31 @@ const MAX_RECORDS = 10000
 const MAX_PAIR_BYTES = 64 * 1024
 const REQUEST_WINDOW_MS = 5 * 60000
 const STALE_TEMP_MS = 24 * 60 * 60 * 1000
+const DISCOVERY_INTERVAL_MS = 10000
 const TEMP_PATTERN = /^lan-sync-v1\.json\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/
 const hash = value => createHash('sha256').update(JSON.stringify(value ?? null)).digest('hex')
 const clone = value => structuredClone(value)
 const label = value => value?.title || value?.name || 'Mục đã xóa'
+// Adapters from WSL, Hyper-V, VirtualBox, VMware, Docker or VPNs carry private
+// addresses that other machines on the Wi-Fi cannot reach; list them last.
+const VIRTUAL_ADAPTER = /vethernet|hyper-v|default switch|wsl|virtualbox|vbox|vmware|vmnet|docker|bridge100|utun|tailscale|zerotier|hamachi|wireguard|openvpn|tap-|tun\d|vpn|npcap|bluetooth/i
 
-function createLanSync({ directory, appPath = join(__dirname, '..'), name = hostname(), now = Date.now }) {
-  let state, server, invite, pending, stopped = false, lastError = '', lastSyncAt = null
+function lanAddresses(interfaces = networkInterfaces()) {
+  const found = []
+  for (const [name, entries] of Object.entries(interfaces)) {
+    for (const info of entries || []) {
+      if (info.family !== 'IPv4' || info.internal) continue
+      try { transport.validateEndpoint(info.address, 1) } catch { continue }
+      found.push({ address: info.address, name, virtual: VIRTUAL_ADAPTER.test(name) })
+    }
+  }
+  // Stable sort keeps the system's order among physical (or virtual) adapters.
+  return found.sort((a, b) => a.virtual - b.virtual)
+}
+
+// `discovery: false` disables finding a moved host; `{ port, targets }` overrides the UDP probe.
+function createLanSync({ directory, appPath = join(__dirname, '..'), name = hostname(), now = Date.now, discovery = {} }) {
+  let state, server, responder, invite, pending, stopped = false, lastError = '', lastSyncAt = null, lastDiscoveryAt = 0, relocated = null
   const peerActivity = new Map()
   let remotePdfVersion = 0, pdfError = ''
   let queue = Promise.resolve()
@@ -27,6 +46,9 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
   const bodyBudget = { used: 0, max: 2 * transport.MAX_WIRE_BYTES }
   // Aborted by stop() so quitting never waits for an unreachable host's timeout.
   const lifetime = new AbortController()
+  // Aborted by interrupt() when the computer goes to sleep, so a request cut off
+  // mid-flight does not hold the sync queue until its transfer deadline.
+  let interruption = new AbortController()
   const file = join(directory, 'lan-sync-v1.json')
   const modules = Promise.all(['LanSyncData', 'WorkspaceData', 'DocumentData'].map(module => import(pathToFileURL(join(appPath, 'src', 'services', `${module}.js`)).href)))
   const serial = work => { const result = queue.then(work); queue = result.catch(() => {}); return result }
@@ -46,8 +68,17 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
   }
   async function transaction(work) {
     const previous = clone(state)
+    relocated = null
     try { const result = await work(); await persist(); return result }
-    catch (error) { state = previous; throw error }
+    catch (error) {
+      state = previous
+      // A host proven at a new address was already saved and stays valid even when
+      // the rest of the work failed; keep memory in step with the saved profile.
+      if (relocated && state.connection?.key === relocated.key) {
+        state.connection = { ...state.connection, host: relocated.host, port: relocated.port }
+      }
+      throw error
+    } finally { relocated = null }
   }
   async function validateWorkspace(workspace) {
     const [, data, document] = await modules
@@ -115,18 +146,45 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
       return { ...pdfCache.offer(entry), bytes: pdfCache.validatePdf(entry), shared: !entry.local }
     })
   }
-  async function transferPdfs(remote, offers) {
+  async function locateHost(remote) {
+    if (discovery === false || Date.now() - lastDiscoveryAt < DISCOVERY_INTERVAL_MS) return null
+    lastDiscoveryAt = Date.now()
+    const found = await lanDiscovery.discover({ key: remote.key, deviceId: state.deviceId, port: discovery.port, targets: discovery.targets?.() })
+    if (!found || (found.host === remote.host && found.port === remote.port)) return null
+    try { transport.validateEndpoint(found.host, found.port) } catch { return null }
+    return found
+  }
+  async function clientRequest(path, payload) {
+    const remote = state.connection, signal = AbortSignal.any([lifetime.signal, interruption.signal])
+    try { return await transport.request(remote.host, remote.port, path, payload, remote.key, state.deviceId, { signal }) }
+    catch (error) {
+      if (signal.aborted) throw lifetime.signal.aborted ? error : new Error('Máy vừa tạm ngủ; sẽ đồng bộ lại khi thức dậy.')
+      if (!error.network) throw error
+      // The host may have a new DHCP address; keep the pairing and follow it.
+      const moved = await locateHost(remote)
+      if (!moved) throw error
+      const result = await transport.request(moved.host, moved.port, path, { ...payload, requestId: randomUUID() }, remote.key, state.deviceId, { signal })
+      // Only the paired host can produce an authenticated response, so remember its
+      // address. Every caller sends before changing state, so saving here is safe;
+      // a surrounding transaction that fails later keeps the address too.
+      state.connection = { ...state.connection, host: moved.host, port: moved.port }
+      relocated = { key: remote.key, host: moved.host, port: moved.port }
+      await persist()
+      return result
+    }
+  }
+  async function transferPdfs(offers) {
     if (!Array.isArray(offers) || offers.length > 10000) throw new Error('Danh sách PDF không hợp lệ.')
     for (const local of await pdfOffers()) {
       const entry = state.pdfs[local.id]
       if (!entry.local || offers.some(item => item.id === local.id && item.sha256 === local.sha256)) continue
-      const response = await transport.request(remote.host, remote.port, '/pdf', { requestId: randomUUID(), at: Date.now(), upload: entry }, remote.key, state.deviceId, { signal: lifetime.signal })
+      const response = await clientRequest('/pdf', { requestId: randomUUID(), at: Date.now(), upload: entry })
       if (!Array.isArray(response.pdfOffers)) throw new Error('Danh sách PDF không hợp lệ.')
       offers = response.pdfOffers
     }
     for (const item of offers) {
       if (state.pdfs?.[item.id]?.sha256 === item.sha256) continue
-      const response = await transport.request(remote.host, remote.port, '/pdf', { requestId: randomUUID(), at: Date.now(), id: item.id, sha256: item.sha256 }, remote.key, state.deviceId, { signal: lifetime.signal })
+      const response = await clientRequest('/pdf', { requestId: randomUUID(), at: Date.now(), id: item.id, sha256: item.sha256 })
       if (!response.pdf) continue
       if (response.pdf.id !== item.id || response.pdf.sha256 !== item.sha256) throw new Error('PDF nhận được không khớp phiên bản yêu cầu.')
       const eligible = await pdfOffersForEntry(response.pdf)
@@ -209,10 +267,11 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
       }
       return { title: label(value), text: text.slice(0, 1600), assets: value.assets?.length || 0 }
     }
+    const interfaces = lanAddresses()
     return { mode: state.mode, deviceId: state.deviceId, name: state.name, port: server?.address()?.port || state.port,
-      addresses: Object.values(networkInterfaces()).flat().filter(info => info.family === 'IPv4' && !info.internal && (() => { try { transport.validateEndpoint(info.address, 1); return true } catch { return false } })()).map(info => info.address),
+      addresses: interfaces.map(item => item.address), interfaces,
       connected: state.mode === 'host' ? Boolean(server) : state.mode === 'client' && !lastError && Boolean(lastSyncAt),
-      host: state.connection?.host || '', lastSyncAt, error: lastError, pdfError, pdfSupported: state.mode === 'host' || remotePdfVersion === 1,
+      host: state.connection?.host || '', keepAwake: Boolean(state.keepAwake), lastSyncAt, error: lastError, pdfError, pdfSupported: state.mode === 'host' || remotePdfVersion === 1,
       lastPeerSyncAt: peerActivity.size ? new Date(Math.max(...Array.from(peerActivity.values(), item => item.at))).toISOString() : null,
       peers: Object.entries(state.peers).map(([id, peer]) => ({ id, name: peer.name,
         lastSeenAt: peerActivity.has(id) ? new Date(peerActivity.get(id).at).toISOString() : null,
@@ -296,9 +355,11 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
     // Only a listening server counts as running (status, invitations, stop).
     server = candidate
     state.port = server.address().port
+    if (discovery !== false && !responder) responder = lanDiscovery.respond({ port: discovery.port, keyFor: id => state.peers[id]?.key, httpPort: () => server?.listening ? server.address().port : 0 })
   }
   async function closeServer() {
     invite = null
+    responder?.close(); responder = null
     if (!server) return
     const old = server; server = null
     old.closeAllConnections()
@@ -380,8 +441,7 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
         if (state.mode === 'host') {
           if (ops.length) await transaction(() => reconcile(ops, state.deviceId, state.name))
         } else {
-          const remote = state.connection
-          const result = await transport.request(remote.host, remote.port, '/exchange', { requestId: randomUUID(), at: Date.now(), ops, sinceRev: state.revision, pdfVersion: 1 }, remote.key, state.deviceId, { signal: lifetime.signal })
+          const result = await clientRequest('/exchange', { requestId: randomUUID(), at: Date.now(), ops, sinceRev: state.revision, pdfVersion: 1 })
           const records = result.partial ? { ...state.records, ...result.records } : result.records
           if (!Number.isSafeInteger(result.revision) || result.revision < 0) throw new Error('Phiên bản máy chủ không hợp lệ.')
           await validateRecords(records)
@@ -391,7 +451,7 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
           })
           remotePdfVersion = result.pdfVersion === 1 ? 1 : 0
           if (remotePdfVersion) {
-            try { await transferPdfs(remote, result.pdfOffers || []); pdfError = '' }
+            try { await transferPdfs(result.pdfOffers || []); pdfError = '' }
             catch (error) { pdfError = `Bản thảo đã nhận; PDF đang chờ đồng bộ: ${error.message}` }
           }
         }
@@ -418,8 +478,7 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
     return serial(() => transaction(async () => {
       if (state.mode === 'host') await resolveConflict(id, choice, currentRev)
       else if (state.mode === 'client') {
-        const remote = state.connection
-        const result = await transport.request(remote.host, remote.port, '/resolve', { requestId: randomUUID(), at: Date.now(), id, choice, currentRev }, remote.key, state.deviceId, { signal: lifetime.signal })
+        const result = await clientRequest('/resolve', { requestId: randomUUID(), at: Date.now(), id, choice, currentRev })
         await validateRecords(result.records)
         state.records = result.records; state.conflicts = result.conflicts; state.revision = result.revision
       } else throw new Error('Bật đồng bộ để xử lý xung đột.')
@@ -434,6 +493,8 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
       return { code: `vietlatex-lan:${Buffer.from(JSON.stringify({ v: 1, host, port: state.port, ...invite })).toString('base64url')}`, expiresAt: invite.expiresAt }
     })
   }
+  async function setKeepAwake(enabled) { return serial(() => transaction(async () => { state.keepAwake = enabled === true; return publicStatus() })) }
+  function interrupt() { interruption.abort(); interruption = new AbortController() }
   async function revoke(id) { return serial(() => transaction(async () => { delete state.peers[id]; peerActivity.delete(id); return publicStatus() })) }
   async function stop() {
     stopped = true; lifetime.abort()
@@ -441,6 +502,6 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
     // Queued work (e.g. configure) may have reopened the server meanwhile.
     await closeServer()
   }
-  return { init, status: publicStatus, configure, exchange, acknowledge, resolve, invitation, revoke, publishPdf, getPdf, stop }
+  return { init, status: publicStatus, configure, exchange, acknowledge, resolve, invitation, revoke, setKeepAwake, interrupt, publishPdf, getPdf, stop }
 }
-module.exports = { createLanSync }
+module.exports = { createLanSync, lanAddresses }

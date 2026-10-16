@@ -130,15 +130,6 @@ func (c *pdfCache) put(key string, data []byte) {
 	c.bytes += len(copyOfData)
 }
 
-func (c *pdfCache) clear() map[string]any {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.items = make(map[string]*list.Element)
-	c.order.Init()
-	c.bytes = 0
-	return map[string]any{"cleared": true}
-}
-
 func (c *pdfCache) stats() (int, int, int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -183,13 +174,6 @@ func newLatexService() *latexService {
 	s.warm.setWorkerLimit(workers.initial)
 	s.compileFn = s.compileDocument
 	return s
-}
-
-func compileWorkerCount() int {
-	if configured, ok := compileWorkerOverride(); ok {
-		return configured
-	}
-	return defaultCompileWorkerCount(runtime.NumCPU(), availableMemoryBytes())
 }
 
 // compileWorkerOverride reports a fixed worker count from
@@ -260,8 +244,6 @@ func (s *latexService) stats() map[string]any {
 	return stats
 }
 
-func (s *latexService) clearCache() map[string]any { return s.cache.clear() }
-
 func (s *latexService) cancelAll() {
 	s.mu.Lock()
 	s.stopping = true
@@ -319,7 +301,7 @@ func sweepStaleWorkDirectories(age time.Duration) {
 		matches, _ := filepath.Glob(filepath.Join(os.TempDir(), pattern))
 		for _, path := range matches {
 			if info, err := os.Stat(path); err == nil && info.IsDir() && time.Since(info.ModTime()) > age {
-				_ = os.RemoveAll(path)
+				_ = removeWorkDirectory(path)
 			}
 		}
 	}
@@ -565,11 +547,18 @@ func safeAssetPath(value string) bool {
 }
 
 func windowsReservedName(part string) bool {
-	name := strings.ToUpper(strings.SplitN(part, ".", 2)[0])
-	if name == "CON" || name == "PRN" || name == "AUX" || name == "NUL" {
+	// Windows also ignores trailing spaces before the extension ("CON .png").
+	name := strings.TrimRight(strings.ToUpper(strings.SplitN(part, ".", 2)[0]), " ")
+	switch name {
+	case "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$":
 		return true
 	}
-	if len(name) == 4 && (strings.HasPrefix(name, "COM") || strings.HasPrefix(name, "LPT")) && name[3] >= '1' && name[3] <= '9' {
+	if !strings.HasPrefix(name, "COM") && !strings.HasPrefix(name, "LPT") {
+		return false
+	}
+	// COM1-COM9 and LPT1-LPT9, plus the superscript digits ¹ ² ³ Windows also reserves.
+	switch name[3:] {
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9", "¹", "²", "³":
 		return true
 	}
 	return false
@@ -681,7 +670,7 @@ func (r *texRun) close() {
 func (r *texRun) cleanup() {
 	r.close()
 	if r.directory != "" {
-		_ = os.RemoveAll(r.directory)
+		_ = removeWorkDirectory(r.directory)
 	}
 }
 

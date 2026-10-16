@@ -7,7 +7,7 @@ const views = [
   { id: 'preview', label: 'Bản in', Icon: PanelRight },
 ]
 
-export default function DocumentHeader({ readOnly = false, title, projectName, onTitleChange, saved, theme, onToggleTheme, exporting, canExport, onExport, mode, onModeChange, onToggleFocus, onToggleNav, navOpen, onOpenManager, isCompact, dockPlacement, onToggleDock }) {
+export default function DocumentHeader({ readOnly = false, title, projectName, onTitleChange, saved, theme, onToggleTheme, exporting, canExport, onExport, mode, onModeChange, onToggleFocus, onToggleNav, navOpen, onOpenManager, isCompact }) {
   return <>
     <header className="studio-header mono-topbar">
       <div className="mono-top-left">
@@ -33,7 +33,6 @@ export default function DocumentHeader({ readOnly = false, title, projectName, o
       <nav className="studio-views" aria-label="Chế độ làm việc">
         {views.filter(view => !isCompact || view.id !== 'split').map(({ id, label, Icon }) => <button type="button" key={id} onClick={() => onModeChange(id)} aria-pressed={mode === id} aria-label={label} title={label}><Icon size={13} /><span>{label}</span></button>)}
       </nav>
-      {onToggleDock && <button type="button" className="noir-dock-placement" onClick={onToggleDock} aria-label={dockPlacement === 'top' ? 'Đặt thanh chế độ bên dưới' : 'Đặt thanh chế độ bên trên'} title={dockPlacement === 'top' ? 'Thử vị trí bên dưới' : 'Thử vị trí bên trên'}>{dockPlacement === 'top' ? '↓' : '↑'}</button>}
     </div>
   </>
 }

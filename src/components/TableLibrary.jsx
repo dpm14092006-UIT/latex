@@ -212,6 +212,9 @@ export default function TableLibrary({ editor, onClose }) {
             <label className="table-library-grow">Chú thích bảng<input maxLength={500} defaultValue={table.attrs.caption || ''} key={`caption-${tablePos}`} onBlur={event => updateTableText('caption', event.currentTarget.value.trim())} /></label>
             <label>Nhãn LaTeX<input maxLength={100} placeholder="tab:ket-qua" defaultValue={table.attrs.label || ''} key={`label-${tablePos}`} onBlur={event => updateTableText('label', event.currentTarget.value.trim().replace(/[^A-Za-z0-9:._-]/g, '').slice(0, 100))} /></label>
           </div>}
+          {editMode && <div className="table-library-size">
+            <label className="table-library-grow">Ghi chú dưới bảng<input maxLength={2000} placeholder="Ví dụ: RMSE và MAE tính theo điểm phần trăm" defaultValue={table.attrs.note || ''} key={`note-${tablePos}`} onBlur={event => updateTableText('note', event.currentTarget.value.trim())} /></label>
+          </div>}
         </section>
 
         {editMode && <section className="table-library-section" aria-labelledby="table-library-columns">

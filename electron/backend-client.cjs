@@ -1,8 +1,31 @@
 const { randomBytes } = require('node:crypto')
 const { spawn } = require('node:child_process')
 const { backendEnvironment } = process.platform === 'win32' ? require('./win/environment.cjs') : require('./mac/environment.cjs')
-const { setTimeout: delay } = require('node:timers/promises')
 const SHUTDOWN_REQUEST_TIMEOUT_MS = 1000
+
+function waitForExit(child, timeoutMs) {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve({ code: child.exitCode, signal: child.signalCode })
+  return new Promise(resolve => {
+    const timeout = setTimeout(() => finish(null), timeoutMs)
+    function finish(result) {
+      clearTimeout(timeout)
+      child.off('exit', onExit)
+      resolve(result)
+    }
+    function onExit(code, signal) { finish({ code, signal }) }
+    child.once('exit', onExit)
+  })
+}
+
+async function terminateChild(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return { code: child.exitCode, signal: child.signalCode }
+  child.kill()
+  const graceful = await waitForExit(child, 1000)
+  if (graceful) return graceful
+  // A hung backend can ignore SIGTERM. Do not leave it behind after quitting.
+  child.kill('SIGKILL')
+  return waitForExit(child, 1000)
+}
 
 class GoBackendClient {
   constructor(child, address, token) {
@@ -10,6 +33,8 @@ class GoBackendClient {
     this.baseUrl = `http://${address}`
     this.token = token
     this.exitInfo = null
+    this.stopPromise = null
+    this.terminatePromise = null
     this.exitPromise = new Promise(resolve => {
       child.once('exit', (code, signal) => {
         this.exitInfo = { code, signal }
@@ -23,24 +48,28 @@ class GoBackendClient {
   }
 
   async request(path, { method = 'GET', body, signal, contentType = 'application/json' } = {}) {
+    if (signal?.aborted) throw signal.reason
+    if (!this.alive) throw Object.assign(new Error('Backend biên dịch đã dừng; đang khởi động lại, hãy thử lại.'), { status: 503 })
     const headers = { 'X-Vietlatex-Token': this.token }
     if (contentType) headers['Content-Type'] = contentType
     let response
     try {
-      response = await fetch(`${this.baseUrl}${path}`, { method, headers, body, signal })
+      // Keep the local API token on this backend, even if it returns a redirect.
+      response = await fetch(`${this.baseUrl}${path}`, { method, headers, body, signal, redirect: 'error' })
     } catch (error) {
+      if (signal?.aborted) throw signal.reason
       if (error?.name === 'AbortError') throw error
-      if (!this.alive || await Promise.race([this.exitPromise, delay(200).then(() => null)])) {
+      if (!this.alive || await waitForExit(this.child, 200)) {
         throw Object.assign(new Error('Backend biên dịch đã dừng; đang khởi động lại, hãy thử lại.'), { status: 503, cause: error })
       }
       throw error
     }
     if (!response.ok) {
-      const result = await response.json().catch(() => ({}))
-      throw Object.assign(new Error(result.error || `Backend Go trả về lỗi ${response.status}.`), {
-        status: result.status || response.status,
-        log: result.log,
-        line: result.line,
+      const result = await response.json().catch(() => null)
+      throw Object.assign(new Error(result?.error || `Backend Go trả về lỗi ${response.status}.`), {
+        status: response.status,
+        log: result?.log,
+        line: result?.line,
       })
     }
     return response
@@ -48,10 +77,6 @@ class GoBackendClient {
 
   async environment() {
     return (await this.request('/api/environment')).json()
-  }
-
-  async clearCache() {
-    return (await this.request('/api/cache/clear', { method: 'POST', body: '{}' })).json()
   }
 
   async compileLatex(latex, images, id, assets, fresh, signal) {
@@ -98,33 +123,36 @@ class GoBackendClient {
     return (await this.request('/api/doi', { method: 'POST', body: JSON.stringify({ doi }) })).json()
   }
 
-  async stop() {
+  stop() {
+    this.stopPromise ??= this.shutdown()
+    return this.stopPromise
+  }
+
+  async shutdown() {
     if (this.exitInfo) return this.exitInfo
     const controller = new AbortController()
     let requestTimedOut = false
     const timeout = setTimeout(() => { requestTimedOut = true; controller.abort() }, SHUTDOWN_REQUEST_TIMEOUT_MS)
     try {
-      await this.request('/api/shutdown', { method: 'POST', body: '{}', signal: controller.signal }).catch(() => {})
+      const response = await this.request('/api/shutdown', { method: 'POST', body: '{}', signal: controller.signal }).catch(() => null)
+      await response?.body?.cancel().catch(() => {})
     } finally { clearTimeout(timeout) }
     if (requestTimedOut) {
       return this.terminate()
     }
-    const result = await Promise.race([this.exitPromise, delay(4000).then(() => null)])
+    const result = await waitForExit(this.child, 4000)
     if (result) return result
     return this.terminate()
   }
 
-  async terminate() {
-    this.child.kill()
-    const graceful = await Promise.race([this.exitPromise, delay(1000).then(() => null)])
-    if (graceful) return graceful
-    // A hung backend can ignore SIGTERM. Do not leave it behind after Cmd+Q.
-    this.child.kill('SIGKILL')
-    return Promise.race([this.exitPromise, delay(1000).then(() => this.exitInfo)])
+  terminate() {
+    this.terminatePromise ??= terminateChild(this.child)
+    return this.terminatePromise
   }
 }
 
-function startGoBackend({ executable, cwd, appPath, resourcesPath, args = ['--listen=127.0.0.1:0'] }) {
+function startGoBackend({ executable, cwd, appPath, resourcesPath, args = ['--listen=127.0.0.1:0'], signal }) {
+  if (signal?.aborted) return Promise.reject(signal.reason)
   const token = randomBytes(32).toString('hex')
   const child = spawn(executable, args, {
     cwd,
@@ -157,22 +185,27 @@ function startGoBackend({ executable, cwd, appPath, resourcesPath, args = ['--li
       child.stdout.off('data', onOutput)
       child.off('error', onError)
       child.off('exit', onExit)
-      if (error) {
-        child.kill()
-        reject(error)
+      signal?.removeEventListener('abort', onAbort)
+      // Keep the pipe draining after the readiness listener has been removed.
+      child.stdout.resume()
+      if (!client) {
+        if (child.pid) void terminateChild(child).then(() => reject(error), () => reject(error))
+        else reject(error)
       } else resolve(client)
     }
 
     function onOutput(chunk) {
       output += chunk.toString('utf8')
-      if (output.length > 16_384) return finish(new Error('Backend Go gửi dữ liệu khởi động không hợp lệ.'))
       const newline = output.indexOf('\n')
+      if ((newline < 0 ? output.length : newline) > 16_384) return finish(new Error('Backend Go gửi dữ liệu khởi động không hợp lệ.'))
       if (newline < 0) return
       const line = output.slice(0, newline).trim()
       try {
         const ready = JSON.parse(line)
         const address = ready?.event === 'ready' && typeof ready.address === 'string' ? ready.address : ''
         if (!/^127\.0\.0\.1:\d+$/.test(address)) throw new Error('địa chỉ API không hợp lệ')
+        const port = Number(address.slice(address.lastIndexOf(':') + 1))
+        if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('cổng API không hợp lệ')
         finish(null, new GoBackendClient(child, address, token))
       } catch (error) {
         finish(new Error(`Không đọc được tín hiệu khởi động backend Go: ${error.message}`))
@@ -191,9 +224,13 @@ function startGoBackend({ executable, cwd, appPath, resourcesPath, args = ['--li
       finish(new Error(`Backend Go thoát trước khi sẵn sàng (mã ${code ?? signal}).`))
     }
 
+    function onAbort() { finish(signal.reason) }
+
     child.stdout.on('data', onOutput)
     child.once('error', onError)
     child.once('exit', onExit)
+    signal?.addEventListener('abort', onAbort, { once: true })
+    if (signal?.aborted) onAbort()
   })
 }
 

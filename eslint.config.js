@@ -32,7 +32,7 @@ export default defineConfig([
     languageOptions: { globals: globals.node },
   },
   {
-    files: ['scripts/desktop-smoke.mjs', 'scripts/monochrome-ui-smoke.mjs', 'scripts/lan-sync-desktop.mjs', 'scripts/quit-failure-desktop.mjs'],
+    files: ['scripts/desktop-smoke.mjs', 'scripts/monochrome-ui-smoke.mjs', 'scripts/lan-sync-desktop.mjs', 'scripts/quit-failure-desktop.mjs', 'scripts/spellcheck-ui.mjs', 'scripts/spellcheck-desktop.mjs'],
     languageOptions: { globals: { ...globals.node, ...globals.browser } },
   },
   {

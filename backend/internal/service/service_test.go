@@ -295,8 +295,8 @@ func TestCompileWorkerCountOverrideIsBounded(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Setenv("VIETLATEX_COMPILE_WORKERS", test.value)
-		if got := compileWorkerCount(); got != test.want {
-			t.Errorf("compileWorkerCount() with override %q = %d, want %d", test.value, got, test.want)
+		if got := newWorkerController().initial; got != test.want {
+			t.Errorf("worker count with override %q = %d, want %d", test.value, got, test.want)
 		}
 	}
 	// The default depends on free memory, which changes while tests run, so
@@ -304,8 +304,8 @@ func TestCompileWorkerCountOverrideIsBounded(t *testing.T) {
 	maxDefault := max(1, min(8, runtime.NumCPU()/2))
 	for _, value := range []string{"0", "invalid", ""} {
 		t.Setenv("VIETLATEX_COMPILE_WORKERS", value)
-		if got := compileWorkerCount(); got < 1 || got > maxDefault {
-			t.Errorf("compileWorkerCount() with override %q = %d, want 1..%d", value, got, maxDefault)
+		if got := newWorkerController().initial; got < 1 || got > maxDefault {
+			t.Errorf("worker count with override %q = %d, want 1..%d", value, got, maxDefault)
 		}
 	}
 }

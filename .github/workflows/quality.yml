@@ -34,6 +34,8 @@ jobs:
       - run: npm run test:backend
       - run: npm run test:sync
       - run: npm run test:updater
+      - run: npm run test:spellcheck
+      - run: npm run test:ai
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
       - name: Run UI smoke
@@ -41,6 +43,10 @@ jobs:
         env:
           UI_TEST_BROWSER: chromium
       - run: npm run build
+      - run: npm run test:spellcheck:ui
+        env:
+          UI_TEST_BROWSER: chromium
+      - run: npm run test:spellcheck:bench
       - run: npm audit
 
   macos:
@@ -63,6 +69,11 @@ jobs:
       - run: npm run test:backend
       - run: npm run test:sync
       - run: npx playwright install chromium
+      - run: npm run test:spellcheck
+      - run: npm run test:ai
+      - run: node scripts/build-desktop.mjs
+      - run: npm run test:spellcheck:desktop
+      - run: node scripts/ai-desktop.mjs
       - run: npm run test:project-tabs
         env:
           UI_TEST_BROWSER: chromium
@@ -101,10 +112,15 @@ jobs:
       - run: npm run lint
       - run: npm run test:updater
       - run: node --test electron/win/environment.test.cjs electron/workspace-store.test.cjs electron/app-protocol.test.cjs
+      - run: npm run test:spellcheck
+      - run: npm run test:ai
       - name: Build Windows installer
         run: npm run desktop:build:win
         env:
           GITHUB_TOKEN: ${{ github.token }}
+      - run: npm run test:spellcheck:desktop
+        env:
+          DESKTOP_EXE: artifacts/win-package/win-unpacked/Viet Latex Studio.exe
       - uses: actions/upload-artifact@v4
         if: github.event_name == 'workflow_dispatch'
         with:

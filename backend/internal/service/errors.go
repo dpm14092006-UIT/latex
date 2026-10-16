@@ -66,7 +66,12 @@ func runCommandWithLimit(ctx context.Context, executable string, args []string, 
 	stderr := &limitedBuffer{max: maxOutput}
 	command.Stdout = stdout
 	command.Stderr = stderr
-	err := command.Run()
+	err := command.Start()
+	if err == nil {
+		trackCommand(command)
+		err = command.Wait()
+		releaseCommand(command)
+	}
 	if err == nil {
 		return append([]byte(nil), stdout.data...), nil
 	}

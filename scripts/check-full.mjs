@@ -15,6 +15,10 @@ await mkdir(output, { recursive: true })
 // and performance budgets need an otherwise idle test machine.
 const suites = [
   { name: 'check' },
+  { name: 'test:spellcheck:ui' },
+  { name: 'test:spellcheck:desktop' },
+  { name: 'ai-desktop', args: ['scripts/ai-desktop.mjs'] },
+  { name: 'test:spellcheck:bench' },
   { name: 'test:go:race' },
   { name: 'smoke:math-paste' },
   { name: 'smoke:latex' },

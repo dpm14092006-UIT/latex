@@ -4,7 +4,7 @@ import { exportLatexProject } from '../services/ArchiveService.js'
 import { MAX_LATEX_SOURCE_BYTES } from '../services/DocumentLimits.js'
 const SourceEditor = lazy(() => import('./SourceEditor.jsx'))
 
-export default function LatexSourcePane({ readOnly = false, exportBlocked = false, effectiveLatex, sourceEdited, sourceSyncStatus, onChange, onReset, images = [], assets = [], documentTitle = 'tai-lieu', identity, errorLine, onImportSource }) {
+export default function LatexSourcePane({ readOnly = false, exportBlocked = false, effectiveLatex, sourceEdited, sourceSyncStatus, onChange, onReset, images = [], assets = [], documentTitle = 'tai-lieu', identity, errorLine, onImportSource, onSourceReady }) {
   const fileInput = useRef(null)
   const [copyState, setCopyState] = useState('Sao chép')
   const [fileMessage, setFileMessage] = useState(null)
@@ -57,7 +57,7 @@ export default function LatexSourcePane({ readOnly = false, exportBlocked = fals
         </div>
       </div>
 
-      <Suspense fallback={<p className="studio-panel-bar" role="status">Đang tải trình sửa LaTeX…</p>}><SourceEditor readOnly={readOnly} value={effectiveLatex} onChange={value => { setCopyState('Sao chép'); setFileMessage(null); onChange(value) }} onLimitError={text => setFileMessage({ kind: 'error', text })} identity={identity} errorLine={errorLine} /></Suspense>
+      <Suspense fallback={<p className="studio-panel-bar" role="status">Đang tải trình sửa LaTeX…</p>}><SourceEditor onReady={onSourceReady} readOnly={readOnly} value={effectiveLatex} onChange={value => { setCopyState('Sao chép'); setFileMessage(null); onChange(value) }} onLimitError={text => setFileMessage({ kind: 'error', text })} identity={identity} errorLine={errorLine} /></Suspense>
 
       {(sourceSyncStatus?.kind !== 'idle' || fileMessage || copyState !== 'Sao chép') && <div className="studio-panel-foot">
         {sourceSyncStatus?.kind !== 'idle' && <span role={sourceSyncStatus.kind === 'error' ? 'alert' : 'status'} aria-live="polite" data-tone={sourceSyncStatus.kind === 'error' ? 'error' : sourceSyncStatus.kind === 'ready' ? 'ready' : 'busy'}>

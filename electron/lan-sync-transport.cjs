@@ -97,7 +97,9 @@ function request(host, port, path, payload, key, deviceId, { signal } = {}) {
     })
     armTimeout(Buffer.byteLength(wire))
     req.once('close', () => clearTimeout(timer))
-    req.once('error', reject)
+    // Socket-level failures (refused, unreachable, timed out) mean the host was
+    // not reached, unlike an error answered by the host itself.
+    req.once('error', error => reject(Object.assign(error, { network: true })))
     req.end(wire)
   })
 }

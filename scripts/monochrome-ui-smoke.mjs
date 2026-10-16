@@ -35,11 +35,19 @@ try {
   page.setDefaultTimeout(10000)
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
+  let environmentResponse = { status: 200, body: {
+    compiler: { available: true, version: 'XeLaTeX kiểm tra', sandbox: 'local' },
+    word: { available: true, version: 'Pandoc kiểm tra' },
+  } }
+  await page.route('**/api/environment', route => route.fulfill({
+    status: environmentResponse.status, contentType: 'application/json', body: JSON.stringify(environmentResponse.body),
+  }))
   await page.addInitScript(data => {
     if (!localStorage.getItem('latex-workspace-v1')) {
       localStorage.setItem('latex-workspace-v1', JSON.stringify(data))
       localStorage.setItem('latex-theme', 'light')
       localStorage.setItem('latex-theme-default-migrated', '1')
+      localStorage.setItem('noir-dock-placement', 'bottom')
     }
   }, fixture)
   await page.goto('http://127.0.0.1:5184')
@@ -58,13 +66,34 @@ try {
   assert.equal(await page.locator('.mono-doc-item').count(), 2)
   assert.match(await page.getByLabel('Thống kê bản thảo').innerText(), /Công thức/)
   assert.equal(await page.locator('.aurora-metrics strong').nth(1).innerText(), '1')
-  await page.getByRole('button', { name: 'Bước 2: Xem mã LaTeX', exact: true }).click()
+  const modeNavigation = page.getByRole('navigation', { name: 'Chế độ làm việc', exact: true })
+  assert.equal(await modeNavigation.count(), 1)
+  assert.equal(await modeNavigation.getByRole('button').count(), 4)
+  assert.equal(await page.locator('.aurora-workflow button, .aurora-workflow nav, .noir-dock-placement').count(), 0)
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.dock), undefined)
+  const headerBounds = await page.locator('.mono-topbar').boundingBox()
+  const modeBounds = await page.locator('.mono-modebar').boundingBox()
+  assert.ok(modeBounds.y >= headerBounds.y + headerBounds.height, 'mode controls stay above the document even with a saved bottom preference')
+  await page.getByRole('button', { name: 'Quản lý tài liệu', exact: true }).click()
+  const manager = page.getByRole('dialog', { name: 'Quản lý không gian làm việc', exact: true })
+  await manager.getByRole('button', { name: 'Hệ thống', exact: true }).click()
+  await manager.getByText('XeLaTeX: XeLaTeX kiểm tra', { exact: true }).waitFor()
+  await manager.getByText('Pandoc / Word: Pandoc kiểm tra', { exact: true }).waitFor()
+  assert.equal(await manager.getByRole('button', { name: 'Biên dịch lại từ đầu', exact: true }).count(), 0)
+  assert.equal(await manager.getByRole('button', { name: /Mở trang cài/ }).count(), 0)
+  assert.equal(await manager.getByText(/Bộ cài Mac có sẵn/).count(), 0)
+  await page.screenshot({ path: `${output}/system-web.png` })
+  environmentResponse = { status: 503, body: { error: 'Backend đang bận, vui lòng thử lại.' } }
+  await manager.getByRole('button', { name: 'Kiểm tra môi trường', exact: true }).click()
+  await manager.getByRole('status').filter({ hasText: 'Backend đang bận, vui lòng thử lại.' }).waitFor()
+  await manager.getByRole('button', { name: 'Đóng', exact: true }).click()
+  await modeNavigation.getByRole('button', { name: 'LaTeX', exact: true }).click()
   await page.locator('.cm-content').waitFor()
-  assert.equal(await page.getByRole('button', { name: 'Bước 2: Xem mã LaTeX', exact: true }).getAttribute('aria-pressed'), 'true')
-  await page.getByRole('button', { name: 'Bước 3: Xem bản in PDF', exact: true }).click()
+  assert.equal(await modeNavigation.getByRole('button', { name: 'LaTeX', exact: true }).getAttribute('aria-pressed'), 'true')
+  await modeNavigation.getByRole('button', { name: 'Bản in', exact: true }).click()
   await page.getByRole('region', { name: 'Bản PDF xem trước', exact: true }).waitFor()
   assert.equal(await page.getByRole('region', { name: 'Soạn thảo tài liệu', exact: true }).count(), 0)
-  await page.getByRole('button', { name: 'Bước 1: Soạn bản thảo', exact: true }).click()
+  await modeNavigation.getByRole('button', { name: 'Soạn thảo', exact: true }).click()
   await page.locator('.tiptap').waitFor()
   await page.getByRole('button', { name: 'Soạn + PDF', exact: true }).click()
   assert.equal(await page.locator('.mono-rail').count(), 0)
@@ -228,6 +257,10 @@ ER  -`
   for (const width of [1120, 901, 900, 768, 390]) {
     await page.setViewportSize({ width, height: 844 })
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, `overflow ${width}`)
+    const documentHeader = await page.locator('.mono-topbar').boundingBox()
+    const modeControls = await page.locator('.mono-modebar').boundingBox()
+    assert.ok(modeControls.y >= documentHeader.y + documentHeader.height, `mode controls must follow the header at ${width}px`)
+    assert.ok(modeControls.x >= 0 && modeControls.x + modeControls.width <= width, `mode controls must fit at ${width}px`)
     if (width === 390) {
       await page.getByRole('button', { name: 'Điều hướng tài liệu', exact: true }).click()
       assert.equal(await page.getByRole('button', { name: 'Thu gọn điều hướng', exact: true }).count(), 1)
@@ -241,5 +274,5 @@ ER  -`
     await page.screenshot({ path: `${output}/width-${width}.png` })
   }
   assert.deepEqual(errors, [])
-console.log('Monochrome UI passed: template library, RIS and citation keyboard accessibility, case-insensitive replace/focus, real workspace navigation, creation, cancel deletion, command palette, source, splitter, dark contrast, 1600/1120/901/900/768/390px; no page errors.')
+console.log('Monochrome UI passed: one mode navigator, fixed top controls, web environment success/error, template library, RIS and citation keyboard accessibility, case-insensitive replace/focus, workspace navigation, creation, cancel deletion, command palette, source, splitter, dark contrast, 1600/1120/901/900/768/390px; no page errors.')
 } finally { await browser?.close(); await server.close() }

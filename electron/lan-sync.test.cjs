@@ -3,22 +3,24 @@ const assert = require('node:assert/strict')
 const { mkdtemp, rm, readFile, writeFile, utimes, access } = require('node:fs/promises')
 const http = require('node:http')
 const net = require('node:net')
+const dgram = require('node:dgram')
 const { join } = require('node:path')
 const { tmpdir } = require('node:os')
 const { randomUUID } = require('node:crypto')
-const { createLanSync } = require('./lan-sync.cjs')
+const { createLanSync, lanAddresses } = require('./lan-sync.cjs')
+const { discover } = require('./lan-discovery.cjs')
 const { seal, unseal, secret, request, validateEndpoint, readBody, requestTimeoutForWireBytes, MAX_WIRE_BYTES, MAX_REQUEST_TIMEOUT_MS } = require('./lan-sync-transport.cjs')
 
 const doc = text => ({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] })
 const workspace = (prefix, text) => ({ version: 1, projects: [{ id: `project-${prefix}`, name: prefix, activeTaskId: `task-${prefix}`, tasks: [{ id: `task-${prefix}`, title: prefix, document: doc(text), sourceDraft: '', sourceEdited: false, sourceTrusted: true, assets: [], settings: {} }] }], activeProjectId: `project-${prefix}`, customTemplates: [], documentTemplates: [] })
 const task = (value, id) => value.projects.flatMap(project => project.tasks).find(item => item.id === id)
 
-async function setup(t) {
+async function setup(t, options = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'vietlatex-lan-test-'))
   const services = []
   t.after(async () => { for (const service of services) await service.stop(); await rm(directory, { recursive: true, force: true }) })
   const create = async (name, options = {}) => { const service = createLanSync({ directory: join(directory, name), name, ...options }); await service.init(); services.push(service); return service }
-  const host = await create('host'), client = await create('client')
+  const host = await create('host', options), client = await create('client', options)
   let a = workspace('a', 'Alpha'), b = workspace('b', 'Beta')
   await host.configure('host', a)
   const code = (await host.invitation('127.0.0.1')).code
@@ -375,4 +377,75 @@ test('PDF upload verifies digest before mutation and idle PDF downloads do not r
   const file = join(directory, 'host', 'lan-sync-v1.json'), before = await readFile(file, 'utf8')
   assert.equal((await send({ id: input.id, sha256: published.sha256 })).pdf.data, bytes.toString('base64'))
   assert.equal(await readFile(file, 'utf8'), before, 'viewing an already shared PDF never writes the profile')
+})
+
+const freePort = () => new Promise(resolve => { const server = net.createServer().listen(0, '127.0.0.1', () => { const { port } = server.address(); server.close(() => resolve(port)) }) })
+const freeUdpPort = () => new Promise(resolve => { const socket = dgram.createSocket('udp4'); socket.bind(0, '127.0.0.1', () => { const { port } = socket.address(); socket.close(() => resolve(port)) }) })
+async function moveClientTo(directory, port, options) {
+  const file = join(directory, 'client', 'lan-sync-v1.json')
+  const saved = JSON.parse(await readFile(file, 'utf8')); saved.connection.port = port
+  await writeFile(file, JSON.stringify(saved))
+  const client = createLanSync({ directory: join(directory, 'client'), name: 'client', ...options })
+  await client.init()
+  return { client, file }
+}
+
+test('client follows its paired host to a new address without pairing again', async t => {
+  const discovery = { port: await freeUdpPort(), targets: () => ['127.0.0.1'] }
+  const { directory, host, client, b, sync } = await setup(t, { discovery })
+  await client.stop()
+  const { client: moved, file } = await moveClientTo(directory, await freePort(), { discovery })
+  t.after(() => moved.stop())
+  const received = await sync(moved, b)
+  assert.ok(task(received, 'task-a'))
+  assert.equal(moved.status().error, '')
+  assert.equal(JSON.parse(await readFile(file, 'utf8')).connection.port, host.status().port, 'new address is saved for the next start')
+})
+
+test('discovery only accepts answers proven with the pairing key', async t => {
+  const discovery = { port: await freeUdpPort(), targets: () => ['127.0.0.1'] }
+  const { directory, client } = await setup(t, { discovery })
+  const profile = JSON.parse(await readFile(join(directory, 'client', 'lan-sync-v1.json'), 'utf8'))
+  const options = { deviceId: client.status().deviceId, port: discovery.port, targets: ['127.0.0.1'], timeout: 500 }
+  assert.equal((await discover({ ...options, key: profile.connection.key })).port, profile.connection.port)
+  assert.equal(await discover({ ...options, key: secret() }), null)
+  assert.equal(await discover({ ...options, key: profile.connection.key, deviceId: randomUUID() }), null, 'unknown devices get no answer')
+})
+
+test('sleep interrupts a stalled request instead of holding the sync queue', async t => {
+  const stalled = http.createServer(() => {})
+  await new Promise(resolve => stalled.listen(0, '127.0.0.1', resolve))
+  t.after(() => { stalled.closeAllConnections(); stalled.close() })
+  const { directory, client, b } = await setup(t, { discovery: false })
+  await client.stop()
+  const { client: sleeping } = await moveClientTo(directory, stalled.address().port, { discovery: false })
+  t.after(() => sleeping.stop())
+  const started = Date.now(), pending = sleeping.exchange(b)
+  setTimeout(() => sleeping.interrupt(), 200)
+  await assert.rejects(pending, /tạm ngủ/)
+  assert.ok(Date.now() - started < 5000)
+  assert.equal(sleeping.status().mode, 'client', 'pairing survives the interruption')
+})
+
+test('keep-awake preference is stored per machine', async t => {
+  const { directory, host, create } = await setup(t, { discovery: false })
+  assert.equal(host.status().keepAwake, false)
+  assert.equal((await host.setKeepAwake(true)).keepAwake, true)
+  await host.stop()
+  assert.equal((await create('host', { discovery: false })).status().keepAwake, true)
+  assert.equal(JSON.parse(await readFile(join(directory, 'host', 'lan-sync-v1.json'), 'utf8')).keepAwake, true)
+})
+
+test('physical adapters are offered before WSL, Hyper-V and VPN addresses', () => {
+  const v4 = address => [{ family: 'IPv4', internal: false, address }]
+  const found = lanAddresses({
+    'vEthernet (WSL (Hyper-V firewall))': v4('172.28.112.1'),
+    'Loopback Pseudo-Interface 1': [{ family: 'IPv4', internal: true, address: '127.0.0.1' }],
+    'Wi-Fi': [...v4('192.168.1.20'), { family: 'IPv6', internal: false, address: 'fe80::1' }],
+    'VirtualBox Host-Only Network': v4('192.168.56.1'),
+    Ethernet: v4('10.0.0.5'),
+    Public: v4('8.8.8.8'),
+  })
+  assert.deepEqual(found.map(item => [item.address, item.virtual]), [['192.168.1.20', false], ['10.0.0.5', false], ['172.28.112.1', true], ['192.168.56.1', true]])
+  assert.equal(found[0].name, 'Wi-Fi')
 })

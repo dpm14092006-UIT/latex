@@ -552,6 +552,30 @@ function latexEscape(value = '') {
   const escaped = String(value ?? '').replace(/[\\^~#$%&_{}]/g, character => latexEscapes[character])
   return replaceUnicodeScripts(escaped, (type, content) => `\\text${type}{${content}}`)
 }
+// Table captions and notes are plain text in which `$…$` marks inline math, as
+// typed in the draft ("$5 and $10" stays text). Math with unbalanced braces or
+// parameter/comment characters stays escaped so it cannot break the argument.
+function latexTextWithMath(value = '') {
+  return String(value ?? '').split(/(\$(?![\s$])[^$\n]*?[^\s\\$]\$(?!\d)|\$[^\s$\\]\$(?!\d))/u).map(part => {
+    const math = /^\$([^$\n]+)\$$/u.exec(part)?.[1]
+    if (!math || /[#%]/u.test(math)) return latexEscape(part)
+    let depth = 0
+    for (const brace of math.replace(/\\[{}]/gu, '').replace(/[^{}]/gu, '')) {
+      depth += brace === '{' ? 1 : -1
+      if (depth < 0) break
+    }
+    return depth === 0 ? `$${math}$` : latexEscape(part)
+  }).join('')
+}
+// A note that already starts with its own label ("Ghi chú:", "Nguồn:") keeps it.
+function tableNoteLatex(note) {
+  const text = String(note || '').replace(/\s+/gu, ' ').trim()
+  if (!text) return ''
+  const label = /^([^\s:$\\]{1,15}(?: [^\s:$\\]{1,15}){0,2}):\s*/u.exec(text)
+  return label
+    ? `\\textit{${latexEscape(label[1])}:} ${latexTextWithMath(text.slice(label[0].length))}`
+    : `\\textit{Ghi chú:} ${latexTextWithMath(text)}`
+}
 const highlightDefinition = String.raw`\providecommand{\vietlatexhl}[2]{{\setlength{\fboxsep}{0.5pt}\colorbox[HTML]{#1}{\strut #2}}}`
 function latexHexColor(value) { return /^#[0-9a-f]{6}$/i.test(value || '') ? value.slice(1).toUpperCase() : '' }
 function latexFontSize(value) {
@@ -733,6 +757,12 @@ function renderLatexTable(node, context) {
       for (let offset = 1; offset < item.rowspan; offset += 1) continuation.set(`${start + offset}:${item.column}`, { item, last: offset === item.rowspan - 1 })
     }
   }
+  // A short table is never split across pages; a long one never leaves a
+  // single body row alone on its first or last page.
+  const bodyRows = rows.length - headerRows
+  const keepWithNext = new Set(bodyRows <= 10
+    ? Array.from({ length: Math.max(0, bodyRows - 1) }, (_, index) => headerRows + index)
+    : [headerRows, rows.length - 2])
   const renderRow = (row, rowIndex) => {
     const cellsByColumn = new Map(row.map(item => [item.column, item]))
     const values = []
@@ -776,7 +806,7 @@ function renderLatexTable(node, context) {
     }
     const color = style.tableStyle === 'shaded' && rowIndex < headerRows ? TABLE_HEADER_COLOR : stripedRows.has(rowIndex) ? TABLE_STRIPE_COLOR : ''
     // A page break inside a multirow would detach the continuation cells.
-    return `${color ? `\\rowcolor[HTML]{${color}}` : ''}${values.join(' & ')} \\\\${spanContinues[rowIndex] ? '*' : ''}\n${grid ? gridRule(rowIndex) : ''}`
+    return `${color ? `\\rowcolor[HTML]{${color}}` : ''}${values.join(' & ')} \\\\${spanContinues[rowIndex] || keepWithNext.has(rowIndex) ? '*' : ''}\n${grid ? gridRule(rowIndex) : ''}`
   }
   const topRule = ruled ? '\\toprule\n' : grid ? '\\hline\n' : ''
   const headerRule = headerRows && (ruled || style.tableStyle === 'minimal') ? '\\midrule\n' : ''
@@ -797,10 +827,14 @@ ${coloured ? String.raw`\setlength{\aboverulesep}{0pt}
 `
 
   const tableNumber = context.inTable ? 0 : (context.tableIndex = (context.tableIndex || 0) + 1)
-  const tabular = `${tableStyle}\\begin{tabular}{${specification}}\n${topRule}${header}${headerRule}${body}${bottomRule}\\end{tabular}\n\\endgroup`
+  const tabularBody = `\\begin{tabular}{${specification}}\n${topRule}${header}${headerRule}${body}${bottomRule}\\end{tabular}`
+  const tabular = `${tableStyle}${tabularBody}\n\\endgroup`
   if (context.inTable) return `${tabular}\n`
 
-  const caption = String(node.attrs?.caption || '').trim() || `Bảng ${tableNumber}`
+  // An untitled table is still numbered, but prints "Bảng 1" alone instead of
+  // repeating the number as its title ("Bảng 1: Bảng 1").
+  const caption = latexTextWithMath(String(node.attrs?.caption || '').replace(/\s+/gu, ' ').trim())
+  const note = tableNoteLatex(node.attrs?.note)
   const requestedLabel = safeLabel(node.attrs?.label) || `tab:table-${tableNumber}`
   context.tableLabels ||= new Set()
   let label = requestedLabel
@@ -812,14 +846,30 @@ ${coloured ? String.raw`\setlength{\aboverulesep}{0pt}
   const fullWidth = context.twoColumn && (rows.length > 24 || estimatedLines > 40)
   if (!context.twoColumn || fullWidth) {
     const heading = `${topRule}${header}${headerRule}`
-    const captionRow = `\\caption{${latexEscape(caption)}}\\label{${label}}`
+    // longtable steps the table counter itself; \caption* prints the bare number.
+    const captionRow = `${caption ? `\\caption{${caption}}` : '\\caption*{\\tablename~\\thetable}'}\\label{${label}}`
     const firstHead = captionBelow ? heading : `${captionRow} \\\\\n${heading}`
     // A longtable caption is a table row; terminate it explicitly in the last-page footer.
     const lastFoot = captionBelow ? `${bottomRule}${captionRow} \\\\\n` : bottomRule
-    return `${fullWidth ? '\\onecolumn\n' : ''}${tableStyle}\\begin{longtable}{${specification}}\n${firstHead}\\endfirsthead\n${heading}\\endhead\n${bottomRule}\\endfoot\n${lastFoot}\\endlastfoot\n${body}\\end{longtable}\n\\endgroup\n${fullWidth ? '\\twocolumn\n' : ''}\n`
+    // The note follows the last row, so it shrinks the gap after the table and
+    // is kept on the same page as that row.
+    const noteBlock = note ? `\\nopagebreak\n\\par\\vspace{3pt}\n{\\footnotesize\\setlength{\\parindent}{0pt}${note}\\par}\n\\vspace{\\LTpost}\n` : ''
+    return `${fullWidth ? '\\onecolumn\n' : ''}${tableStyle}${note ? '\\setlength{\\LTpost}{0pt}\n' : ''}\\begin{longtable}{${specification}}\n${firstHead}\\endfirsthead\n${heading}\\endhead\n${bottomRule}\\endfoot\n${lastFoot}\\endlastfoot\n${body}\\end{longtable}\n${noteBlock}\\endgroup\n${fullWidth ? '\\twocolumn\n' : ''}\n`
   }
-  const captionBlock = `\\caption{${latexEscape(caption)}}\n\\label{${label}}\n`
-  return `\\begin{table}[htbp]\n\\centering\n${captionBelow ? '' : captionBlock}${tabular}\n${captionBelow ? captionBlock : ''}\\end{table}\n\n`
+  const captionBlock = caption
+    ? `\\caption{${caption}}\n\\label{${label}}\n`
+    : `\\refstepcounter{table}\\label{${label}}\n${captionBelow ? '\\par\\vspace{\\abovecaptionskip}\n' : ''}{\\tablename~\\thetable\\par}\n${captionBelow ? '' : '\\vspace{\\abovecaptionskip}\n'}`
+  // A table whose natural width needs more than one column spans both
+  // columns (table*), as journals set wide tables.
+  const naturalWidth = lengths.reduce((sum, length, index) => sum + (wraps[index] ? Math.min(length, 20) : length) + 2, 0)
+  const environment = naturalWidth > 52 ? 'table*' : 'table'
+  // The note comes last, as in a long table, and is set exactly as wide as
+  // the table so it lines up with the table edges instead of the text block.
+  // A table still wider than the space it gets is scaled down to fit instead
+  // of running into the margin or the other column.
+  // The style settings stay outside the box, where their line ends are not spaces.
+  const noteBox = note ? `\\noindent\\parbox{\\vietlatextablewidth}{\\vspace{3pt}\n\\footnotesize\\setlength{\\parindent}{0pt}\\setlength{\\parskip}{0pt}${note}\\par}\n` : ''
+  return `\\begin{${environment}}[${environment === 'table' ? 'htbp' : 'tp'}]\n\\centering\n${captionBelow ? '' : captionBlock}${tableStyle}\\setbox0=\\hbox{${tabularBody}}%\n\\ifdim\\wd0>\\linewidth\\setbox0=\\hbox{\\resizebox{\\linewidth}{!}{\\box0}}\\fi\n\\xdef\\vietlatextablewidth{\\the\\wd0}%\n\\leavevmode\\box0\\par\n\\endgroup\n${captionBelow ? captionBlock : ''}${noteBox}\\end{${environment}}\n\n`
 }
 
 function nodeLatex(node, context = { images: [] }) {
@@ -1462,7 +1512,7 @@ export function toLatex(doc, title, templateSource = defaultDocumentTemplate, do
 \renewenvironment{abstract}{\par\begin{center}\normalfont\bfseries ${latexEscape(settings.abstractTitle)}\end{center}\begin{quotation}\normalfont\leftskip=0pt\rightskip=0pt\parfillskip=0pt plus 1fil\parindent=1.5em\ignorespaces}{\par\end{quotation}\ignorespacesafterend}`
     latex = latex.replace(/\\begin\{document\}/, () => `${definition}\n\\begin{document}`)
   }
-  if (/\\includegraphics\b/.test(latex)) latex = ensureLatexPackage(latex, 'graphicx')
+  if (/\\(?:includegraphics|resizebox)\b/.test(latex)) latex = ensureLatexPackage(latex, 'graphicx')
   if (/\\(?:href|hyperlink|hypertarget|url|nolinkurl|ref|label|cite\w*)\b/.test(latex)) {
     latex = ensureLatexPackage(latex, 'hyperref')
     if (!/\\hypersetup\s*\{[^}]*\b(?:pdfborder|colorlinks)\s*=/is.test(latex)) {
@@ -1480,6 +1530,11 @@ export function toLatex(doc, title, templateSource = defaultDocumentTemplate, do
     latex = ensureLatexPackage(latex, 'colortbl')
   }
   if (/\\begin\{longtable\}/.test(latex)) latex = ensureLatexPackage(latex, 'longtable')
+  // Without a language package the classes print "Table 1"; a template that
+  // chooses its own language or name keeps it.
+  if (/\\(?:caption\*?|tablename)\b/.test(latex) && !/\\(?:usepackage|RequirePackage)(?:\[[^\]]*\])?\{[^}]*\b(?:babel|polyglossia)\b|\\(?:renewcommand|def)\s*\{?\\tablename\b/.test(latex)) {
+    latex = latex.replace(/\\begin\{document\}/i, () => '\\renewcommand{\\tablename}{Bảng}\n\\begin{document}')
+  }
   if (/\\multirow\b/.test(latex)) latex = ensureLatexPackage(latex, 'multirow')
   if (needsAutomaticBibliography) {
     latex = latex.replace(/\\end\{document\}/, () => citationStyle === 'apa' ? '\\printbibliography\n\\end{document}' : `\\bibliographystyle{${bibliographyStyleName(citationStyle)}}\n\\bibliography{references}\n\\end{document}`)

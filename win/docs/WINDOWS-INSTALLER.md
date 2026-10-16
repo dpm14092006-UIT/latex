@@ -12,6 +12,10 @@ Dữ liệu tài liệu nằm ở `%APPDATA%\latex-word-studio`, ngoài thư m�
 
 Bản build cục bộ chưa ký số. SmartScreen hoặc Smart App Control có thể cảnh báo/chặn lần chạy đầu; chọn **More info → Run anyway** nếu chính sách máy cho phép.
 
+## Đồng bộ LAN
+
+Khi làm máy chủ LAN, Windows Firewall sẽ hỏi quyền nhận kết nối; chọn **Allow**. Nếu Wi-Fi đang là mạng Public hoặc đã lỡ bấm Cancel, bảng Đồng bộ LAN báo và chỉ cách sửa. Chi tiết: [docs/LAN-SYNC.md](../../docs/LAN-SYNC.md#windows-tường-lửa-và-địa-chỉ-mạng).
+
 ## Tự động cập nhật
 
 App cài bằng `Setup.exe` tự kiểm tra GitHub Releases. Khi có bản mới: tải `Setup.exe`, kiểm tra SHA-256, tạo điểm khôi phục, lưu và thoát app, chạy bộ cài im lặng (`/S --updated --force-run`) vào đúng thư mục cũ rồi mở lại app. Bản Portable không tự thay được chính nó; nút cập nhật sẽ mở bộ cài để chuyển sang bản cài đặt. Chi tiết: [docs/AUTO-UPDATE.md](../../docs/AUTO-UPDATE.md).

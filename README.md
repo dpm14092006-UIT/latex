@@ -2,11 +2,7 @@
 
 Ứng dụng desktop soạn tài liệu tiếng Việt, nhập công thức trực quan, chỉnh LaTeX và xem PDF. Bản thảo, tài nguyên, sao lưu và chuyển đổi Word được xử lý trên máy. Tra DOI gửi DOI tới doi.org và các dịch vụ metadata liên quan; đồng bộ LAN chỉ hoạt động khi người dùng bật và ghép máy.
 
-Bản 0.5.6 đồng bộ PDF đã biên dịch để máy nhận xem và xuất mà không phải chạy LaTeX. LAN chạy mỗi 5 giây khi cửa sổ bị ẩn, hiển thị trạng thái máy đã ghép và xung đột chưa xử lý. Đã bỏ chức năng đồng bộ cuộn; bản thảo và PDF cuộn độc lập. Giữ sửa chữ bị cắt, tràn lề và cập nhật PDF tự động. Xem [thay đổi 0.5.6](docs/UPGRADE-0.5.6.md).
-
-Bản sửa macOS 0.5.2 ngăn chữ trắng/gần trắng từ nền tối lọt vào PDF, tự sửa định dạng cũ khi mở và giữ các màu chữ/tô sáng đã chọn. Xem [thay đổi 0.5.2](docs/UPGRADE-0.5.2.md).
-
-Phiên bản 0.5.1 giữ đúng số tiêu đề và nhận diện tiêu đề trước ngắt dòng khi dán từ Word hoặc dùng Shift+Enter. Xem [thay đổi 0.5.1](docs/UPGRADE-0.5.1.md).
+Thay đổi từng phiên bản: [nhật ký thay đổi](docs/CHANGELOG.md). Tài liệu khác: [trích dẫn](docs/CITATION-GUIDE.md), [thư viện bảng](docs/TABLE-LIBRARY.md), [nhận diện công thức](docs/MATH-SUGGESTION-RECOGNITION.md), [giao diện](docs/UI-MONOCHROME.md), [repo tham khảo thiết kế](docs/DESIGN-REFERENCES.md).
 
 ## Cài trên MacBook
 
@@ -37,6 +33,8 @@ Mở **Quản lý tài liệu → Đồng bộ LAN**. Một máy làm máy chủ
 
 ## Chức năng
 
+- Kiểm tra chính tả tiếng Anh cục bộ (Anh Mỹ/Anh Anh) trong bản thảo và source LaTeX: gạch chân, gợi ý sửa, bỏ qua, từ điển cá nhân có nhập/xuất. Kiểm tra cả Abstract, caption và footnote; bảo vệ công thức và khóa tham chiếu. Bật trên thanh **Chính tả tiếng Anh** theo từng tài liệu. Xem [hướng dẫn và phạm vi](docs/ENGLISH-SPELLCHECK.md).
+
 - Soạn tiêu đề, đậm/nghiêng/gạch chân/gạch bỏ, liên kết, danh sách, trích dẫn, khối mã, ảnh; undo/redo, tìm/thay thế, căn lề.
 - Công thức trong dòng/căn giữa, MathLive có font cục bộ, nhập LaTeX, thư viện mẫu; nhấp công thức để sửa. Nhận dấu `$...$`, `$$...$$`, `\(...\)`, `\[...\]` khi dán, giữ công thức hiện có và định dạng văn bản.
 - Bảng: thêm/xóa hàng/cột, gộp/tách ô. Xuất LaTeX với multirow/multicolumn; longtable trải nhiều trang và lặp hàng tiêu đề, giữ nhóm ô gộp trên cùng trang. Mẫu hai cột giữ bảng nhỏ trong cột; bảng dài chuyển sang trang toàn chiều rộng rồi trở lại hai cột. Caption và hàng tiêu đề được giữ khi xuất Word.
@@ -45,7 +43,7 @@ Mở **Quản lý tài liệu → Đồng bộ LAN**. Một máy làm máy chủ
 - Cấu hình tác giả/ngày, A4/Letter/A5, cỡ chữ, lề, giãn dòng, mục lục PDF, đánh số công thức; **Trang & tác giả → Abstract** để bật/tắt, chọn “Abstract” hoặc “Tóm tắt” và nhập nội dung. Tiêu đề Abstract luôn căn giữa, in đậm; nội dung căn đều hai lề, nằm sau phần tiêu đề và trước mục lục/nội dung. Bản thảo hiển thị khung riêng với nút **Sửa Abstract**; nội dung được giữ khi xuất Word.
 - Nhãn tiêu đề/công thức, tham chiếu chéo, chú thích chân trang, trích dẫn và BibTeX; tự chạy thêm các lượt XeLaTeX/BibTeX hoặc Biber để cập nhật tham chiếu. Theo mẫu tài liệu mặc định dùng APA 7th, riêng IEEEtran dùng IEEE; có thể chọn số thứ tự, IEEE hoặc Harvard rõ ràng cho từng tài liệu.
 - Quét trích dẫn chưa liên kết: tác giả–năm, nhóm nhiều bài, trích dẫn tường thuật và số gốc; tìm REF theo tác giả/năm/tiêu đề, duyệt và liên kết hàng loạt, giữ lựa chọn khi quét lại, hoàn tác một bước. Nút “Xóa cite trong bản thảo” gỡ mọi citation node; Ctrl+Z hoàn tác riêng thao tác xóa và danh mục BibTeX vẫn được giữ. Khi PDF đang dùng source riêng, quay về bản thảo trước khi dùng nút này; các lệnh cite viết trong source riêng được sửa bằng trình LaTeX. Số trong bản gốc được đối chiếu bằng bảng ánh xạ riêng.
-- CodeMirror tô cú pháp LaTeX, số dòng, tìm/thay thế, undo/redo, đánh dấu dòng lỗi. Khi gõ/dán, thao tác vượt 800 KiB UTF-8 bị chặn nguyên vẹn; source cũ quá lớn vẫn có thể giảm nội dung. PDF có chuyển trang, thu phóng, tải xuống, log và thử lại bỏ qua cache.
+- CodeMirror tô cú pháp LaTeX, số dòng, tìm/thay thế, undo/redo, đánh dấu dòng lỗi. Khi gõ/dán, thao tác vượt 800 KiB UTF-8 bị chặn nguyên vẹn; source cũ quá lớn vẫn có thể giảm nội dung. PDF có chuyển trang, thu phóng, tải xuống và log; **Cập nhật PDF** / **Thử lại** biên dịch mới tài liệu hiện tại, còn biên dịch tự động dùng cache.
 - Nhập `.tex` thành tài liệu mới; nhập ZIP dự án với tệp chính và tài nguyên; thêm/xóa tài nguyên; xuất ZIP source, ảnh và tài nguyên. Hỗ trợ tài nguyên tex/bib/bst/sty/cls/png/jpg/jpeg/pdf/eps/csv/txt. Tài nguyên trong ZIP phải nằm cùng thư mục với tệp chính hoặc thư mục con; tệp ở ngoài bị báo lỗi để tránh nhập thiếu.
 - Nhập/xuất `.docx` trên desktop bằng Pandoc đóng gói; công thức hỗ trợ chuyển thành OMML chỉnh sửa được trong Word. Có chuyển đổi văn bản, tiêu đề, danh sách, bảng, liên kết, ảnh và chú thích.
 - Lưu workspace nguyên tử: sau 300 ms ngừng sửa, định kỳ 1,5 giây khi gõ, chờ lưu khi đóng. Giữ tối đa 15 backup luân phiên, tự tạo không dày hơn 2 phút; có điểm khôi phục thủ công.
@@ -83,7 +81,7 @@ npm run desktop:build:mac
 
 `desktop:build` tạo bộ cài cho hệ điều hành đang chạy (`desktop:build:mac` hoặc `desktop:build:win`). `desktop:build:dir` tạo app universal trong `artifacts/mac-package/mac-universal`; `desktop:verify:mac` kiểm tra app đã đóng gói. DMG và SHA-256 đã qua kiểm tra nằm trong `release-desktop/mac`, Setup.exe Windows trong `release-desktop/win`. Xem [MAC-INSTALLER.md](mac/docs/MAC-INSTALLER.md) và [WINDOWS-INSTALLER.md](win/docs/WINDOWS-INSTALLER.md).
 
-Electron chạy backend trên cổng loopback ngẫu nhiên với token riêng. Backend tự tìm bộ TeX/Pandoc trong Resources; PATH được chuẩn bị cho Finder. Huỷ biên dịch dừng cả nhóm tiến trình trên macOS. Font Latin Modern đi kèm nạp theo tên file, cache sinh ra nằm ngoài app có chữ ký.
+Electron chạy backend trên cổng loopback ngẫu nhiên với token riêng. Backend tự tìm bộ TeX/Pandoc trong Resources; PATH được chuẩn bị cho Finder. Huỷ biên dịch dừng cả cây tiến trình (process group trên macOS, Job Object trên Windows). Font Latin Modern đi kèm nạp theo tên file, cache sinh ra nằm ngoài app có chữ ký.
 
 Định dạng HTTP/ready/token, PDF, Word AST và DOI: [giao thức backend](docs/BACKEND-HTTP.md). Để cập nhật app đang dùng sau khi build, chạy `npm run desktop:update:local`; script kiểm tra bản sao hồ sơ, chờ app lưu/thoát rồi giữ lại toàn bộ hồ sơ và app cũ trước khi thay bản mới. Xem [hướng dẫn cập nhật giữ dữ liệu](mac/docs/MAC-INSTALLER.md).
 

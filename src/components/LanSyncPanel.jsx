@@ -1,11 +1,38 @@
 import { useEffect, useState } from 'react'
 import { lanSyncLabel, lanSyncResultMessage } from '../services/LanSyncStatus.js'
 
+const PROFILE_NAMES = { Public: 'Public – mạng công cộng', Private: 'Private – mạng riêng', Domain: 'Domain – mạng cơ quan' }
+
+// Windows only: explains why paired machines may not reach this host.
+function FirewallNotice({ advice, onRecheck }) {
+  if (!advice || advice.state === 'allowed') return null
+  const profile = PROFILE_NAMES[advice.profile] || advice.profile
+  const open = topic => window.desktopAPI?.openHelp?.(topic)
+  return <div className="studio-notice" role={advice.state === 'blocked' ? 'alert' : 'status'}>
+    <p>{advice.state === 'blocked'
+      ? `Windows Firewall đang chặn ứng dụng trên mạng ${advice.network} (${profile}). Máy khác sẽ không kết nối được tới máy này.`
+      : `Windows chưa ghi nhận quyền nhận kết nối của ứng dụng trên mạng ${advice.network} (${profile}). Khi Windows hỏi, chọn Allow. Nếu không thấy hộp thoại mà máy khác vẫn không kết nối được, cho phép thủ công.`}</p>
+    <p>Mở Windows Security → Firewall &amp; network protection → Allow an app through firewall → Change settings, tìm “Viet Latex Studio” và đánh dấu ô {advice.profile}. Bước này cần quyền quản trị.{advice.profile === 'Public' ? ' Nếu đây là Wi-Fi ở nhà hoặc cơ quan, nên đổi mạng sang Private network trong Settings → Network & internet.' : ''}</p>
+    <div className="studio-manager-actions">
+      <button type="button" onClick={() => open('firewall')}>Mở Windows Firewall</button>
+      {advice.profile === 'Public' && <button type="button" onClick={() => open('network')}>Mở cài đặt mạng</button>}
+      <button type="button" onClick={onRecheck}>Kiểm tra lại</button>
+    </div>
+  </div>
+}
+
 export default function LanSyncPanel({ status, onAction }) {
   const [pairing, setPairing] = useState(''), [address, setAddress] = useState(''), [invitation, setInvitation] = useState(null)
   const [busy, setBusy] = useState(false), [message, setMessage] = useState('')
-  const [showSyncResult, setShowSyncResult] = useState(false)
+  const [showSyncResult, setShowSyncResult] = useState(false), [firewall, setFirewall] = useState(null)
   useEffect(() => { if (!address && status?.addresses?.length) setAddress(status.addresses[0]) }, [address, status])
+  const hosting = status?.mode === 'host'
+  const checkFirewall = refresh => {
+    if (!hosting || !address || !window.desktopAPI?.syncFirewall) return setFirewall(null)
+    window.desktopAPI.syncFirewall(address, refresh).then(setFirewall, () => setFirewall(null))
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => checkFirewall(false), [hosting, address])
   const run = async (action, value) => {
     setBusy(true); setMessage(''); setShowSyncResult(false)
     try {
@@ -17,7 +44,7 @@ export default function LanSyncPanel({ status, onAction }) {
     } catch (error) { setMessage(error.message || 'Không thể đồng bộ.') }
     finally { setBusy(false) }
   }
-  if (!window.desktopAPI?.exchangeSync) return <p>Đồng bộ LAN có trong ứng dụng desktop macOS.</p>
+  if (!window.desktopAPI?.exchangeSync) return <p>Đồng bộ LAN có trong ứng dụng desktop macOS và Windows.</p>
   return <div className="lan-sync-panel">
     <p>Hai máy cùng Wi-Fi hoặc mạng nội bộ có thể làm tiếp các dự án của nhau. Mỗi máy giữ dữ liệu riêng và tiếp tục soạn thảo khi mất mạng. PDF đã biên dịch được chuyển sang để xem và xuất ngay. Biên dịch lại source từ máy khác cần xác nhận tin cậy.</p>
     <p role="status">{status?.mode === 'host' ? `Máy này làm máy chủ · cổng ${status.port}` : status?.mode === 'client' ? `Kết nối máy chủ ${status.host}` : 'Đồng bộ đang tắt'}</p>
@@ -33,7 +60,10 @@ export default function LanSyncPanel({ status, onAction }) {
       </div>
       {status?.mode === 'host' && <>
         <p>Giữ ứng dụng trên máy chủ đang chạy. Nếu hệ điều hành hỏi quyền truy cập mạng, cho phép trên mạng riêng. Mã ghép dùng một lần và hết hạn sau 10 phút.</p>
-        <label>Địa chỉ máy chủ<select value={address} onChange={event => setAddress(event.target.value)}>{(status.addresses || []).map(ip => <option key={ip} value={ip}>{ip}</option>)}</select></label>
+        <label className="studio-checkbox"><input type="checkbox" checked={Boolean(status.keepAwake)} onChange={event => run('keep-awake', event.target.checked)} />Giữ máy này không ngủ khi làm máy chủ (màn hình vẫn tắt được; tốn điện hơn)</label>
+        <label>Địa chỉ máy chủ<select value={address} onChange={event => setAddress(event.target.value)}>{(status.addresses || []).map(ip => { const adapter = status.interfaces?.find(item => item.address === ip); return <option key={ip} value={ip}>{adapter ? `${ip} · ${adapter.name}${adapter.virtual ? ' (mạng ảo)' : ''}` : ip}</option> })}</select></label>
+        {status.interfaces?.find(item => item.address === address)?.virtual && <p className="studio-notice" role="status">Địa chỉ này thuộc bộ điều hợp ảo (WSL, Hyper-V, máy ảo hoặc VPN); máy khác trong Wi-Fi thường không kết nối được. Chọn địa chỉ Wi-Fi hoặc Ethernet.</p>}
+        <FirewallNotice advice={firewall} onRecheck={() => checkFirewall(true)} />
         {!status.addresses?.length && <p>Chưa tìm thấy địa chỉ mạng nội bộ. Kết nối Wi-Fi hoặc Ethernet rồi mở lại bảng này.</p>}
         <button type="button" disabled={!address} onClick={() => run('invite', address)}>Tạo mã ghép máy</button>
         {invitation && <div className="studio-notice"><label>Mã ghép máy<textarea readOnly rows={4} value={invitation.code} onFocus={event => event.target.select()} /></label><p>Hết hạn lúc {new Date(invitation.expiresAt).toLocaleTimeString('vi-VN')}. Chỉ gửi mã này cho máy bạn muốn ghép.</p><button type="button" onClick={async () => { try { await navigator.clipboard.writeText(invitation.code); setMessage('Đã sao chép mã ghép.') } catch { setMessage('Chọn và sao chép mã trong ô trên.') } }}>Sao chép mã ghép</button></div>}

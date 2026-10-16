@@ -1,6 +1,7 @@
 import { Node, Extension } from '@tiptap/core'
 import { Table, TableView } from '@tiptap/extension-table'
-import { Plugin, PluginKey } from '@tiptap/pm/state'
+import { Plugin, PluginKey, Selection } from '@tiptap/pm/state'
+import { closeHistory, redo, undo } from '@tiptap/pm/history'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import { citationKeys, citationLabel, citationNumbers, describeEntry } from './Bibliography.js'
 import { isValidTableStyleAttribute, normalizeTableStyle, TABLE_STYLE_DEFAULTS } from './TableStyles.js'
@@ -44,18 +45,169 @@ function applyTableStyle(table, node) {
   table.dataset.headerBold = String(style.headerBold)
 }
 
+const NUMERIC_CELL = /^[+−-]?(?:\d+(?:[.,]\d*)?|[.,]\d+)(?:[eE][+−-]?\d+)?\s*%?$/u
+let styledTableCount = 0
+
+// Columns holding only numbers are right-aligned in the PDF; the draft mirrors
+// that for tables without merged cells, where a column is an nth-child.
+function numericColumnCss(node, id) {
+  const rows = []
+  let merged = false
+  node.forEach(row => {
+    const cells = []
+    row.forEach(cell => {
+      if (cell.attrs.colspan > 1 || cell.attrs.rowspan > 1) merged = true
+      cells.push(cell)
+    })
+    rows.push(cells)
+  })
+  if (merged) return ''
+  let headerRows = 0
+  while (headerRows < rows.length && rows[headerRows].some(cell => cell.type.name === 'tableHeader')) headerRows += 1
+  const body = rows.slice(headerRows)
+  const columns = Math.max(0, ...rows.map(cells => cells.length))
+  const selectors = []
+  for (let column = 0; column < columns; column += 1) {
+    const values = body.map(cells => cells[column]?.textContent.trim()).filter(Boolean)
+    if (values.length && values.every(value => NUMERIC_CELL.test(value))) selectors.push(`table[data-styled-table="${id}"] > tbody > tr > :nth-child(${column + 1})`)
+  }
+  return selectors.length ? `${selectors.join(',\n')} { text-align: right; }` : ''
+}
+
+function tableTextField(className, label, placeholder, multiline) {
+  const field = document.createElement('label')
+  field.className = `table-text-field ${className}`
+  field.contentEditable = 'false'
+  const tag = document.createElement('span')
+  tag.className = 'table-text-field-tag'
+  tag.textContent = label
+  const input = document.createElement(multiline ? 'textarea' : 'input')
+  if (multiline) input.rows = 1
+  else input.type = 'text'
+  input.placeholder = placeholder
+  input.spellcheck = false
+  input.setAttribute('aria-label', label)
+  field.append(tag, input)
+  return { field, input }
+}
+
 // The resizable table view builds its own <table> and never re-applies
 // attributes, so the style is mirrored on every update for the draft preview.
+// The caption and the note are typed where they appear in the PDF: above or
+// below the table, outside the cells ProseMirror edits.
 export class StyledTableView extends TableView {
   constructor(node, cellMinWidth, view, HTMLAttributes) {
     super(node, cellMinWidth, view, HTMLAttributes)
+    this.view = view
+    this.id = String(++styledTableCount)
+    this.table.dataset.styledTable = this.id
+    this.alignStyle = document.createElement('style')
+    this.caption = tableTextField('table-caption-field', 'Tên bảng', 'Nhập tên bảng…', false)
+    this.caption.input.maxLength = 500
+    this.note = tableTextField('table-note-field', 'Ghi chú', 'Ghi chú dưới bảng: nguồn số liệu, đơn vị, giải thích ký hiệu… (có thể gõ công thức $p = n + k$)', true)
+    this.note.input.maxLength = 2000
+    this.dom.classList.add('styled-table')
+    this.dom.prepend(this.alignStyle)
+    this.listeners = []
+    for (const [name, { input }] of [['caption', this.caption], ['note', this.note]]) {
+      const listen = (type, handler) => {
+        input.addEventListener(type, handler)
+        this.listeners.push(() => input.removeEventListener(type, handler))
+      }
+      listen('input', event => {
+        this.resizeNote()
+        if (!event.isComposing) this.commit(name, input.value)
+      })
+      listen('compositionend', () => this.commit(name, input.value))
+      listen('focus', () => { if (this.editable()) this.view.dispatch(closeHistory(this.view.state.tr)) })
+      listen('keydown', event => this.onFieldKeyDown(event))
+    }
+    this.render(node)
+  }
+
+  editable() { return Boolean(this.view?.editable) }
+
+  position() {
+    try {
+      const position = this.view.posAtDOM(this.contentDOM, 0) - 1
+      return this.view.state.doc.nodeAt(position)?.type.name === 'table' ? position : null
+    } catch {
+      return null
+    }
+  }
+
+  commit(name, value) {
+    const position = this.position()
+    if (!this.editable() || position === null || (this.node.attrs[name] || '') === value) return
+    this.view.dispatch(this.view.state.tr.setNodeMarkup(position, undefined, { ...this.node.attrs, [name]: value }))
+  }
+
+  onFieldKeyDown(event) {
+    if ((event.ctrlKey || event.metaKey) && !event.altKey && ['z', 'y'].includes(event.key.toLowerCase())) {
+      event.preventDefault()
+      const command = event.key.toLowerCase() === 'y' || event.shiftKey ? redo : undo
+      command(this.view.state, this.view.dispatch)
+      // Undo changes the text under the cursor, so the focused field follows it.
+      this.render(this.node, true)
+      return
+    }
+    // Enter leaves the field: the caption goes into the first cell, the note
+    // after the table, as a writer reading top to bottom would expect.
+    if (event.key === 'Enter' && !event.isComposing && !event.shiftKey) {
+      event.preventDefault()
+      const position = this.position()
+      if (position === null) return
+      const target = event.currentTarget === this.caption.input ? position + 3 : position + this.node.nodeSize
+      const { state } = this.view
+      this.view.dispatch(state.tr.setSelection(Selection.near(state.doc.resolve(Math.min(target, state.doc.content.size)))).scrollIntoView())
+      this.view.focus()
+    }
+  }
+
+  resizeNote() {
+    const { input } = this.note
+    input.style.height = 'auto'
+    if (input.scrollHeight) input.style.height = `${input.scrollHeight}px`
+  }
+
+  render(node, force = false) {
     applyTableStyle(this.table, node)
+    const style = normalizeTableStyle(node.attrs)
+    // Keep what the writer is typing; the node catches up on the next input.
+    for (const [name, { input }] of [['caption', this.caption], ['note', this.note]]) {
+      if ((force || document.activeElement !== input) && input.value !== (node.attrs[name] || '')) input.value = node.attrs[name] || ''
+      input.readOnly = !this.editable()
+    }
+    this.dom.classList.toggle('has-table-note', Boolean(node.attrs.note))
+    // The order the PDF prints them in: caption, table, note or table,
+    // caption, note. Moving the table itself would disturb the selection in
+    // its cells, so only the two fields are placed around it.
+    if (style.captionPosition === 'bottom') {
+      if (this.table.nextSibling !== this.caption.field) this.table.after(this.caption.field)
+    } else if (this.table.previousSibling !== this.caption.field) this.table.before(this.caption.field)
+    if (this.dom.lastChild !== this.note.field) this.dom.append(this.note.field)
+    const css = numericColumnCss(node, this.id)
+    if (this.alignStyle.textContent !== css) this.alignStyle.textContent = css
+    this.resizeNote()
   }
 
   update(node) {
     if (!super.update(node)) return false
-    applyTableStyle(this.table, node)
+    this.render(node)
     return true
+  }
+
+  stopEvent(event) {
+    return this.caption.field.contains(event.target) || this.note.field.contains(event.target)
+  }
+
+  ignoreMutation(mutation) {
+    if (this.caption.field.contains(mutation.target) || this.note.field.contains(mutation.target) || mutation.target === this.dom) return true
+    return super.ignoreMutation(mutation)
+  }
+
+  destroy() {
+    for (const remove of this.listeners) remove()
   }
 }
 
@@ -71,6 +223,11 @@ export const AcademicTable = Table.extend({
         default: '',
         parseHTML: element => element.getAttribute('data-caption') || '',
         renderHTML: attributes => attributes.caption ? { 'data-caption': attributes.caption } : {},
+      },
+      note: {
+        default: '',
+        parseHTML: element => element.getAttribute('data-note') || '',
+        renderHTML: attributes => attributes.note ? { 'data-note': attributes.note } : {},
       },
       label: {
         default: '',

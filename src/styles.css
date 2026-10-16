@@ -281,9 +281,15 @@ textarea.field { font-family: var(--font-mono); font-size: 12px; line-height: 1.
 .ProseMirror .latex-image-caption { display: block; width: 100%; box-sizing: border-box; padding: 8px 12px; border: 1px solid currentColor; border-radius: 4px; color: inherit; background: transparent; font: inherit; font-size: 0.9em; text-align: center; }
 .ProseMirror .latex-image-caption::placeholder { color: inherit; opacity: 0.55; }
 .ProseMirror .latex-image-caption:focus { outline: 2px solid var(--fg); outline-offset: 2px; }
-.ProseMirror table { width: 100%; margin: 1em 0; border-collapse: collapse; table-layout: fixed; }
-.ProseMirror th, .ProseMirror td { min-width: 1em; padding: 7px 9px; border: var(--rule); vertical-align: top; }
-.ProseMirror th { font-weight: 700; text-align: left; }
+/* Columns size to their content like the LaTeX table; words break only when
+   one is wider than the whole column ("Configuration" no longer splits). */
+.ProseMirror table { width: 100%; margin: 0; border-collapse: collapse; table-layout: auto; overflow-wrap: break-word; font-variant-numeric: tabular-nums; line-height: 1.45; }
+.ProseMirror th, .ProseMirror td { min-width: 1em; padding: 6px 8px; border: var(--rule); vertical-align: top; }
+.ProseMirror th { font-weight: 700; text-align: left; vertical-align: bottom; }
+.studio-paper .ProseMirror :is(th, td), .studio-paper .ProseMirror :is(th, td) :is(p, li) { overflow-wrap: break-word; }
+.ProseMirror :is(th, td) > p { margin: 0; }
+.ProseMirror :is(th, td) > p + p { margin-top: .4em; }
+.ProseMirror .tableWrapper { margin: 1.4em 0; overflow-x: auto; }
 .ProseMirror .selectedCell { outline: 2px solid var(--fg); outline-offset: -3px; }
 .ProseMirror p.is-editor-empty:first-child::before { float: left; height: 0; content: attr(data-placeholder); opacity: .5; pointer-events: none; }
 .ProseMirror mark { padding: 0 1px; color: inherit; }

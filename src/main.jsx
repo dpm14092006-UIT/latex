@@ -66,6 +66,8 @@ import LatexSourcePane from './components/LatexSourcePane.jsx'
 import { DocumentTemplatesDialog, FormulaDialog, FormulaLibraryDialog, WorkspaceDialog } from './components/DocumentDialogs.jsx'
 import MathSuggestionDialog from './components/MathSuggestionDialog.jsx'
 import TableLibrary from './components/TableLibrary.jsx'
+import SpellcheckTools from './components/SpellcheckTools.jsx'
+import AiTools from './components/AiAssistant.jsx'
 import { useMathKeyboard } from './hooks/useMathKeyboard.js'
 import '@fontsource-variable/dm-sans'
 import '@fontsource-variable/newsreader'
@@ -77,6 +79,8 @@ import './obsidian.css'
 import './noir.css'
 import './aurora.css'
 import './table-library.css'
+import './spellcheck.css'
+import './ai.css'
 
 // LaTeX và bộ kiểm tra workspace chỉ có ba cấp tiêu đề; h4–h6 dán từ web/Word hạ về cấp 3.
 const ThreeLevelHeading = Heading.extend({
@@ -301,11 +305,6 @@ function App({ initialWorkspace }) {
   const storeRef = useRef(null)
   if (!storeRef.current) storeRef.current = new LocalDocumentStore(window.localStorage)
   const store = storeRef.current
-  const [dockPlacement, setDockPlacement] = useState(() => store.readText('noir-dock-placement', 'top') === 'bottom' ? 'bottom' : 'top')
-  useEffect(() => {
-    document.documentElement.dataset.dock = dockPlacement
-    store.writeText('noir-dock-placement', dockPlacement)
-  }, [dockPlacement, store])
   const restoredWorkspace = initialWorkspace?.version === 1 ? initialWorkspace : null
   const [workspace, setWorkspace] = useState(() => loadWorkspace(store, restoredWorkspace))
   const workspaceRef = useRef(workspace)
@@ -382,6 +381,7 @@ function App({ initialWorkspace }) {
   const lastSourceSyncRef = useRef({ taskId: '', sourceDraft: '', status: null })
   const [sourceTrusted, setSourceTrusted] = useState(() => activeTask.sourceTrusted !== false)
   const [settings, setSettings] = useState(() => sanitizeSettings(activeTask.settings))
+  const [spellingSourceView, setSpellingSourceView] = useState(null)
   const [assets, setAssets] = useState(() => activeTask.assets || [])
   const assetsRef = useRef(assets)
   assetsRef.current = assets
@@ -429,8 +429,6 @@ function App({ initialWorkspace }) {
   })
   const [compileState, setCompileState] = useState('waiting')
   const [compileError, setCompileError] = useState('')
-  const [compileRetry, setCompileRetry] = useState(0)
-  const consumedRetryRef = useRef(0)
   const [customTemplates, setCustomTemplates] = useState(() => sanitizeFormulaTemplates(restoredWorkspace?.customTemplates ?? store.readJson('latex-custom-templates', [])))
   const [docData, setDocData] = useState(() => {
     const storedDocument = activeTask.document
@@ -478,6 +476,7 @@ function App({ initialWorkspace }) {
       if (transaction) createdEditor.view.dispatch(transaction.setMeta('unicodeScriptsSkip', true))
     },
     onUpdate: ({ editor: updatedEditor, transaction, appendedTransactions }) => {
+      if (!transaction.docChanged && !appendedTransactions?.some(item => item.docChanged)) return
       if (summaryModeRef.current) return
       const version = ++docSnapshotVersionRef.current
       window.clearTimeout(docSnapshotTimerRef.current)
@@ -961,7 +960,7 @@ function App({ initialWorkspace }) {
       .then(module => setKatexRenderer(() => module.default))
       .catch(error => console.error('Không thể tải KaTeX:', error))
   }, [formulaOpen, libraryOpen, katexRenderer])
-  const captureCompileInput = useCallback(() => {
+  const captureCompileInput = useCallback(({ trusted = sourceTrusted } = {}) => {
     // Manual update/export reads the editor itself, not its deferred 120 ms snapshot.
     const live = toLatex(editor?.getJSON() || docData, title, activeDocumentTemplate?.source, settings)
     const source = sourceEditedRef.current
@@ -970,7 +969,7 @@ function App({ initialWorkspace }) {
     return {
       id: activeTask.id, source, images: live.images, assets: compileAssets,
       pageCount: sourceEdited ? estimateSourcePages(source) : editorPageCount,
-      blocked: !sourceTrusted ? 'Source nhập từ ngoài đang chờ bạn xác nhận tin cậy.'
+      blocked: !trusted ? 'Source nhập từ ngoài đang chờ bạn xác nhận tin cậy.'
         : compileAssetError ? `Không thể biên dịch với cấu hình tài nguyên hiện tại. ${compileAssetError}` : '',
     }
   }, [editor, docData, title, activeDocumentTemplate?.source, settings, activeTask.id, compileAssets, sourceTrusted, sourceEdited, compileAssetError, editorPageCount])
@@ -1020,11 +1019,6 @@ function App({ initialWorkspace }) {
     }, 150)
     return () => { disposed = true; window.clearTimeout(timer) }
   }, [captureCompileInput, sharedPdfRevision])
-  useEffect(() => {
-    if (consumedRetryRef.current === compileRetry) return
-    consumedRetryRef.current = compileRetry
-    void pdfSchedulerRef.current?.request(captureCompileInput(), { fresh: true }).catch(() => {})
-  }, [compileRetry, captureCompileInput])
   useEffect(() => () => { if (pdfUrl) URL.revokeObjectURL(pdfUrl) }, [pdfUrl])
   useEffect(() => {
     if (activeDocumentTemplateId && ![...builtInDocumentTemplates, ...documentTemplates].some(item => item.id === activeDocumentTemplateId)) setActiveDocumentTemplateId('')
@@ -1357,6 +1351,7 @@ function App({ initialWorkspace }) {
       let status = await window.desktopAPI.syncStatus()
       setSyncStatus(status)
       if (action === 'auto' && status.mode === 'off') return
+      if (action === 'keep-awake') { setSyncStatus(await window.desktopAPI.setSyncKeepAwake(value)); return }
       if (!await persistWorkspaceRef.current?.(action !== 'auto')) throw new Error('Chưa lưu được dữ liệu; lượt đồng bộ đã dừng để bảo vệ bản thảo.')
       const submitted = captureForSync()
       if (action === 'invite') return await window.desktopAPI.syncInvitation(value)
@@ -1452,17 +1447,6 @@ function App({ initialWorkspace }) {
     setSourceTrusted(false)
     return `Đã thêm ${incoming.length} tệp. Xác nhận tin cậy trước khi biên dịch tài nguyên mới.`
   }
-  const clearCache = async () => {
-    if (window.desktopAPI?.clearCompileCache) await window.desktopAPI.clearCompileCache()
-    else {
-      const response = await fetch('/api/cache/clear', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
-      if (!response.ok) {
-        const result = await response.json().catch(() => ({}))
-        throw new Error(result.error || `Không thể xóa cache (HTTP ${response.status}).`)
-      }
-    }
-    setCompileRetry(value => value + 1)
-  }
   const editorPane = <EditorPane
     compactTools
     readOnly={summaryMode}
@@ -1494,6 +1478,7 @@ function App({ initialWorkspace }) {
     sourceDraftBackupAvailable={sourceDraftBackupAvailable}
     onRestoreSourceDraft={restoreSourceDraft}
   />
+  const updatePdf = () => { void pdfSchedulerRef.current?.request(captureCompileInput(), { fresh: true }).catch(() => {}) }
   const previewPane = <PdfPreviewPane
     pdfShared={pdfShared}
     collapsibleTools
@@ -1502,13 +1487,13 @@ function App({ initialWorkspace }) {
     pdfMode={pdfMode}
     onPdfModeChange={setPdfMode}
     compileBlocked={!sourceTrusted || Boolean(compileAssetError)}
-    onUpdate={() => { void pdfSchedulerRef.current?.request(captureCompileInput()).catch(() => {}) }}
+    onUpdate={updatePdf}
     latexOpen={latexOpen}
     onToggleLatex={() => setLatexOpen(value => !value)}
     sourceEdited={sourceEdited}
     effectiveLatex={effectiveLatex}
     compileError={compileError}
-    onRetry={() => setCompileRetry(value => value + 1)}
+    onRetry={updatePdf}
     pdfUrl={pdfUrl}
     images={serialization.images}
     imageFocusKey={`${activeTask.id}:${imageFocusVersion}:${imageSummary.count}`}
@@ -1516,6 +1501,7 @@ function App({ initialWorkspace }) {
     compileLog={compileLog}
   />
   const sourcePane = <LatexSourcePane
+    onSourceReady={setSpellingSourceView}
     readOnly={summaryMode}
     exportBlocked={summaryMode && Boolean(compileAssetError)}
     effectiveLatex={effectiveLatex}
@@ -1571,8 +1557,6 @@ function App({ initialWorkspace }) {
       />}
       <div className="mono-shell" inert={modalOpen || (!focusMode && isCompact && mobileNavOpen)}>
       {!focusMode ? <DocumentHeader
-        dockPlacement={dockPlacement}
-        onToggleDock={() => setDockPlacement(value => value === 'top' ? 'bottom' : 'top')}
         readOnly={summaryMode}
         onOpenManager={() => openManager()} title={title} projectName={activeProject.name}
         onTitleChange={event => { if (!summaryMode) setTitle(event.target.value) }} saved={saved} theme={theme}
@@ -1586,7 +1570,7 @@ function App({ initialWorkspace }) {
         <span className="studio-save studio-focus-save" role="status" data-saving={!saved}>{saved ? 'Đã lưu' : 'Đang lưu…'}</span>
       </div>}
 
-      {!sourceTrusted && <div className="studio-trust-banner" role="status"><span>Tài liệu, source hoặc tài nguyên nhập từ ngoài chưa được xác nhận để biên dịch trên máy này. XeLaTeX cục bộ có thể đọc tệp trên máy; chỉ tiếp tục khi bạn tin cậy tài liệu.</span><button type="button" onClick={() => { setSourceTrusted(true); setCompileRetry(value => value + 1) }}>Tin cậy và biên dịch</button></div>}
+      {!sourceTrusted && <div className="studio-trust-banner" role="status"><span>Tài liệu, source hoặc tài nguyên nhập từ ngoài chưa được xác nhận để biên dịch trên máy này. XeLaTeX cục bộ có thể đọc tệp trên máy; chỉ tiếp tục khi bạn tin cậy tài liệu.</span><button type="button" onClick={() => { setSourceTrusted(true); void pdfSchedulerRef.current?.request(captureCompileInput({ trusted: true }), { fresh: true }).catch(() => {}) }}>Tin cậy và biên dịch</button></div>}
       {workspaceNotice && <div className="studio-trust-banner" role="status"><span>{workspaceNotice}</span><button type="button" onClick={() => setWorkspaceNotice('')}>Đã hiểu</button></div>}
       {(syncStatus?.error || syncStatus?.conflicts?.length > 0) && <div className="studio-trust-banner" role="status"><span>{syncStatus.error || `Đồng bộ LAN: ${syncStatus.conflicts.length} xung đột cần chọn phiên bản.`}</span><button type="button" onClick={() => { setManagerContext({ tab: 'sync' }); setManagerOpen(true) }}>Mở Đồng bộ LAN</button></div>}
 
@@ -1598,7 +1582,10 @@ function App({ initialWorkspace }) {
               onSelect={switchToTask} onCreate={() => createItem('task')} onAction={workspaceAction}
               onSummary={() => { saveCurrentTaskSnapshot(); const project = workspaceRef.current.projects.find(item => item.id === activeProject.id); summaryModeRef.current = true; setSummaryMode(true); loadTaskIntoEditor(compileProject(project)) }} />
             {summaryMode && compilation.errors.length > 0 && <div className="studio-trust-banner" role="alert">{compilation.errors.join(' ')}</div>}
-            {!focusMode && <WorkflowBar mode={currentView} onModeChange={changeView} compileState={compileState} pdfStale={pdfStale} sourceEdited={sourceEdited} />}
+            {!focusMode && <WorkflowBar compileState={compileState} pdfStale={pdfStale} sourceEdited={sourceEdited} />}
+            <SpellcheckTools key={activeTask.id} editor={editor} sourceView={spellingSourceView} source={effectiveLatex} sourceMode={currentView === 'source'} title={title} onTitle={setTitle} settings={settings} onSettings={setSettings} readOnly={summaryMode}>
+              <AiTools editor={editor} sourceView={spellingSourceView} sourceMode={currentView === 'source'} compileError={compileError} source={effectiveLatex} onSettings={setSettings} readOnly={summaryMode} onOpenSettings={() => { setManagerContext({ tab: 'ai' }); setManagerOpen(true) }} />
+            </SpellcheckTools>
             <div className="mono-workspace-content min-h-0 flex-1 overflow-hidden">
               {!isCompact && currentView === 'split'
                 ? <Group
@@ -1692,7 +1679,7 @@ function App({ initialWorkspace }) {
         onImport={async file => { await appendIncoming(await importWorkspace(file)); return 'Đã nhập bản sao các dự án.' }}
         onImportLatex={importLatex} onImportWord={importWord} onExportWord={async () => { await writeWord(editor?.getJSON() || docData, title, settings, activeDocumentTemplate?.source); return 'Đã xuất Word. Trích dẫn và danh mục tài liệu theo kiểu đã chọn; tham chiếu chéo được giữ dưới dạng tên nhãn — hãy rà soát bố cục trong Word.' }}
         onOpenReferences={tab => { setManagerOpen(false); setManagerContext(null); openReferencesDialog(tab) }}
-        clearCache={clearCache} notice={workspaceNotice} updates={updates} syncStatus={syncStatus} onSyncAction={(action, value) => syncActionRef.current(action, value)} />}
+        notice={workspaceNotice} updates={updates} syncStatus={syncStatus} onSyncAction={(action, value) => syncActionRef.current(action, value)} />}
       {referencesDialog && <ReferencesDialog open key={`${referencesDialog.tab}-${referencesDialog.editing?.pos ?? 'new'}`} initialTab={referencesDialog.tab} editing={referencesDialog.editing} insertionSelection={referencesDialog.insertionSelection} editor={editor}
         settings={settings} onSettings={setSettings} templateSource={activeDocumentTemplate?.source} sourceEdited={sourceEdited} onClose={closeReferencesDialog} />}
       <WorkspaceDialog

@@ -69,7 +69,6 @@ func (s *Service) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", s.health)
 	mux.HandleFunc("GET /api/environment", s.environment)
-	mux.HandleFunc("POST /api/cache/clear", s.clearCache)
 	mux.HandleFunc("POST /api/compile", s.compile)
 	mux.HandleFunc("POST /api/word/import", s.importWord)
 	mux.HandleFunc("POST /api/word/export", s.exportWord)
@@ -96,6 +95,13 @@ func (s *Service) authorize(next http.Handler) http.Handler {
 		stop := context.AfterFunc(s.lifecycle, cancel)
 		defer stop()
 		defer cancel()
+		// AfterFunc invokes cancellation asynchronously. Check the lifecycle
+		// before dispatch so an already stopped service cannot report ready
+		// or execute another handler while that callback is still pending.
+		if s.lifecycle.Err() != nil {
+			writeServiceError(w, backendStoppingError())
+			return
+		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -105,7 +111,7 @@ func allowedOrigin(raw string) bool {
 		return true
 	}
 	origin, err := url.Parse(raw)
-	if err != nil || origin.User != nil || (origin.Scheme != "http" && origin.Scheme != "https") {
+	if err != nil || origin.User != nil || origin.Path != "" || strings.ContainsAny(raw, "?#") || (origin.Scheme != "http" && origin.Scheme != "https") {
 		return false
 	}
 	host := strings.ToLower(origin.Hostname())
@@ -141,10 +147,6 @@ func (s *Service) environment(w http.ResponseWriter, r *http.Request) {
 	compiler := s.latex.environment(r.Context())
 	word := s.word.environment(r.Context())
 	writeJSON(w, http.StatusOK, map[string]any{"compiler": compiler, "word": word})
-}
-
-func (s *Service) clearCache(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, s.latex.clearCache())
 }
 
 func (s *Service) compile(w http.ResponseWriter, r *http.Request) {

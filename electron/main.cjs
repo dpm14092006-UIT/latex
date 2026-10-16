@@ -1,13 +1,15 @@
-const { app, BrowserWindow, dialog, ipcMain, Menu, net, powerMonitor, protocol, screen, session, shell } = require('electron')
+const { app, BrowserWindow, dialog, ipcMain, Menu, net, powerMonitor, powerSaveBlocker, protocol, safeStorage, screen, session, shell } = require('electron')
 const { existsSync, mkdirSync, readFileSync } = require('node:fs')
 const { writeFile } = require('node:fs/promises')
 const { basename, isAbsolute, join, resolve } = require('node:path')
 const { pathToFileURL } = require('node:url')
 const { APP_HOST, APP_SCHEME, createRendererProtocolHandler, isTrustedDevRendererUrl } = require('./app-protocol.cjs')
 const { createWorkspaceStore } = require('./workspace-store.cjs')
+const { createSpellcheckStore } = require('./spellcheck-store.cjs')
+const { createGemini } = require('./gemini.cjs')
 const { safeExternalUrl } = require('./external-links.cjs')
 const { startGoBackend } = require('./backend-client.cjs')
-const { createLanSync } = require('./lan-sync.cjs')
+const { createLanSync, lanAddresses } = require('./lan-sync.cjs')
 const { createUpdater } = require('./updater.cjs')
 
 protocol.registerSchemesAsPrivileged([{
@@ -22,15 +24,31 @@ const usesBuiltRenderer = () => app.isPackaged || !process.env.ELECTRON_RENDERER
 let mainWindow
 const compileControllers = new Map()
 let workspaceStore
+let spellcheckStore
+let gemini
 let backend
 let backendShutdownPromise
 let allowApplicationQuit = false
 let quitRequested = false
 let lanSync
 let syncTickTimer
+let keepAwakeBlocker = null
+const inspectFirewall = process.platform === 'win32' ? require('./win/firewall.cjs').createFirewallInspector() : null
 let updater
 const requestSyncTick = () => {
   if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) mainWindow.webContents.send('sync:tick')
+}
+// A request cut off by sleep would otherwise hold the sync queue until it times out.
+const interruptSync = () => lanSync?.interrupt()
+// Wi-Fi usually reconnects a moment after wake, so retry once more shortly after.
+const syncAfterResume = () => { requestSyncTick(); setTimeout(requestSyncTick, 2000).unref() }
+// Opt-in: a host that sleeps when its screen turns off leaves paired machines
+// unable to sync. Blocks system sleep only; the display may still turn off.
+function applyKeepAwake() {
+  const status = lanSync?.status()
+  const wanted = Boolean(status?.mode === 'host' && status.keepAwake && !backendShutdownPromise)
+  if (wanted && keepAwakeBlocker === null) keepAwakeBlocker = powerSaveBlocker.start('prevent-app-suspension')
+  if (!wanted && keepAwakeBlocker !== null) { powerSaveBlocker.stop(keepAwakeBlocker); keepAwakeBlocker = null }
 }
 
 function configureUserDataPath() {
@@ -140,12 +158,15 @@ async function shutdownApplication() {
   if (backendShutdownPromise) return backendShutdownPromise
   clearInterval(syncTickTimer)
   updater?.stop()
-  powerMonitor.removeListener('resume', requestSyncTick)
+  powerMonitor.removeListener('resume', syncAfterResume)
+  powerMonitor.removeListener('suspend', interruptSync)
+  if (keepAwakeBlocker !== null) { powerSaveBlocker.stop(keepAwakeBlocker); keepAwakeBlocker = null }
   for (const controller of compileControllers.values()) controller.abort()
+  gemini?.cancel()
   backendShutdownPromise = Promise.resolve(backendRestartPromise).catch(() => {}).then(async () => {
     // Wait for queued workspace writes (a save can arrive after the close flush)
     // and stop every service even if one of them fails.
-    const results = await Promise.allSettled([workspaceStore?.whenIdle(), lanSync?.stop(), backend?.stop()])
+    const results = await Promise.allSettled([workspaceStore?.whenIdle(), spellcheckStore?.whenIdle(), gemini?.whenIdle(), lanSync?.stop(), backend?.stop()])
     for (const result of results) if (result.status === 'rejected') console.error('Không thể dừng dịch vụ sạch sẽ:', result.reason)
   }).finally(() => {
     allowApplicationQuit = true
@@ -155,12 +176,26 @@ async function shutdownApplication() {
 }
 
 function registerNativeActions() {
-  const syncAction = action => async (event, ...args) => { assertTrustedSender(event); if (!lanSync) throw new Error('Dịch vụ đồng bộ chưa sẵn sàng.'); return lanSync[action](...args) }
-  for (const [channel, action] of Object.entries({ status: 'status', configure: 'configure', exchange: 'exchange', acknowledge: 'acknowledge', resolve: 'resolve', invitation: 'invitation', revoke: 'revoke', 'pdf-publish': 'publishPdf', 'pdf-get': 'getPdf' })) ipcMain.handle(`sync:${channel}`, syncAction(action))
+  const syncAction = action => async (event, ...args) => {
+    assertTrustedSender(event)
+    if (!lanSync) throw new Error('Dịch vụ đồng bộ chưa sẵn sàng.')
+    // Mode and keep-awake changes both decide whether sleep must be blocked.
+    try { return await lanSync[action](...args) } finally { applyKeepAwake() }
+  }
+  for (const [channel, action] of Object.entries({ status: 'status', configure: 'configure', exchange: 'exchange', acknowledge: 'acknowledge', resolve: 'resolve', invitation: 'invitation', revoke: 'revoke', 'keep-awake': 'setKeepAwake', 'pdf-publish': 'publishPdf', 'pdf-get': 'getPdf' })) ipcMain.handle(`sync:${channel}`, syncAction(action))
+  // Windows only: whether the firewall lets paired machines reach this host
+  // through the adapter that carries `address`. Null elsewhere or when unknown.
+  ipcMain.handle('sync:firewall', async (event, address, refresh) => {
+    assertTrustedSender(event)
+    if (!inspectFirewall) return null
+    const adapter = lanAddresses().find(item => item.address === address)
+    return adapter ? inspectFirewall(adapter.name, { refresh: refresh === true }) : null
+  })
   ipcMain.handle('system:help', (event, topic) => {
     assertTrustedSender(event)
-    const pages = { tex: process.platform === 'win32' ? 'https://miktex.org/download' : 'https://www.tug.org/mactex/', word: 'https://pandoc.org/installing.html' }
-    if (!pages[topic]) throw new Error('Trang trợ giúp không hợp lệ.')
+    const pages = { tex: process.platform === 'win32' ? 'https://miktex.org/download' : 'https://www.tug.org/mactex/', word: 'https://pandoc.org/installing.html', gemini: 'https://aistudio.google.com/app/apikey' }
+    if (process.platform === 'win32') Object.assign(pages, { network: 'ms-settings:network-status', firewall: 'windowsdefender://network/' })
+    if (!Object.hasOwn(pages, topic)) throw new Error('Trang trợ giúp không hợp lệ.')
     return shell.openExternal(pages[topic])
   })
   const updateAction = action => async (event, ...args) => { assertTrustedSender(event); if (!updater) throw new Error('Dịch vụ cập nhật chưa sẵn sàng.'); return updater[action](...args) }
@@ -177,13 +212,21 @@ function registerNativeActions() {
     return shell.openExternal(page)
   })
   ipcMain.handle('workspace:backups', event => { assertTrustedSender(event); return workspaceStore.listBackups() })
+  ipcMain.handle('spellcheck:load', event => { assertTrustedSender(event); return spellcheckStore.load() })
+  const aiAction = action => async (event, ...args) => { assertTrustedSender(event); if (!gemini) throw new Error('Trợ lý AI chưa sẵn sàng.'); return gemini[action](...args) }
+  for (const [channel, action] of Object.entries({ status: 'status', actions: 'actions', 'set-key': 'setKey', 'clear-key': 'clearKey', models: 'models', 'set-model': 'setModel', generate: 'generate', cancel: 'cancel' })) ipcMain.handle(`ai:${channel}`, aiAction(action))
+  ipcMain.handle('spellcheck:mutate', async (event, action, input) => {
+    assertTrustedSender(event)
+    const result = await spellcheckStore.mutate(action, input)
+    for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed()) window.webContents.send('spellcheck:changed', result)
+    return result
+  })
   ipcMain.handle('workspace:backup', event => { assertTrustedSender(event); return workspaceStore.backup() })
   ipcMain.handle('workspace:read-backup', (event, id) => { assertTrustedSender(event); return workspaceStore.readBackup(id) })
   ipcMain.handle('system:environment', async event => {
     assertTrustedSender(event)
     return { ...await (await getBackend()).environment(), version: app.getVersion(), platform: process.platform }
   })
-  ipcMain.handle('latex:clear-cache', event => { assertTrustedSender(event); return getBackend().then(client => client.clearCache()) })
   ipcMain.handle('latex:parse-source', (event, source) => { assertTrustedSender(event); return getBackend().then(client => client.parseLatexSource(source)) })
   ipcMain.handle('citation:doi', (event, doi) => { assertTrustedSender(event); return getBackend().then(client => client.lookupDoi(doi)) })
   ipcMain.handle('word:convert', (event, direction, input) => { assertTrustedSender(event); return getBackend().then(client => client.convertWord(direction, input)) })
@@ -383,6 +426,10 @@ else {
 Bạn vẫn có thể soạn thảo; biên dịch PDF sẽ thử khởi động lại backend.`)
       })
       workspaceStore = createWorkspaceStore(app)
+      spellcheckStore = createSpellcheckStore(app.getPath('userData'))
+      // Desktop tests point the assistant at a local mock; packaged builds always use Google.
+      const testGeminiApi = !app.isPackaged && /^http:\/\/127\.0\.0\.1:\d+$/.test(process.env.VIETLATEX_TEST_GEMINI_API || '') ? process.env.VIETLATEX_TEST_GEMINI_API : undefined
+      gemini = createGemini({ directory: app.getPath('userData'), safeStorage, fetch: (url, init) => net.fetch(url, init), api: testGeminiApi })
       lanSync = createLanSync({ directory: app.getPath('userData'), appPath: app.getAppPath() })
       try { await lanSync.init() } catch (error) {
         console.error('Không mở được hồ sơ đồng bộ:', error)
@@ -407,7 +454,9 @@ Bạn vẫn có thể soạn thảo; biên dịch PDF sẽ thử khởi động 
       // polling must keep running while either machine's app is in the background.
       syncTickTimer = setInterval(requestSyncTick, 5000)
       syncTickTimer.unref()
-      powerMonitor.on('resume', requestSyncTick)
+      powerMonitor.on('resume', syncAfterResume)
+      powerMonitor.on('suspend', interruptSync)
+      applyKeepAwake()
     } catch (error) {
       dialog.showErrorBox('Không thể mở Viết & Công Thức', error.message || 'Lỗi khởi động ứng dụng.')
       app.quit()

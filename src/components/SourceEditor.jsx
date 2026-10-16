@@ -7,6 +7,7 @@ import { HighlightStyle, StreamLanguage, syntaxHighlighting, bracketMatching } f
 import { tags } from '@lezer/highlight'
 import { stex } from '@codemirror/legacy-modes/mode/stex'
 import { acceptsSourceEdit } from '../services/DocumentLimits.js'
+import { sourceSpellingField } from '../services/SourceSpellcheckExtension.js'
 
 // Two-colour syntax: structure is carried by weight, slant and underline instead of hue.
 const monochromeHighlight = HighlightStyle.define([
@@ -18,7 +19,7 @@ const monochromeHighlight = HighlightStyle.define([
   { tag: tags.invalid, textDecoration: 'line-through' },
 ])
 
-export default function SourceEditor({ readOnly = false, value, onChange, onLimitError, errorLine, identity }) {
+export default function SourceEditor({ readOnly = false, value, onChange, onLimitError, errorLine, identity, onReady }) {
   const host = useRef(null), view = useRef(null), callback = useRef(onChange), external = useRef(false), lastLocalValue = useRef(value)
   const rejected = useRef(onLimitError)
   callback.current = onChange
@@ -27,7 +28,7 @@ export default function SourceEditor({ readOnly = false, value, onChange, onLimi
     lastLocalValue.current = value
     const instance = new EditorView({ parent: host.current, state: EditorState.create({ doc: value, extensions: [
       EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly),
-      lineNumbers(), highlightActiveLine(), drawSelection(), history(), bracketMatching(), highlightSelectionMatches(),
+      lineNumbers(), highlightActiveLine(), drawSelection(), history(), bracketMatching(), highlightSelectionMatches(), sourceSpellingField,
       EditorState.transactionFilter.of(transaction => {
         if (!transaction.docChanged || external.current || acceptsSourceEdit(transaction.startState.doc.toString(), transaction.newDoc.toString())) return transaction
         rejected.current?.('Source LaTeX vượt giới hạn 800 KB. Thao tác vừa nhập chưa được áp dụng; hãy giảm nội dung trước khi biên dịch.')
@@ -59,10 +60,11 @@ export default function SourceEditor({ readOnly = false, value, onChange, onLimi
       }),
     ] }) })
     view.current = instance
-    return () => { instance.destroy(); view.current = null }
+    onReady?.(instance)
+    return () => { onReady?.(null); instance.destroy(); view.current = null }
   // The editor instance is recreated when the document identity changes; the following effect applies later value updates.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [identity, readOnly])
+  }, [identity, readOnly, onReady])
   useEffect(() => {
     const instance = view.current
     if (!instance || value === lastLocalValue.current) return
