@@ -1,4 +1,5 @@
 import { AlignLeft, Check, FileCode2, FileDown, LayoutPanelLeft, Menu, Moon, PanelTopClose, PanelRight, Settings2, Sun } from 'lucide-react'
+import { UpdateButton } from './UpdatePanel.jsx'
 
 const views = [
   { id: 'write', label: 'Soạn thảo', Icon: AlignLeft },
@@ -7,7 +8,7 @@ const views = [
   { id: 'preview', label: 'Bản in', Icon: PanelRight },
 ]
 
-export default function DocumentHeader({ readOnly = false, title, projectName, onTitleChange, saved, theme, onToggleTheme, exporting, canExport, onExport, mode, onModeChange, onToggleFocus, onToggleNav, navOpen, onOpenManager, isCompact }) {
+export default function DocumentHeader({ readOnly = false, title, projectName, onTitleChange, saved, theme, onToggleTheme, exporting, canExport, onExport, mode, onModeChange, onToggleFocus, onToggleNav, navOpen, onOpenManager, isCompact, updates }) {
   return <>
     <header className="studio-header mono-topbar">
       <div className="mono-top-left">
@@ -24,6 +25,7 @@ export default function DocumentHeader({ readOnly = false, title, projectName, o
         <button type="button" className="btn btn--icon btn--ghost" onClick={onToggleTheme} title={theme === 'dark' ? 'Nền trắng' : 'Nền đen'} aria-label={theme === 'dark' ? 'Nền trắng' : 'Nền đen'}>{theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}</button>
         <button type="button" className="btn btn--icon btn--ghost" onClick={onToggleFocus} title="Chế độ tập trung" aria-label="Chế độ tập trung"><PanelTopClose size={16} /></button>
         <span className="mono-top-divider" />
+        {updates?.supported && <UpdateButton updates={updates} />}
         <button type="button" className="btn mono-settings" title="Quản lý tài liệu, sao lưu và thiết lập" aria-label="Quản lý tài liệu" onClick={onOpenManager}><Settings2 size={15} /><span>Thiết lập</span></button>
         <button type="button" className="btn btn--solid studio-export" onClick={onExport} disabled={exporting || !canExport} title={canExport ? 'Cập nhật nội dung mới nhất rồi lưu PDF' : 'Kiểm tra nguồn và tài nguyên trước khi xuất PDF'} aria-label="Xuất PDF"><FileDown size={15} /><span>{exporting ? 'Đang chuẩn bị…' : 'Xuất PDF'}</span></button>
       </div>

@@ -1558,7 +1558,7 @@ function App({ initialWorkspace }) {
       <div className="mono-shell" inert={modalOpen || (!focusMode && isCompact && mobileNavOpen)}>
       {!focusMode ? <DocumentHeader
         readOnly={summaryMode}
-        onOpenManager={() => openManager()} title={title} projectName={activeProject.name}
+        onOpenManager={() => openManager()} updates={updates} title={title} projectName={activeProject.name}
         onTitleChange={event => { if (!summaryMode) setTitle(event.target.value) }} saved={saved} theme={theme}
         onToggleTheme={() => setTheme(value => value === 'dark' ? 'light' : 'dark')}
         exporting={exporting} canExport={(sourceTrusted && !compileAssetError) || (pdfCached && !pdfStale)} onExport={exportPdf}

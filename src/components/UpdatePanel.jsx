@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { RefreshCw } from 'lucide-react'
 
 const isWindows = () => typeof window !== 'undefined' && window.desktopAPI?.platform === 'win32'
 
@@ -44,4 +45,29 @@ export default function UpdatePanel({ updates }) {
     <label className="studio-checkbox"><input type="checkbox" checked={status?.autoCheck !== false} disabled={!status} onChange={event => act('setAutoCheck', event.target.checked)} />Tự kiểm tra bản mới khi mở app và mỗi 6 giờ</label>
     <p>{isWindows() ? 'Bản cập nhật tải từ GitHub Releases và được kiểm tra SHA-256. Tài liệu được lưu và tạo điểm khôi phục, app thoát rồi bộ cài chạy im lặng và mở lại app.' : 'Bản cập nhật tải từ GitHub Releases, được kiểm tra SHA-256, chữ ký và mã ứng dụng trước khi cài. Tài liệu được lưu và tạo điểm khôi phục trước khi thay app; bản cũ được giữ trong “VietLatex Upgrade Backups”.'}</p>
   </section>
+}
+
+// One header button walks the whole update: check, download, then install.
+export function UpdateButton({ updates }) {
+  const { status, call } = updates
+  const [error, setError] = useState('')
+  const state = status?.status
+  const busy = updateBusy(status)
+  const action = state === 'ready' ? 'install' : state === 'available' ? (status.downloadable ? 'download' : 'openPage') : 'check'
+  const label = state === 'checking' ? 'Đang kiểm tra…'
+    : state === 'downloading' ? `Đang tải ${Math.round((status.progress || 0) * 100)}%`
+      : state === 'installing' ? 'Đang cài…'
+        : state === 'ready' ? `Cài bản ${status.version}`
+          : state === 'available' ? `Cập nhật ${status.version}`
+            : state === 'up-to-date' ? 'Đã mới nhất'
+              : 'Cập nhật'
+  const run = async () => {
+    setError('')
+    try { await call(action) } catch (failure) { setError(failure.message || 'Không cập nhật được.') }
+  }
+  const pending = state === 'available' || state === 'ready'
+  return <button type="button" className={`btn studio-update-button${pending ? ' is-pending' : ''}`} disabled={busy} onClick={run}
+    title={error || updateSummary(status)} aria-label={`${label}. ${error || updateSummary(status)}`}>
+    <RefreshCw size={15} className={busy ? 'is-spinning' : ''} /><span>{label}</span>
+  </button>
 }

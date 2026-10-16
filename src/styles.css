@@ -548,3 +548,10 @@ textarea.field { font-family: var(--font-mono); font-size: 12px; line-height: 1.
 .lan-sync-panel .studio-notice { overflow-wrap: anywhere; }
 .lan-sync-compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; padding: 12px 0; }
 .lan-sync-compare pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; font: inherit; }
+
+/* Nút cập nhật trên thanh tiêu đề */
+.studio-update-button { position: relative; }
+.studio-update-button.is-pending::after { position: absolute; top: 3px; right: 3px; width: 7px; height: 7px; border-radius: 50%; background: #e5484d; content: ""; }
+.studio-update-button .is-spinning { animation: studio-update-spin 1s linear infinite; }
+@keyframes studio-update-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .studio-update-button .is-spinning { animation: none; } }
