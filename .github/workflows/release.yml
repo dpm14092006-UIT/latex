@@ -65,7 +65,7 @@ jobs:
           cd release-desktop/mac
           shasum -a 256 -c "Viet-Latex-Studio-$VERSION-universal.dmg.sha256"
           mv manifest.json manifest-mac.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-mac
           if-no-files-found: error
@@ -110,7 +110,7 @@ jobs:
           cd release-desktop/win
           sha256sum -c "Viet-Latex-Studio-$VERSION-Setup.exe.sha256"
           mv manifest.json manifest-win.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-win
           if-no-files-found: error
