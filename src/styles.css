@@ -300,11 +300,11 @@ textarea.field { font-family: var(--font-mono); font-size: 12px; line-height: 1.
   [style*='color: rgb(0,0,0)'], [style*='color: rgba(0, 0, 0, 1)']
 ):not(mark, mark *) { color: var(--fg) !important; }
 .academic-reference { padding: 0 3px; border: var(--rule); border-radius: 3px; font-size: .9em; }
-.academic-citation { padding: 0 1px; border: 0; border-radius: 2px; cursor: pointer; }
+.academic-citation { padding: 0 1px; border: 0; border-radius: 2px; cursor: pointer; font-weight: 700; }
 .academic-citation:hover, .academic-citation.ProseMirror-selectednode { background: var(--accent-soft); }
 .academic-citation[data-citation-label] > .academic-citation-key { display: none; }
 .academic-citation[data-citation-label]::after { content: attr(data-citation-label); }
-.academic-citation[data-citation-missing]::after { text-decoration: underline wavy var(--bad, #c0392b); }
+.academic-citation[data-citation-missing] { text-decoration: underline wavy var(--bad, #c0392b); }
 
 /* ---------- Citations & reference list ---------- */
 .cite-dialog { display: grid; gap: 10px; }

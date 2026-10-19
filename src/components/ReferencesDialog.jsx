@@ -99,7 +99,7 @@ export default function ReferencesDialog({ open, initialTab = 'cite', editing = 
     editor.view.dispatch(result.transaction)
     editor.view.dispatch(closeHistory(editor.state.tr))
     editor.commands.focus()
-    setMessage(formatShortcut(`Đã xóa ${result.count} vị trí trích dẫn khỏi bản thảo. Danh mục tài liệu vẫn được giữ nguyên; nhấn Ctrl+Z để hoàn tác riêng thao tác xóa.`))
+    setMessage(formatShortcut(`Đã bỏ liên kết cite ở ${result.count} vị trí. Cụm gốc được giữ lại để bạn sửa; danh mục tài liệu vẫn còn. Nhấn Ctrl+Z để hoàn tác thao tác này.`))
   }
 
   const applyCitation = keysToInsert => {

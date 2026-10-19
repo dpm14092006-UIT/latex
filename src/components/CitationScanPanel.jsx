@@ -125,7 +125,7 @@ export default function CitationScanPanel({ editor, entries, settings, onSetting
   }
 
   return <div className="cite-dialog">
-    <p className="cite-preview">Quét cả Sousa et al. (2025), Giri and Chen (2022), (Tác giả, năm), [12] và [@smith2021]. Trích dẫn tường thuật giữ tác giả trong câu; năm hoặc số hiển thị theo kiểu trích dẫn bạn chọn.</p>
+    <p className="cite-preview">Quét cả Sousa et al. (2025), Giri and Chen (2022), (Tác giả, năm), [12] và [@smith2021]. Sau khi Cite, cụm gốc được giữ nguyên và in đậm trong bản thảo; LaTeX/PDF xuất theo kiểu trích dẫn bạn chọn. Trích dẫn tường thuật vẫn giữ tác giả trong câu.</p>
     <label className="label" htmlFor="citation-source-map">Danh mục số gốc dùng để đối chiếu [12]</label>
     <select id="citation-source-map" className="field" value={sourceId} onChange={event => { setSourceId(event.target.value); if (scan) runScan(event.target.value) }}>
       <option value="">Chưa chọn — chọn REF thủ công cho trích dẫn số</option>

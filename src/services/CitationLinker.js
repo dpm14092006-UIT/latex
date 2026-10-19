@@ -361,12 +361,21 @@ export function linkCitationTransaction(state, scan, choices, entries) {
     const mode = row.mode || (row.kind === 'narrative' ? 'narrative' : 'parenthetical')
     const replacement = []
     const segments = row.segments || [{ indexes: choices[row.id].map((_, index) => index), suffixText: row.suffixText }]
+    const sourceParts = []
     for (const [index, segment] of segments.entries()) {
-      if (index) replacement.push(state.schema.text('; ', marks))
       const segmentKeys = [...new Set(segment.indexes.map(groupIndex => choices[row.id][groupIndex]))]
-      replacement.push(state.schema.nodes.citation.create({ key: segmentKeys.join(','), mode }, null, marks))
-      if (segment.suffixText) replacement.push(state.schema.text(segment.suffixText, marks))
+      sourceParts.push({
+        key: segmentKeys.join(','),
+        separatorBefore: index ? '; ' : '',
+        suffixText: segment.suffixText || '',
+      })
     }
+    replacement.push(state.schema.nodes.citation.create({
+      key: keys.join(','),
+      mode,
+      sourceText: row.text,
+      sourceParts,
+    }, null, marks))
     tr.replaceWith(row.from, row.to, replacement)
   }
   return { transaction: closeHistory(tr), count: selected.length }
@@ -375,10 +384,17 @@ export function linkCitationTransaction(state, scan, choices, entries) {
 export function removeAllCitationTransaction(state) {
   const ranges = []
   state.doc.descendants((node, position) => {
-    if (node.type.name === 'citation') ranges.push({ from: position, to: position + node.nodeSize })
+    if (node.type.name === 'citation') ranges.push({ from: position, to: position + node.nodeSize, sourceText: node.attrs.sourceText, marks: node.marks })
   })
   if (!ranges.length) return null
   const transaction = state.tr
-  for (const range of ranges.reverse()) transaction.delete(range.from, range.to)
+  for (const range of ranges.reverse()) {
+    if (range.sourceText) {
+      const marks = range.marks.filter(mark => mark.type.name !== 'bold')
+      const bold = state.schema.marks.bold?.create()
+      if (bold) marks.push(bold)
+      transaction.replaceWith(range.from, range.to, state.schema.text(range.sourceText, marks))
+    } else transaction.delete(range.from, range.to)
+  }
   return { transaction: closeHistory(transaction), count: ranges.length }
 }

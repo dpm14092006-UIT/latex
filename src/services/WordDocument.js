@@ -133,6 +133,10 @@ export function toWordAst(doc, title, settings = {}, templateSource = '') {
     if (node.type === 'imageBlock') return [{ t: 'Image', c: [attr, [{ t: 'Str', c: node.attrs.alt || 'Ảnh' }], [node.attrs.src, '']] }]
     if (node.type === 'footnote') return [{ t: 'Note', c: [{ t: 'Para', c: [{ t: 'Str', c: node.attrs.text }] }] }]
     if (node.type === 'citation') {
+      if (typeof node.attrs?.sourceText === 'string' && node.attrs.sourceText) {
+        const text = node.attrs.sourceText.split(/(\s+)/u).filter(Boolean).map(part => /^\s+$/u.test(part) ? { t: 'Space' } : { t: 'Str', c: part })
+        return [{ t: 'Strong', c: text }]
+      }
       const keys = citationKeys(node.attrs.key)
       if (!keys.length) return []
       const cite = (group, narrative = false) => ({ t: 'Cite', c: [group.map((key, index) => ({ citationId: key, citationPrefix: [], citationSuffix: [], citationMode: { t: narrative && index === 0 ? 'AuthorInText' : 'NormalCitation' }, citationNoteNum: 0, citationHash: 0 })), [{ t: 'Str', c: `[@${group.join('; @')}]` }]] })

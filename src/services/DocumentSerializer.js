@@ -891,6 +891,37 @@ ${coloured ? String.raw`\setlength{\aboverulesep}{0pt}
   return `\\begin{${environment}}[${environment === 'table' ? 'htbp' : 'tp'}]\n\\centering\n${captionBelow ? '' : captionBlock}${tableStyle}\\setbox0=\\hbox{${tabularBody}}%\n\\ifdim\\wd0>\\linewidth\\setbox0=\\hbox{\\resizebox{\\linewidth}{!}{\\box0}}\\fi\n\\xdef\\vietlatextablewidth{\\the\\wd0}%\n\\leavevmode\\box0\\par\n\\endgroup\n${captionBelow ? captionBlock : ''}${noteBox}\\end{${environment}}\n\n`
 }
 
+function citationPartLatex(part, mode, context) {
+  const keys = citationKeys(part?.key)
+  if (!keys.length) return latexEscape(part?.suffixText || '')
+  let citation
+  if (keys.every(key => context.manualCitationKeys?.has(key))) {
+    const label = citationLabel(keys, context.citationNumbers, context.bibliographyByKey, context.citationStyle, mode)
+    const target = keys.length === 1 ? context.manualReferenceTargetsByKey?.get(keys[0]) : ''
+    citation = target ? `\\hyperlink{${target}}{${latexEscape(label)}}` : latexEscape(label)
+  } else if (mode === 'narrative') {
+    if (isAuthorYearStyle(context.citationStyle)) citation = `\\citet{${keys.join(',')}}`
+    else citation = keys.map(key => `${latexEscape(shortAuthors(context.bibliographyByKey?.get(key), 'and') || key)} \\cite{${key}}`).join('; ')
+  } else {
+    citation = `${isAuthorYearStyle(context.citationStyle) ? '\\citep' : '\\cite'}{${keys.join(',')}}`
+  }
+  return `${latexEscape(part?.separatorBefore || '')}${citation}${latexEscape(part?.suffixText || '')}`
+}
+
+function citationPartsForLatex(node) {
+  const sourceParts = node.attrs?.sourceParts
+  if (!Array.isArray(sourceParts) || !sourceParts.length) return [{ key: node.attrs?.key }]
+  const keys = citationKeys(node.attrs?.key)
+  let cursor = 0
+  return sourceParts.map((part, index) => {
+    const oldCount = citationKeys(part?.key).length
+    const count = index === sourceParts.length - 1 ? keys.length - cursor : Math.min(oldCount, keys.length - cursor)
+    const key = keys.slice(cursor, cursor + count).join(',')
+    cursor += count
+    return { ...part, key }
+  })
+}
+
 function nodeLatex(node, context = { images: [] }) {
   if (!node) return ''
 
@@ -943,18 +974,7 @@ function nodeLatex(node, context = { images: [] }) {
     return `\\[\n${latex}\n\\]`
   }
   if (node.type === 'citation') {
-    const keys = citationKeys(node.attrs?.key)
-    if (keys.length && keys.every(key => context.manualCitationKeys?.has(key))) {
-      const label = citationLabel(keys, context.citationNumbers, context.bibliographyByKey, context.citationStyle, node.attrs?.mode)
-      const target = keys.length === 1 ? context.manualReferenceTargetsByKey?.get(keys[0]) : ''
-      return target ? `\\hyperlink{${target}}{${latexEscape(label)}}` : latexEscape(label)
-    }
-    if (!keys.length) return ''
-    if (node.attrs?.mode === 'narrative') {
-      if (isAuthorYearStyle(context.citationStyle)) return `\\citet{${keys.join(',')}}`
-      return keys.map(key => `${latexEscape(shortAuthors(context.bibliographyByKey?.get(key), 'and') || key)} \\cite{${key}}`).join('; ')
-    }
-    return `${isAuthorYearStyle(context.citationStyle) ? '\\citep' : '\\cite'}{${keys.join(',')}}`
+    return citationPartsForLatex(node).map(part => citationPartLatex(part, node.attrs?.mode, context)).join('')
   }
   if (node.type === 'crossReference') return `\\ref{${safeLabel(node.attrs?.target)}}`
   if (node.type === 'footnote') return `\\footnote{${latexEscape(node.attrs?.text || '')}}`

@@ -12,7 +12,12 @@ export function citationEditTransaction(state, { keys, mode = 'parenthetical', e
     const node = state.doc.nodeAt(editing.pos)
     if (node?.type.name !== 'citation' || (editing.node && node !== editing.node)) throw Error('Trích dẫn đã thay đổi. Hãy mở lại để sửa.')
     if (unique.length) tr.setNodeMarkup(editing.pos, undefined, { ...node.attrs, key: unique.join(','), mode })
-    else tr.delete(editing.pos, editing.pos + node.nodeSize)
+    else if (node.attrs.sourceText) {
+      const marks = node.marks.filter(mark => mark.type.name !== 'bold')
+      const bold = state.schema.marks.bold?.create()
+      if (bold) marks.push(bold)
+      tr.replaceWith(editing.pos, editing.pos + node.nodeSize, state.schema.text(node.attrs.sourceText, marks))
+    } else tr.delete(editing.pos, editing.pos + node.nodeSize)
     return closeHistory(tr)
   }
   if (!unique.length) return null
@@ -24,7 +29,7 @@ export function citationEditTransaction(state, { keys, mode = 'parenthetical', e
   if (!resolved.parent.isTextblock) throw Error('Đặt con trỏ ở cuối câu hoặc trong đoạn văn để chèn trích dẫn.')
   if (!resolved.parent.contentMatchAt(resolved.index()).matchType(state.schema.nodes.citation)) throw Error('Không chèn citation trong khối mã. Hãy chọn một đoạn văn.')
   const before = resolved.nodeBefore
-  if (range.from === range.to && before?.type.name === 'citation' && before.attrs.mode === mode) {
+  if (range.from === range.to && before?.type.name === 'citation' && !before.attrs.sourceText && before.attrs.mode === mode) {
     const merged = [...new Set([...citationKeys(before.attrs.key), ...unique])]
     if (merged.length > 50) throw Error('Nhóm cite liền trước đã đạt giới hạn 50 REF. Hãy chèn nhóm riêng ở vị trí khác.')
     tr.setNodeMarkup(at - before.nodeSize, undefined, { ...before.attrs, key: merged.join(',') })

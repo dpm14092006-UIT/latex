@@ -84,6 +84,12 @@ export function isValidDocument(value) {
     if (['inlineMath', 'blockMath'].includes(node.type) && typeof node.attrs?.latex !== 'string') return false
     if (node.type === 'citation' && !/^[A-Za-z0-9:._-]{1,100}(?:,[A-Za-z0-9:._-]{1,100}){0,49}$/.test(node.attrs?.key || '')) return false
     if (node.type === 'citation' && node.attrs?.mode !== undefined && !['parenthetical', 'narrative'].includes(node.attrs.mode)) return false
+    if (node.type === 'citation' && node.attrs?.sourceText !== undefined && (typeof node.attrs.sourceText !== 'string' || node.attrs.sourceText.length > 800)) return false
+    if (node.type === 'citation' && node.attrs?.sourceParts !== undefined && node.attrs.sourceParts !== null && (
+      !Array.isArray(node.attrs.sourceParts) || node.attrs.sourceParts.length < 1 || node.attrs.sourceParts.length > 50 ||
+      node.attrs.sourceParts.some(part => !isRecord(part) || !/^[A-Za-z0-9:._-]{1,100}(?:,[A-Za-z0-9:._-]{1,100}){0,49}$/.test(part.key || '') ||
+        typeof part.suffixText !== 'string' || part.suffixText.length > 300 || !['', '; '].includes(part.separatorBefore))
+    )) return false
     if (node.type === 'crossReference' && !/^[A-Za-z0-9:._-]{1,100}$/.test(node.attrs?.target || '')) return false
     if (node.type === 'footnote' && (typeof node.attrs?.text !== 'string' || node.attrs.text.length > 5000)) return false
     if (node.type === 'heading' && ![1, 2, 3].includes(node.attrs?.level)) return false

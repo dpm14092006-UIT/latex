@@ -238,23 +238,24 @@ export const AcademicTable = Table.extend({
   },
 })
 
-// Citation numbers depend on the whole document and the reference list, so a plugin recomputes the visible
-// label for every citation node; the node itself only stores the keys.
+// Citation numbers depend on the whole document and reference list. Manually
+// inserted citations show their styled label; automatically linked citations
+// keep their original source wording in the editor.
 export const citationPluginKey = new PluginKey('citationNumbers')
 export const CITATION_REFRESH = 'citationRefresh'
 
 function citationPositions(doc) {
   const positions = []
   doc.descendants((node, pos) => {
-    if (node.type.name === 'citation') positions.push({ pos, size: node.nodeSize, key: node.attrs.key, mode: node.attrs.mode })
+    if (node.type.name === 'citation') positions.push({ pos, size: node.nodeSize, key: node.attrs.key, mode: node.attrs.mode, sourceText: node.attrs.sourceText || '' })
   })
   return positions
 }
 
-const citationSignature = positions => positions.map(({ key, mode }) => `${key}|${mode}`).join('\n')
+const citationSignature = positions => JSON.stringify(positions.map(({ key, mode, sourceText }) => [key, mode, sourceText]))
 
-// Labels depend only on the ordered citation keys, so ordinary typing maps the previous decorations instead of
-// re-deriving every label (the full rebuild costs tens of milliseconds per keystroke with hundreds of citations).
+// Ordinary typing maps previous decorations instead of re-deriving labels
+// (the full rebuild costs tens of milliseconds per keystroke with hundreds of citations).
 function citationState(doc, storage, previous = null, mapping = null) {
   const positions = citationPositions(doc)
   const signature = citationSignature(positions)
@@ -272,7 +273,7 @@ function citationDecorations(doc, storage, citations) {
   const entries = storage.entries || []
   const byKey = new Map(entries.map(entry => [entry.key, entry]))
   const numbers = citationNumbers(occurrences, entries, storage.style)
-  return DecorationSet.create(doc, positions.map(({ pos, size, keys, mode }) => {
+  return DecorationSet.create(doc, positions.map(({ pos, size, keys, mode, sourceText }) => {
     const missing = keys.filter(key => !byKey.has(key))
     const title = keys.map(key => {
       const entry = byKey.get(key)
@@ -280,21 +281,50 @@ function citationDecorations(doc, storage, citations) {
       const info = describeEntry(entry)
       return `${numbers.get(key) ? `[${numbers.get(key)}] ` : ''}${[info.authors, info.year, info.title].filter(Boolean).join(' · ')}`
     }).join('\n')
-    return Decoration.node(pos, pos + size, {
-      'data-citation-label': citationLabel(keys, numbers, byKey, storage.style, mode),
-      'data-citation-missing': missing.length ? 'true' : null,
-      title,
-    })
+    const attrs = { title }
+    // Automatically linked citations keep the exact source phrase in the
+    // editor. Their formatted bibliography label is generated only on export.
+    if (!sourceText) attrs['data-citation-label'] = citationLabel(keys, numbers, byKey, storage.style, mode)
+    if (missing.length) attrs['data-citation-missing'] = 'true'
+    return Decoration.node(pos, pos + size, attrs)
   }))
 }
 
 export const Citation = Node.create({
   name: 'citation', group: 'inline', inline: true, atom: true, selectable: true,
   addStorage() { return { entries: [], style: 'apa', onOpen: null } },
-  addAttributes() { return { key: { default: '', parseHTML: element => element.getAttribute('data-key') || '' }, mode: { default: 'parenthetical', parseHTML: element => element.getAttribute('data-citation-mode') === 'narrative' ? 'narrative' : 'parenthetical' } } },
+  addAttributes() {
+    return {
+      key: { default: '', parseHTML: element => element.getAttribute('data-key') || '' },
+      mode: { default: 'parenthetical', parseHTML: element => element.getAttribute('data-citation-mode') === 'narrative' ? 'narrative' : 'parenthetical' },
+      sourceText: {
+        default: '',
+        parseHTML: element => element.getAttribute('data-citation-source') || '',
+        renderHTML: attributes => attributes.sourceText ? { 'data-citation-source': attributes.sourceText } : {},
+      },
+      sourceParts: {
+        default: null,
+        parseHTML: element => {
+          try {
+            const value = JSON.parse(element.getAttribute('data-citation-parts') || 'null')
+            return Array.isArray(value) ? value : null
+          } catch { return null }
+        },
+        renderHTML: attributes => Array.isArray(attributes.sourceParts) ? { 'data-citation-parts': JSON.stringify(attributes.sourceParts) } : {},
+      },
+    }
+  },
   parseHTML() { return [{ tag: 'span[data-type="citation"]' }] },
-  renderHTML({ node }) { return ['span', { 'data-type': 'citation', 'data-key': node.attrs.key, 'data-citation-mode': node.attrs.mode, class: 'academic-reference academic-citation' }, ['span', { class: 'academic-citation-key' }, `[@${node.attrs.key}]`]] },
-  renderText({ node }) { return `[@${node.attrs.key}]` },
+  renderHTML({ node, HTMLAttributes }) {
+    return ['span', {
+      ...HTMLAttributes,
+      'data-type': 'citation',
+      'data-key': node.attrs.key,
+      'data-citation-mode': node.attrs.mode,
+      class: 'academic-reference academic-citation',
+    }, ['span', { class: 'academic-citation-key' }, node.attrs.sourceText || `[@${node.attrs.key}]`]]
+  },
+  renderText({ node }) { return node.attrs.sourceText || `[@${node.attrs.key}]` },
   addKeyboardShortcuts() {
     return { 'Mod-Shift-c': () => { this.storage.onOpen?.(); return Boolean(this.storage.onOpen) } }
   },
