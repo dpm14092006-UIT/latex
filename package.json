@@ -96,7 +96,7 @@
     "dictionary-en": "^4.0.0",
     "dictionary-en-gb": "^3.0.0",
     "fflate": "^0.8.3",
-    "katex": "^0.18.9",
+    "katex": "^0.19.0",
     "lucide-react": "^1.48.0",
     "mathlive": "^0.110.0",
     "nspell": "^2.1.5",
