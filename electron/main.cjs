@@ -9,7 +9,8 @@ const { createSpellcheckStore } = require('./spellcheck-store.cjs')
 const { createGemini } = require('./gemini.cjs')
 const { safeExternalUrl } = require('./external-links.cjs')
 const { startGoBackend } = require('./backend-client.cjs')
-const { createLanSync, lanAddresses } = require('./lan-sync.cjs')
+const { lanAddresses } = require('./lan-sync.cjs')
+const { createProjectSync } = require('./project-sync.cjs')
 const { createUpdater } = require('./updater.cjs')
 
 protocol.registerSchemesAsPrivileged([{
@@ -46,7 +47,7 @@ const syncAfterResume = () => { requestSyncTick(); setTimeout(requestSyncTick, 2
 // unable to sync. Blocks system sleep only; the display may still turn off.
 function applyKeepAwake() {
   const status = lanSync?.status()
-  const wanted = Boolean(status?.mode === 'host' && status.keepAwake && !backendShutdownPromise)
+  const wanted = Boolean(!backendShutdownPromise && ((status?.mode === 'host' && status.keepAwake) || status?.projectSync?.some(group => group.mode === 'host' && group.keepAwake)))
   if (wanted && keepAwakeBlocker === null) keepAwakeBlocker = powerSaveBlocker.start('prevent-app-suspension')
   if (!wanted && keepAwakeBlocker !== null) { powerSaveBlocker.stop(keepAwakeBlocker); keepAwakeBlocker = null }
 }
@@ -182,7 +183,7 @@ function registerNativeActions() {
     // Mode and keep-awake changes both decide whether sleep must be blocked.
     try { return await lanSync[action](...args) } finally { applyKeepAwake() }
   }
-  for (const [channel, action] of Object.entries({ status: 'status', configure: 'configure', exchange: 'exchange', acknowledge: 'acknowledge', resolve: 'resolve', invitation: 'invitation', revoke: 'revoke', 'keep-awake': 'setKeepAwake', 'pdf-publish': 'publishPdf', 'pdf-get': 'getPdf' })) ipcMain.handle(`sync:${channel}`, syncAction(action))
+  for (const [channel, action] of Object.entries({ status: 'status', configure: 'configure', exchange: 'exchange', acknowledge: 'acknowledge', resolve: 'resolve', invitation: 'invitation', revoke: 'revoke', 'keep-awake': 'setKeepAwake', 'pdf-publish': 'publishPdf', 'pdf-get': 'getPdf', 'project-enable': 'enable', 'project-join': 'join', 'project-disconnect': 'disconnect', 'project-cancel-join': 'cancelJoin', 'project-invitation': 'projectInvitation', 'project-approve': 'projectApprove', 'project-revoke': 'projectRevoke', 'project-resolve': 'projectResolve', 'project-keep-awake': 'projectKeepAwake' })) ipcMain.handle(`sync:${channel}`, syncAction(action))
   // Windows only: whether the firewall lets paired machines reach this host
   // through the adapter that carries `address`. Null elsewhere or when unknown.
   ipcMain.handle('sync:firewall', async (event, address, refresh) => {
@@ -430,9 +431,10 @@ Bạn vẫn có thể soạn thảo; biên dịch PDF sẽ thử khởi động 
       // Desktop tests point the assistant at a local mock; packaged builds always use Google.
       const testGeminiApi = !app.isPackaged && /^http:\/\/127\.0\.0\.1:\d+$/.test(process.env.VIETLATEX_TEST_GEMINI_API || '') ? process.env.VIETLATEX_TEST_GEMINI_API : undefined
       gemini = createGemini({ directory: app.getPath('userData'), safeStorage, fetch: (url, init) => net.fetch(url, init), api: testGeminiApi })
-      lanSync = createLanSync({ directory: app.getPath('userData'), appPath: app.getAppPath() })
+      lanSync = createProjectSync({ directory: app.getPath('userData'), appPath: app.getAppPath(), defaultRelayUrl: process.env.VIETLATEX_SYNC_RELAY_URL || '', preferLan: app.isPackaged || process.env.VIETLATEX_TEST_SYNC_RELAY_ONLY !== 'true' })
       try { await lanSync.init() } catch (error) {
         console.error('Không mở được hồ sơ đồng bộ:', error)
+        await lanSync?.stop().catch(() => {})
         lanSync = null
         dialog.showErrorBox('Đồng bộ chưa sẵn sàng', `${error.message}\nDữ liệu tài liệu vẫn được giữ trên máy.`)
       }

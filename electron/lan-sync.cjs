@@ -5,6 +5,8 @@ const { mkdir, readFile, readdir, open, lstat, rm, stat } = require('node:fs/pro
 const { join } = require('node:path')
 const { pathToFileURL } = require('node:url')
 const transport = require('./lan-sync-transport.cjs')
+const relayClient = require('./sync-relay-client.cjs')
+const { Readable } = require('node:stream')
 const lanDiscovery = require('./lan-discovery.cjs')
 const pdfCache = require('./lan-pdf.cjs')
 const { renameWithRetry, syncDirectory } = require('./workspace-store.cjs')
@@ -36,9 +38,10 @@ function lanAddresses(interfaces = networkInterfaces()) {
 }
 
 // `discovery: false` disables finding a moved host; `{ port, targets }` overrides the UDP probe.
-function createLanSync({ directory, appPath = join(__dirname, '..'), name = hostname(), now = Date.now, discovery = {} }) {
+function createLanSync({ directory, appPath = join(__dirname, '..'), name = hostname(), now = Date.now, discovery = {}, projectId = null, preferLan = true, resume = true }) {
   let state, server, responder, invite, pending, stopped = false, lastError = '', lastSyncAt = null, lastDiscoveryAt = 0, relocated = null
-  const peerActivity = new Map()
+  const peerActivity = new Map(), pairingRequests = new Map()
+  let tunnel, relayError = '', directEndpoint = null, lastDirectProbe = 0, via = ''
   let remotePdfVersion = 0, pdfError = ''
   let queue = Promise.resolve()
   const replay = new Map(), attempts = new Map()
@@ -50,7 +53,7 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
   // mid-flight does not hold the sync queue until its transfer deadline.
   let interruption = new AbortController()
   const file = join(directory, 'lan-sync-v1.json')
-  const modules = Promise.all(['LanSyncData', 'WorkspaceData', 'DocumentData'].map(module => import(pathToFileURL(join(appPath, 'src', 'services', `${module}.js`)).href)))
+  const modules = Promise.all(['LanSyncData', 'WorkspaceData', 'DocumentData', 'ProjectSyncData'].map(module => import(pathToFileURL(join(appPath, 'src', 'services', `${module}.js`)).href)))
   const serial = work => { const result = queue.then(work); queue = result.catch(() => {}); return result }
 
   async function persist() {
@@ -83,6 +86,8 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
   async function validateWorkspace(workspace) {
     const [, data, document] = await modules
     if (!workspace || workspace.version !== 1 || Buffer.byteLength(JSON.stringify(workspace)) > 128 * 1024 * 1024) throw new Error('Workspace đồng bộ không hợp lệ hoặc vượt 128 MB.')
+    if (projectId && (!Array.isArray(workspace.projects) || workspace.projects.some(project => project.id !== projectId))) throw new Error('Project nằm ngoài phạm vi đồng bộ.')
+    if (projectId && workspace.projects.length === 0 && !(workspace.documentTemplates || []).length && !(workspace.customTemplates || []).length) return workspace
     const valid = data.sanitizeWorkspace(workspace)
     if (!valid || valid.projects.length !== workspace.projects.length || valid.projects.some((project, index) => project.tasks.length !== workspace.projects[index].tasks.length)) throw new Error('Workspace đồng bộ có tài liệu không hợp lệ.')
     for (const project of workspace.projects) for (const task of project.tasks) {
@@ -94,11 +99,13 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
     return workspace
   }
   async function validateRecords(records) {
-    const [data, , document] = await modules
+    const [data, , document, scope] = await modules
     if (!records || Array.isArray(records) || typeof records !== 'object' || Object.keys(records).length > MAX_RECORDS) throw new Error('Danh sách đồng bộ không hợp lệ.')
     for (const [key, entry] of Object.entries(records)) {
       if (!/^(project|task|customTemplates|documentTemplates):[A-Za-z0-9._-]{1,160}$/.test(key) || !entry || !Number.isSafeInteger(entry.rev) || entry.rev < 1) throw new Error('Phiên bản đồng bộ không hợp lệ.')
       const value = entry.value
+      if (projectId && ((key.startsWith('project:') && key !== `project:${projectId}`) || (key.startsWith('task:') && value && value.projectId !== projectId) || key.startsWith('customTemplates:'))) throw new Error('Dữ liệu nằm ngoài project được chia sẻ.')
+      if (projectId && ((key.startsWith('documentTemplates:') && !key.slice(key.indexOf(':') + 1).startsWith(scope.projectTemplatePrefix(projectId))) || (key.startsWith('task:') && value?.activeDocumentTemplateId?.startsWith('layout-') && !value.activeDocumentTemplateId.startsWith(scope.projectTemplatePrefix(projectId))))) throw new Error('Mẫu trang nằm ngoài project được chia sẻ.')
       if (value === null) continue
       if (!value || value.id !== key.slice(key.indexOf(':') + 1)) throw new Error('ID đồng bộ không khớp.')
       if (key.startsWith('project:') && (typeof value.name !== 'string' || value.name.length > 160 || !Array.isArray(value.taskIds) || value.taskIds.some(id => typeof id !== 'string'))) throw new Error('Dự án đồng bộ không hợp lệ.')
@@ -156,6 +163,23 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
   }
   async function clientRequest(path, payload) {
     const remote = state.connection, signal = AbortSignal.any([lifetime.signal, interruption.signal])
+    if (remote.relay) {
+      if (preferLan && Date.now() - lastDirectProbe > 30000) {
+        lastDirectProbe = Date.now()
+        const candidates = (remote.endpoints || []).slice(0, 4)
+        directEndpoint = await Promise.any(candidates.map(async endpoint => {
+          transport.validateEndpoint(endpoint.host, endpoint.port)
+          await transport.request(endpoint.host, endpoint.port, '/ping', { requestId: randomUUID(), at: Date.now() }, remote.key, state.deviceId, { signal: AbortSignal.any([signal, AbortSignal.timeout(1200)]) })
+          return endpoint
+        })).catch(() => null)
+      }
+      if (directEndpoint) {
+        try { const result = await transport.request(directEndpoint.host, directEndpoint.port, path, payload, remote.key, state.deviceId, { signal }); via = 'lan'; return result }
+        catch { directEndpoint = null }
+      }
+      const result = await relayClient.request(remote.relay, path, { ...payload, requestId: randomUUID() }, remote.key, state.deviceId, { signal })
+      via = 'relay'; return result
+    }
     try { return await transport.request(remote.host, remote.port, path, payload, remote.key, state.deviceId, { signal }) }
     catch (error) {
       if (signal.aborted) throw lifetime.signal.aborted ? error : new Error('Máy vừa tạm ngủ; sẽ đồng bộ lại khi thức dậy.')
@@ -220,7 +244,7 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
       }
     }
     if (conflicts.length > 128) throw new Error('Có 128 xung đột đang chờ. Xử lý xung đột trước khi nhận thêm thay đổi.')
-    if (!Object.entries(candidate).some(([key, entry]) => key.startsWith('task:') && entry.value)) {
+    if (!projectId && !Object.entries(candidate).some(([key, entry]) => key.startsWith('task:') && entry.value)) {
       const [, workspace] = await modules
       const fresh = data.workspaceRecords({ projects: [workspace.createProject('Dự án mới')] })
       for (const [key, value] of Object.entries(fresh)) candidate[key] = { rev: ++state.revision, value }
@@ -239,7 +263,9 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
     if (choice === 'both') {
       const incoming = conflict.value || current?.value
       if (incoming) {
-        if (conflict.key.startsWith('project:')) {
+        if (projectId && conflict.key.startsWith('project:')) {
+          throw new Error('Xung đột thông tin project: chọn bản đang chia sẻ hoặc bản từ máy gửi.')
+        } else if (conflict.key.startsWith('project:')) {
           const id = `project-${randomUUID()}`, taskIds = []
           for (const entry of Object.values(state.records)) if (entry.value?.projectId === incoming.id) {
             const taskId = `task-${randomUUID()}`; taskIds.push(taskId)
@@ -247,7 +273,7 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
           }
           state.records[`project:${id}`] = { rev: ++state.revision, value: { ...incoming, id, name: `${incoming.name} — bản xung đột`.slice(0, 160), taskIds } }
         } else {
-          const prefix = conflict.key.split(':')[0], id = `${prefix === 'task' ? 'task-' : prefix === 'customTemplates' ? 'custom-' : 'layout-'}${randomUUID()}`
+          const prefix = conflict.key.split(':')[0], id = projectId && prefix === 'documentTemplates' ? `${incoming.id}-copy-${randomUUID()}` : `${prefix === 'task' ? 'task-' : prefix === 'customTemplates' ? 'custom-' : 'layout-'}${randomUUID()}`
           const field = prefix === 'task' ? 'title' : 'name'
           state.records[`${prefix}:${id}`] = { rev: ++state.revision, value: { ...incoming, id, [field]: `${incoming[field]} — bản xung đột`.slice(0, prefix === 'task' ? 160 : 120) } }
         }
@@ -267,8 +293,9 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
       }
       return { title: label(value), text: text.slice(0, 1600), assets: value.assets?.length || 0 }
     }
+    for (const [id, request] of pairingRequests) if (request.expiresAt <= Date.now()) pairingRequests.delete(id)
     const interfaces = lanAddresses()
-    return { mode: state.mode, deviceId: state.deviceId, name: state.name, port: server?.address()?.port || state.port,
+    return { projectId, relayUrl: state.relay?.url || state.connection?.relay?.url || '', relayError, via, pendingPairs: [...pairingRequests.values()].filter(item => !item.approved && !item.denied).map(({ id, name, expiresAt }) => ({ id, name, expiresAt })), mode: state.mode, deviceId: state.deviceId, name: state.name, port: server?.address()?.port || state.port,
       addresses: interfaces.map(item => item.address), interfaces,
       connected: state.mode === 'host' ? Boolean(server) : state.mode === 'client' && !lastError && Boolean(lastSyncAt),
       host: state.connection?.host || '', keepAwake: Boolean(state.keepAwake), lastSyncAt, error: lastError, pdfError, pdfSupported: state.mode === 'host' || remotePdfVersion === 1,
@@ -284,7 +311,7 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
   }
   async function serve(req, res) {
     const end = (code, body = '{}') => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Content-Length': Buffer.byteLength(body) }); res.end(body) }
-    if (stopped || req.method !== 'POST' || !['/pair', '/exchange', '/resolve', '/pdf'].includes(req.url) || req.headers.origin) return end(403)
+    if (stopped || req.method !== 'POST' || !['/pair', '/exchange', '/resolve', '/pdf', '/ping', '/invite'].includes(req.url) || req.headers.origin) return end(403)
     const remote = req.socket.remoteAddress
     const attempt = attempts.get(remote) || { count: 0, at: Date.now() }
     if (Date.now() - attempt.at > 60000) { attempt.count = 0; attempt.at = Date.now() }
@@ -315,12 +342,28 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
         if (req.url === '/pair') {
           if (invite?.key !== key || invite.expiresAt <= Date.now()) throw new Error('Mã ghép đã hết hạn.')
           if (Object.keys(state.peers).length >= 16 && !state.peers[deviceId]) throw new Error('Nhóm đã có 16 máy.')
+          if (invite.requireApproval) {
+            let request = pairingRequests.get(deviceId)
+            if (!request || request.inviteKey !== key) {
+              if (pairingRequests.size >= 16) throw new Error('Có quá nhiều yêu cầu ghép đang chờ.')
+              request = { id: deviceId, name: String(body.name || 'Máy mới').slice(0, 100), expiresAt: invite.expiresAt, inviteKey: key }
+              pairingRequests.set(deviceId, request)
+            }
+            if (request.denied) throw new Error('Yêu cầu ghép thiết bị đã bị từ chối.')
+            if (!request.approved) return { pending: true }
+          }
           const peerKey = transport.secret()
           state.peers[deviceId] = { key: peerKey, name: String(body.name || 'Máy mới').slice(0, 100), pdfVersion: body.pdfVersion === 1 ? 1 : 0 }
-          return { key: peerKey, hostName: state.name }
+          pairingRequests.delete(deviceId)
+          return { key: peerKey, hostName: state.name, endpoints: lanAddresses().filter(item => !item.virtual).slice(0, 4).map(item => ({ host: item.address, port: state.port })) }
         }
         // Revocation may have happened while the encrypted body was being read.
         if (state.peers[deviceId]?.key !== key) throw new Error('Máy này đã bị ngắt quyền kết nối.')
+        if (req.url === '/ping') return { ok: true }
+        if (req.url === '/invite') {
+          if (!state.relay || !projectId) throw new Error('Project chưa bật đồng bộ Internet.')
+          return makeInvitation()
+        }
         if (req.url === '/pdf') {
           if (body.upload) {
             const accepted = await pdfOffersForEntry(body.upload)
@@ -336,7 +379,7 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
         return { records: partial ? Object.fromEntries(Object.entries(state.records).filter(([, entry]) => entry.rev > body.sinceRev)) : state.records, partial, conflicts: state.conflicts, revision: state.revision, pdfVersion: 1, pdfOffers: body.pdfVersion === 1 ? await pdfOffers() : [] }
       }
       const result = await serial(() => (req.url === '/exchange' && Array.isArray(body.ops) && body.ops.length === 0) || (req.url === '/pdf' && !body.upload) ? operation() : transaction(operation))
-      if (req.url === '/pair') invite = null // one-time invitation
+      if (req.url === '/pair' && !result.pending) invite = null // one-time invitation
       else peerActivity.set(deviceId, { at: now(), revision: req.url === '/exchange' && Number.isSafeInteger(body.sinceRev) ? body.sinceRev : peerActivity.get(deviceId)?.revision, pdfVersion: body.pdfVersion === 1 || req.url === '/pdf' ? 1 : 0 })
       end(200, transport.seal({ ...result, requestId: body.requestId }, key, `response:${req.url}`))
     } catch (error) { end(200, transport.seal({ error: error.message, requestId: body.requestId }, key, `response:${req.url}`)) }
@@ -355,10 +398,22 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
     // Only a listening server counts as running (status, invitations, stop).
     server = candidate
     state.port = server.address().port
+    if (state.relay) {
+      tunnel = relayClient.host(state.relay, async ({ path, deviceId, wire }) => {
+        const req = Readable.from([Buffer.from(wire)])
+        Object.assign(req, { method: 'POST', url: path, headers: { 'x-vietlatex-device': deviceId, 'content-length': Buffer.byteLength(wire) }, socket: { remoteAddress: `relay:${deviceId}` } })
+        return new Promise((resolve, reject) => {
+          let status = 500
+          const res = { writeHead(code) { status = code }, end(body = '{}') { resolve({ status, wire: body }) } }
+          void serve(req, res).catch(reject)
+        })
+      }, error => { relayError = error })
+    }
     if (discovery !== false && !responder) responder = lanDiscovery.respond({ port: discovery.port, keyFor: id => state.peers[id]?.key, httpPort: () => server?.listening ? server.address().port : 0 })
   }
   async function closeServer() {
-    invite = null
+    invite = null; pairingRequests.clear()
+    await tunnel?.stop(); tunnel = null; relayError = ''
     responder?.close(); responder = null
     if (!server) return
     const old = server; server = null
@@ -383,6 +438,8 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
       if ((await stat(file)).size > MAX_STATE) throw new Error('Hồ sơ đồng bộ vượt giới hạn.')
       state = JSON.parse(await readFile(file, 'utf8'))
       if (state.version !== 1 || !['off', 'host', 'client'].includes(state.mode) || !state.deviceId || !state.peers || !state.baseline || !state.bases || !Array.isArray(state.conflicts)) throw new Error('Hồ sơ đồng bộ không hợp lệ; giữ nguyên tệp để phục hồi.')
+      if (state.relay) relayClient.validateRoute(state.relay, true)
+      if (state.connection?.relay) relayClient.validateRoute(state.connection.relay)
       await validateRecords(state.records)
       state.resolved ||= []
       state.pdfs ||= {}
@@ -397,27 +454,35 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
       state = { version: 1, deviceId: randomUUID(), name: String(name).slice(0, 100), mode: 'off', port: 0, peers: {}, connection: null, records: {}, baseline: {}, bases: {}, revision: 0, conflicts: [], resolved: [] }
       await persist()
     }
-    if (state.mode === 'host') { try { await startServer() } catch (error) { lastError = error.message } }
+    if (resume && state.mode === 'host') { try { await startServer() } catch (error) { lastError = error.message } }
     return publicStatus()
   }
   async function configure(mode, snapshot, pairingCode) {
     return serial(async () => {
+      if (stopped) throw new Error('Dịch vụ đồng bộ đang dừng.')
       if (!['off', 'host', 'client'].includes(mode)) throw new Error('Chế độ đồng bộ không hợp lệ.')
       await validateWorkspace(snapshot)
       await closeServer()
       const previous = clone(state)
       try {
         if (mode === 'client') {
-          if (typeof pairingCode !== 'string' || pairingCode.length > 2048 || !pairingCode.trim().startsWith('vietlatex-lan:')) throw new Error('Dán đầy đủ mã ghép từ máy chủ.')
-          const invitation = JSON.parse(Buffer.from(pairingCode.trim().slice(14), 'base64url').toString('utf8'))
-          transport.validateEndpoint(invitation.host, invitation.port)
+          if (typeof pairingCode !== 'string' || pairingCode.length > 4096 || !/^(vietlatex-lan:|vietlatex-sync:)/.test(pairingCode.trim())) throw new Error('Dán đầy đủ mã ghép từ máy chủ.')
+          const internet = pairingCode.trim().startsWith('vietlatex-sync:')
+          const invitation = JSON.parse(Buffer.from(pairingCode.trim().slice(internet ? 15 : 14), 'base64url').toString('utf8'))
+          if (internet) { relayClient.validateRoute(invitation.relay); if (!projectId || invitation.projectId !== projectId) throw new Error('Mã ghép không khớp project.') }
+          else transport.validateEndpoint(invitation.host, invitation.port)
           if (invitation.v !== 1 || !Number.isFinite(invitation.expiresAt) || invitation.expiresAt <= Date.now()) throw new Error('Mã ghép đã hết hạn. Tạo mã mới trên máy chủ.')
-          const result = await transport.request(invitation.host, invitation.port, '/pair', { requestId: randomUUID(), at: Date.now(), name: state.name, pdfVersion: 1 }, invitation.key, state.deviceId, { signal: lifetime.signal })
-          state.connection = { host: invitation.host, port: invitation.port, key: result.key, name: result.hostName }
+          const payload = { requestId: randomUUID(), at: Date.now(), name: state.name, pdfVersion: 1 }
+          const result = internet ? await relayClient.request(invitation.relay, '/pair', payload, invitation.key, state.deviceId, { signal: lifetime.signal }) : await transport.request(invitation.host, invitation.port, '/pair', payload, invitation.key, state.deviceId, { signal: lifetime.signal })
+          if (result.pending) return { ...publicStatus(), pendingPair: true }
+          state.connection = internet ? { relay: invitation.relay, key: result.key, name: result.hostName, endpoints: result.endpoints } : { host: invitation.host, port: invitation.port, key: result.key, name: result.hostName }
         } else state.connection = null
-        if (mode !== state.mode || mode === 'client') {
+        if (mode !== state.mode || mode === 'client' || (projectId && mode === 'host' && pairingCode?.relay)) {
           state.records = {}; state.baseline = {}; state.bases = {}; state.conflicts = []; state.revision = 0; state.peers = {}; state.resolved = []; state.ackRevision = -1
         }
+        if (mode === 'host' && projectId && pairingCode?.relay) { relayClient.validateRoute(pairingCode.relay, true); state.relay = pairingCode.relay }
+        else if (mode !== 'host') state.relay = null
+        directEndpoint = null; lastDirectProbe = 0; via = ''
         state.mode = mode; pending = null; lastError = ''; lastSyncAt = null
         if (mode === 'host') { await reconcile(await operations(snapshot), state.deviceId, state.name); await startServer({ allowNewPort: true }) }
         await persist()
@@ -457,6 +522,11 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
         }
         const [data] = await modules
         const received = data.recordsWorkspace(values(), snapshot)
+        if (projectId && !received.projects.length) {
+          // The UI cannot display an empty workspace. Preserve the last local
+          // copy when the shared project has been deleted, and ask to disconnect.
+          throw new Error('Project chia sẻ đã bị xóa. Tắt đồng bộ để giữ bản hiện có trên máy.')
+        }
         await validateWorkspace(received)
         pending = { id: randomUUID(), records: clone(state.records), baseline: data.workspaceRecords(received), revision: state.revision }
         lastSyncAt = new Date().toISOString(); lastError = ''
@@ -485,6 +555,24 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
       return publicStatus()
     }))
   }
+  function makeInvitation() {
+    invite = { key: transport.secret(), expiresAt: Date.now() + 10 * 60000, requireApproval: true }
+    pairingRequests.clear()
+    const { owner: _owner, ...relay } = state.relay
+    return { code: `vietlatex-sync:${Buffer.from(JSON.stringify({ v: 1, projectId, relay, key: invite.key, expiresAt: invite.expiresAt })).toString('base64url')}`, expiresAt: invite.expiresAt }
+  }
+  async function approvePair(id, approved) {
+    return serial(async () => {
+      const request = pairingRequests.get(id)
+      if (!request || request.expiresAt <= Date.now()) throw new Error('Yêu cầu ghép đã hết hạn.')
+      request.approved = approved === true; request.denied = approved !== true
+      return publicStatus()
+    })
+  }
+  async function internetInvitation() {
+    if (state.mode === 'client') return clientRequest('/invite', { requestId: randomUUID(), at: Date.now() })
+    return serial(async () => { if (!state.relay || state.mode !== 'host') throw new Error('Project chưa bật đồng bộ Internet.'); return makeInvitation() })
+  }
   async function invitation(host) {
     return serial(async () => {
       if (state.mode !== 'host' || !server) throw new Error('Bật máy chủ trước khi tạo mã ghép.')
@@ -502,6 +590,6 @@ function createLanSync({ directory, appPath = join(__dirname, '..'), name = host
     // Queued work (e.g. configure) may have reopened the server meanwhile.
     await closeServer()
   }
-  return { init, status: publicStatus, configure, exchange, acknowledge, resolve, invitation, revoke, setKeepAwake, interrupt, publishPdf, getPdf, stop }
+  return { init, status: publicStatus, configure, exchange, acknowledge, resolve, invitation, revoke, setKeepAwake, interrupt, publishPdf, getPdf, internetInvitation, approvePair, stop }
 }
 module.exports = { createLanSync, lanAddresses }

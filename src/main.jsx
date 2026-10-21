@@ -15,7 +15,7 @@ import { TableRow, TableCell, TableHeader } from '@tiptap/extension-table'
 import TextAlign from '@tiptap/extension-text-align'
 import { AcademicAttributes, AcademicTable, Citation, CrossReference, Footnote } from './services/AcademicNodes.js'
 import { normalizeDocumentContent } from './services/RichTextFormats.js'
-import { lanSyncLabel } from './services/LanSyncStatus.js'
+import { lanSyncLabel, syncAttentionMessage } from './services/LanSyncStatus.js'
 import { richTextExtensions } from './services/RichTextExtensions.js'
 import { sanitizeSettings } from './services/DocumentSettings.js'
 import { assetBudgetError, base64ByteLength, validateAssetFileBatch, validateAssets, bytesToBase64 } from './services/ProjectAssets.js'
@@ -1275,6 +1275,7 @@ function App({ initialWorkspace }) {
     setPendingHeading(index)
   }
   const currentView = isCompact ? activeTab : mode
+  const syncNotice = syncAttentionMessage(syncStatus)
   const toggleFocusMode = () => setFocusMode(value => !value)
   useEffect(() => {
     if (pendingHeading === null || currentView === 'preview' || currentView === 'source') return
@@ -1334,7 +1335,7 @@ function App({ initialWorkspace }) {
       const result = pdfSchedulerRef.current?.result
       if (result?.blob === blob) result.sha256 = published.sha256
       void syncActionRef.current?.('auto')
-    } catch (error) { setWorkspaceNotice(`Bản PDF đã biên dịch; chưa đưa vào đồng bộ LAN: ${error.message}`) }
+    } catch (error) { setWorkspaceNotice(`Bản PDF đã biên dịch; chưa đưa vào đồng bộ: ${error.message}`) }
   }
   syncCanApplyRef.current = !formulaOpen && !mathScanOpen && !libraryOpen && !tableLibraryOpen && !documentTemplatesOpen && !workspaceDialogType && !referencesDialog
   syncActionRef.current = async (action, value) => {
@@ -1350,10 +1351,19 @@ function App({ initialWorkspace }) {
     try {
       let status = await window.desktopAPI.syncStatus()
       setSyncStatus(status)
-      if (action === 'auto' && status.mode === 'off') return
+      if (action === 'auto' && status.mode === 'off' && !status.projectSync?.length && !status.pendingJoin) return
       if (action === 'keep-awake') { setSyncStatus(await window.desktopAPI.setSyncKeepAwake(value)); return }
       if (!await persistWorkspaceRef.current?.(action !== 'auto')) throw new Error('Chưa lưu được dữ liệu; lượt đồng bộ đã dừng để bảo vệ bản thảo.')
       const submitted = captureForSync()
+      if (action === 'project-invite') return await window.desktopAPI.projectSyncInvitation(value)
+      if (action === 'project-enable') { setSyncStatus(await window.desktopAPI.enableProjectSync(value.id, submitted, value.url)); return }
+      if (action === 'project-join') { setSyncStatus(await window.desktopAPI.joinProjectSync(value, submitted)); return }
+      if (action === 'project-disconnect') { setSyncStatus(await window.desktopAPI.disconnectProjectSync(value, submitted)); return }
+      if (action === 'project-cancel-join') { setSyncStatus(await window.desktopAPI.cancelProjectJoin()); return }
+      if (action === 'project-approve') { setSyncStatus(await window.desktopAPI.approveProjectPeer(value.id, value.device, value.allowed)); return }
+      if (action === 'project-revoke') { setSyncStatus(await window.desktopAPI.revokeProjectPeer(value.id, value.device)); return }
+      if (action === 'project-keep-awake') { setSyncStatus(await window.desktopAPI.keepProjectAwake(value.id, value.enabled)); return }
+      if (action === 'project-resolve') await window.desktopAPI.resolveProjectSync(value.projectId, value.id, value.choice, value.currentRev)
       if (action === 'invite') return await window.desktopAPI.syncInvitation(value)
       if (action === 'host' || action === 'join' || action === 'off') {
         status = await window.desktopAPI.configureSync(action === 'host' ? 'host' : action === 'join' ? 'client' : 'off', submitted, value)
@@ -1363,7 +1373,7 @@ function App({ initialWorkspace }) {
       if (action === 'revoke') { setSyncStatus(await window.desktopAPI.revokeSyncPeer(value)); return }
       if (action === 'resolve') await window.desktopAPI.resolveSync(value.id, value.choice, value.currentRev)
       const result = await window.desktopAPI.exchangeSync(submitted)
-      if (!result.workspace) return
+      if (!result.workspace) { setSyncStatus(result.status); return result.status }
       // Citation/formula dialogs may have captured positions in the current document.
       // Keep the received revision pending until those dialogs close.
       if (!syncCanApplyRef.current) { setSyncStatus(result.status); return }
@@ -1572,7 +1582,7 @@ function App({ initialWorkspace }) {
 
       {!sourceTrusted && <div className="studio-trust-banner" role="status"><span>Tài liệu, source hoặc tài nguyên nhập từ ngoài chưa được xác nhận để biên dịch trên máy này. XeLaTeX cục bộ có thể đọc tệp trên máy; chỉ tiếp tục khi bạn tin cậy tài liệu.</span><button type="button" onClick={() => { setSourceTrusted(true); void pdfSchedulerRef.current?.request(captureCompileInput({ trusted: true }), { fresh: true }).catch(() => {}) }}>Tin cậy và biên dịch</button></div>}
       {workspaceNotice && <div className="studio-trust-banner" role="status"><span>{workspaceNotice}</span><button type="button" onClick={() => setWorkspaceNotice('')}>Đã hiểu</button></div>}
-      {(syncStatus?.error || syncStatus?.conflicts?.length > 0) && <div className="studio-trust-banner" role="status"><span>{syncStatus.error || `Đồng bộ LAN: ${syncStatus.conflicts.length} xung đột cần chọn phiên bản.`}</span><button type="button" onClick={() => { setManagerContext({ tab: 'sync' }); setManagerOpen(true) }}>Mở Đồng bộ LAN</button></div>}
+      {syncNotice && <div className="studio-trust-banner" role="status"><span>{syncNotice}</span><button type="button" onClick={() => { setManagerContext({ tab: 'sync' }); setManagerOpen(true) }}>Mở Đồng bộ</button></div>}
 
       {['available', 'ready'].includes(updates.status?.status) && <div className="studio-trust-banner" role="status"><span>{updateSummary(updates.status)}</span><button type="button" onClick={() => { setManagerContext({ tab: 'system' }); setManagerOpen(true) }}>Xem bản cập nhật</button></div>}
 
@@ -1606,7 +1616,7 @@ function App({ initialWorkspace }) {
             </div>
 
             {!focusMode && <footer className="studio-statusbar" role="status">
-              <span><span><b>{wordCount.toLocaleString('vi-VN')}</b> từ</span><span>/</span><span><b>{formulaCount}</b> công thức</span><span>/</span><span><b>{imageSummary.count}</b> ảnh</span></span><span>{window.desktopAPI?.exchangeSync && <button type="button" className="studio-lan-status" aria-label="Mở trạng thái đồng bộ LAN" onClick={() => { setManagerContext({ tab: 'sync' }); setManagerOpen(true) }}>{lanSyncLabel(syncStatus)}</button>}Lưu trên máy · Tiếng Việt</span>            </footer>}
+              <span><span><b>{wordCount.toLocaleString('vi-VN')}</b> từ</span><span>/</span><span><b>{formulaCount}</b> công thức</span><span>/</span><span><b>{imageSummary.count}</b> ảnh</span></span><span>{window.desktopAPI?.exchangeSync && <button type="button" className="studio-lan-status" aria-label="Mở trạng thái đồng bộ" onClick={() => { setManagerContext({ tab: 'sync' }); setManagerOpen(true) }}>{lanSyncLabel(syncStatus)}</button>}Lưu trên máy · Tiếng Việt</span>            </footer>}
         </main>
       </div>
 

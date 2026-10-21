@@ -1,6 +1,6 @@
 # Viet LaTeX Studio — macOS và Windows
 
-Ứng dụng desktop soạn tài liệu tiếng Việt, nhập công thức trực quan, chỉnh LaTeX và xem PDF. Bản thảo, tài nguyên, sao lưu và chuyển đổi Word được xử lý trên máy. Tra DOI gửi DOI tới doi.org và các dịch vụ metadata liên quan; đồng bộ LAN chỉ hoạt động khi người dùng bật và ghép máy.
+Ứng dụng desktop soạn tài liệu tiếng Việt, nhập công thức trực quan, chỉnh LaTeX và xem PDF. Bản thảo, tài nguyên, sao lưu và chuyển đổi Word được xử lý trên máy. Tra DOI gửi DOI tới doi.org và các dịch vụ metadata liên quan; đồng bộ chỉ hoạt động khi người dùng bật và ghép máy.
 
 Thay đổi từng phiên bản: [nhật ký thay đổi](docs/CHANGELOG.md). Tài liệu khác: [trích dẫn](docs/CITATION-GUIDE.md), [thư viện bảng](docs/TABLE-LIBRARY.md), [nhận diện công thức](docs/MATH-SUGGESTION-RECOGNITION.md), [giao diện](docs/UI-MONOCHROME.md), [repo tham khảo thiết kế](docs/DESIGN-REFERENCES.md).
 
@@ -27,9 +27,11 @@ Từ 0.5.7, app tự kiểm tra GitHub Releases và cài bản mới sau khi lư
 
 Dữ liệu nằm trong hồ sơ `userData` của Electron, ngoài thư mục cài ứng dụng. Trước khi chuyển máy, dùng **Quản lý tài liệu → Sao lưu** để xuất gói `.vls`. Đóng cửa sổ giữ app chạy; **Cmd+Q** lưu tài liệu rồi thoát.
 
-## Đồng bộ LAN
+## Đồng bộ project qua Internet hoặc LAN
 
-Mở **Quản lý tài liệu → Đồng bộ LAN**. Một máy làm máy chủ, tạo mã ghép một lần; máy còn lại dán mã và ghép. Dữ liệu tự kiểm tra mỗi 5 giây, tiếp tục lưu khi offline, giữ cả hai phiên bản khi cùng sửa. Không tự bật chia sẻ khi cài app. Giao thức vẫn đọc workspace từ các bản trước. Xem [hướng dẫn kết nối và xung đột](docs/LAN-SYNC.md).
+Mở **Quản lý tài liệu → Đồng bộ**, chọn project, cấu hình máy chủ HTTPS rồi **Bật đồng bộ project → Thêm thiết bị**. Máy nhận nhập mã, máy giữ project xác nhận. Dữ liệu mã hóa được trao đổi qua Internet khi các máy cùng trực tuyến; ưu tiên LAN nếu kết nối trực tiếp được. Chỉ project đã chọn được chia sẻ, giữ các project riêng trên máy nhận. Xem [hướng dẫn và triển khai máy chủ chuyển tiếp](docs/INTERNET-SYNC.md). Kho mã chưa có máy chủ công khai mặc định.
+
+Chế độ **Đồng bộ LAN toàn workspace** ở phần mở rộng cuối bảng vẫn dùng được mà không cần Internet. Dữ liệu tự kiểm tra mỗi 5 giây, tiếp tục lưu khi offline, giữ cả hai phiên bản khi cùng sửa. Không tự bật chia sẻ khi cài app. Hai chế độ không chạy đồng thời. Xem [hướng dẫn LAN và xung đột](docs/LAN-SYNC.md).
 
 ## Chức năng
 
@@ -131,7 +133,7 @@ Sau khi sửa một suite lỗi, có thể chạy lại riêng và cập nhật 
 
 Biên dịch: tự chọn 1–8 worker theo CPU/RAM + 8 chờ; dưới 256 MiB RAM trống giảm về 1 worker sau hai lần đo liên tiếp, kể cả khi nhiều worker đang chạy; mỗi lượt chương trình 30 giây; cache 32 bản/32 MiB; PDF tối đa 75 MiB. Tra DOI có hàng đợi riêng 4 chạy + 8 chờ; chẩn đoán môi trường 1 chạy + 2 chờ, quá tải trả 503 kèm Retry-After. Shutdown chặn yêu cầu mới, đánh thức hàng đợi, hủy tác vụ và đợi biên dịch/Word cùng tiến trình khởi động sẵn dọn tài nguyên. Source 800 KiB; tài nguyên 100 tệp, 10 MiB/tệp, tổng 24 MiB; bản thảo tối đa 8 ảnh đã tối ưu. Workspace 128 MiB; Word nhập 25 MiB. Tắt cưỡng bức/mất điện có thể mất phần chưa lưu; backup cùng ổ không thay thế sao lưu sang ổ khác.
 
-Có đồng bộ phiên bản qua LAN; chưa có cộng tác gõ đồng thời, cloud sync, tracked changes và tự cập nhật có chữ ký. Chạy trực tiếp trên Intel, Apple Developer ID/notarization và Docker runtime cần kiểm tra riêng. Xem [ARCHITECTURE.md](ARCHITECTURE.md).
+Có đồng bộ phiên bản qua LAN và đồng bộ từng project qua máy chủ chuyển tiếp Internet; chưa có lưu trữ project trên cloud để nhận khi máy giữ project đã tắt, cộng tác gõ đồng thời, tracked changes và tự cập nhật có chữ ký. Chạy trực tiếp trên Intel, Apple Developer ID/notarization và Docker runtime cần kiểm tra riêng. Xem [ARCHITECTURE.md](ARCHITECTURE.md).
 
 
 ### Tab tài liệu và bản tổng hợp

@@ -2,11 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { formatShortcut } from '../services/KeyboardShortcuts.js'
 import { X, FolderOpen, Download, Upload, Copy, Pencil, Trash2, Settings, History, FileCode2, BookOpen, Activity, Sparkles } from 'lucide-react'
 import AbstractSettings from './AbstractSettings.jsx'
+import ProjectSyncPanel from './ProjectSyncPanel.jsx'
 import LanSyncPanel from './LanSyncPanel.jsx'
 import UpdatePanel from './UpdatePanel.jsx'
 import { AiSettingsPanel } from './AiAssistant.jsx'
 
-const tabs = [['documents', 'Tài liệu', FolderOpen], ['backup', 'Sao lưu', History], ['sync', 'Đồng bộ LAN', Activity], ['settings', 'Trang & tác giả', Settings], ['assets', 'Tài nguyên', FileCode2], ['academic', 'Học thuật', BookOpen], ['ai', 'Trợ lý AI', Sparkles], ['system', 'Hệ thống', Activity]]
+const tabs = [['documents', 'Tài liệu', FolderOpen], ['backup', 'Sao lưu', History], ['sync', 'Đồng bộ', Activity], ['settings', 'Trang & tác giả', Settings], ['assets', 'Tài nguyên', FileCode2], ['academic', 'Học thuật', BookOpen], ['ai', 'Trợ lý AI', Sparkles], ['system', 'Hệ thống', Activity]]
 export default function StudioManager({ readOnly = false, open, initialTab = 'documents', initialDelete = null, onClose, workspace, onSelect, onAction, onExport, onImport, onImportLatex, onImportWord, onExportWord, onOpenReferences, settings, onSettings, assets, onAssets, editor, onSnapshot, onRestore, notice, title, syncStatus, onSyncAction, updates }) {
   const [tab, setTab] = useState(initialTab), [query, setQuery] = useState(''), [busy, setBusy] = useState(false), [message, setMessage] = useState('')
   const [editing, setEditing] = useState(null), [deleting, setDeleting] = useState(initialDelete), [backups, setBackups] = useState([]), [environment, setEnvironment] = useState(null)
@@ -39,7 +40,7 @@ export default function StudioManager({ readOnly = false, open, initialTab = 'do
         {readOnly && ['settings', 'assets', 'academic'].includes(tab) && <p className="studio-notice">Chọn tab gốc để sửa thiết lập, tài nguyên hoặc trích dẫn. Bản tổng hợp dùng thiết lập của tab đầu tiên được chọn.</p>}
         <fieldset disabled={busy || (readOnly && ['settings', 'assets', 'academic'].includes(tab))}>
         {tab === 'ai' && <AiSettingsPanel />}
-        {tab === 'sync' && <LanSyncPanel status={syncStatus} onAction={onSyncAction} />}
+        {tab === 'sync' && <><ProjectSyncPanel status={syncStatus} workspace={workspace} onAction={onSyncAction} /><details><summary>Đồng bộ LAN toàn workspace</summary><LanSyncPanel status={syncStatus} onAction={onSyncAction} /></details></>}
         {tab === 'documents' && <>
           <div className="studio-manager-actions"><button type="button" onClick={() => latexInput.current.click()}><Upload size={14} />Nhập dự án LaTeX ZIP</button><button type="button" onClick={() => wordInput.current.click()}><Upload size={14} />Nhập Word</button><button type="button" onClick={() => run(onExportWord)}><Download size={14} />Xuất bản thảo Word</button></div>
           {chooseFile(latexInput, onImportLatex)}{chooseFile(wordInput, onImportWord)}

@@ -20,6 +20,7 @@ workspace ↔ atomic store + backups / ZIP .vls
 ## Thành phần
 
 - `electron/lan-sync.cjs`, `lan-sync-transport.cjs`, `src/services/LanSyncData.js`, `LanSyncPanel.jsx`: dịch vụ LAN tách khỏi API biên dịch. Mã ghép một lần, khóa theo máy, payload AES-GCM. Record theo tài liệu/dự án/mẫu, revision, dấu xóa, xung đột bền vững và gộp sửa trong lúc nhận. Renderer xác nhận mốc sau khi lưu workspace; nhận thay đổi tạo backup và không nhận quyền tin cậy LaTeX. Dữ liệu nhận được giữ chờ nếu đang mở hộp thoại công thức/trích dẫn có vị trí trong tài liệu. Chi tiết: [LAN-SYNC](docs/LAN-SYNC.md).
+- `electron/project-sync.cjs`, `sync-relay-client.cjs`, `sync-relay-server.cjs`, `src/services/ProjectSyncData.js`, `ProjectSyncPanel.jsx`: nhóm đồng bộ theo project dùng lại bộ phiên bản LAN, ghép có xác nhận, khóa theo thiết bị, ưu tiên LAN rồi chuyển tiếp HTTPS. Relay chỉ giữ định tuyến/gói mã hóa trong RAM, không có kho project trên cloud. Nhóm dùng hồ sơ riêng; mẫu trang có namespace riêng; không gộp dữ liệu project ngoài phạm vi. Index nguyên tử và receipt chỉ xác nhận sau khi workspace được lưu. Có cấu hình Compose/Caddy trong `deploy/sync-relay`; xem [INTERNET-SYNC](docs/INTERNET-SYNC.md).
 
 - `src/main.jsx`: điều phối workspace, tài liệu hiện hành, lưu/flush, chọn nguồn PDF và trạng thái tin cậy.
 - `WorkspaceData.js`, `DocumentData.js`, `DocumentSettings.js`: cấu trúc, xác thực, dữ liệu cũ, thao tác dự án/tài liệu.
@@ -63,7 +64,7 @@ Rà soát chịu tải tháng 10/2026 bổ sung trạng thái đóng cho mọi h
 
 Kiểm tra Base64 giới hạn độ dài trước giải mã và dùng strict decoding không mã hóa lại dữ liệu để so sánh; giao diện kiểm tra cả bit padding và tên tệp dành riêng trong thư mục con giống backend. JSON chỉ cho phép whitespace sau giá trị đầu tiên, đọc tới EOF theo giới hạn body và từ chối giá trị thứ hai ngay khi gặp, tránh cấp phát cho dữ liệu chắc chắn bị loại. Cache được kiểm tra lại dưới khóa trước khi tạo flight để tránh biên dịch thừa khi lượt trước vừa hoàn tất. Dọn thư mục tạm cũ bao gồm cả `vietlatex-source-*`. Workspace store xác thực cấu trúc snapshot trước khi đưa vào hàng đợi ghi.
 
-Không phân tích LaTeX tùy ý ngược sang Tiptap. Word chỉ chuyển cấu trúc hỗ trợ, macro phức tạp không bảo đảm OMML; refs là tên nhãn, chưa là field động. Phân trang bản thảo có thể khác PDF khi đổi giấy/lề. Chưa có cộng tác, cloud sync, tracked changes và updater có chữ ký.
+Không phân tích LaTeX tùy ý ngược sang Tiptap. Word chỉ chuyển cấu trúc hỗ trợ, macro phức tạp không bảo đảm OMML; refs là tên nhãn, chưa là field động. Phân trang bản thảo có thể khác PDF khi đổi giấy/lề. Chưa có cộng tác gõ đồng thời, lưu project trên cloud để nhận khi máy giữ project tắt, tracked changes và updater có chữ ký.
 
 0.5.0 thêm đồng bộ phiên bản LAN, chưa có cộng tác gõ đồng thời. 0.5.6 bổ sung PDF đã biên dịch qua endpoint `/pdf` mã hóa, kiểm tra SHA-256 và hai dấu phiên bản: bản thảo/mẫu, source/ảnh/tài nguyên. PDF không nằm trong record bản thảo, nên client v1 cũ vẫn tương thích. Cache cục bộ tối đa 32 MiB, 24 MiB/tệp; renderer nhận PDF qua IPC, kiểm tra phiên bản hiện tại rồi đưa vào scheduler. Xem/xuất PDF nhận được không cấp quyền thực thi source. Tick 5 giây đến từ tiến trình chính và tiếp tục khi resume. Luồng thoát hoàn thành flush trước khi dừng dịch vụ; lỗi lưu giữ cả cửa sổ lẫn backend hoạt động. Menu App/Edit/Window được bật trên macOS.
 

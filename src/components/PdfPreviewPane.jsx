@@ -287,7 +287,7 @@ export default function PdfPreviewPane({
     try { localStorage.setItem('noir-pdf-tools-expanded', next ? '0' : '1') } catch { /* Keep the session preference if storage is unavailable. */ }
     setControlsCollapsed(next)
   }
-  const statusLabel = compileState === 'ready' ? (pdfShared ? 'Đã nhận qua LAN' : 'Đã cập nhật') : compileState === 'error' ? 'Cần kiểm tra' : compileState === 'blocked' ? 'Chờ xác nhận' : compileState === 'compiling' ? 'Đang cập nhật' : 'Chưa cập nhật'
+  const statusLabel = compileState === 'ready' ? (pdfShared ? 'Đã nhận qua đồng bộ' : 'Đã cập nhật') : compileState === 'error' ? 'Cần kiểm tra' : compileState === 'blocked' ? 'Chờ xác nhận' : compileState === 'compiling' ? 'Đang cập nhật' : 'Chưa cập nhật'
   const statusTone = compileState === 'ready' ? 'ready' : compileState === 'error' ? 'error' : compileState === 'compiling' ? 'busy' : 'idle'
   const loadingTitle = compileState === 'error' ? 'Chưa tạo được PDF' : compileState === 'compiling' ? 'Đang tạo PDF' : 'PDF chưa được tạo'
   const loadingDescription = compileState === 'error'

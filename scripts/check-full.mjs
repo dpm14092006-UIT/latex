@@ -34,6 +34,7 @@ const suites = [
   { name: 'test:math-keyboard' },
   { name: 'test:desktop' },
   { name: 'test:sync:desktop' },
+  { name: 'test:sync:internet:desktop' },
   { name: 'test:quit-failure' },
   { name: 'test:desktop:dist' },
   { name: 'test:headings' },

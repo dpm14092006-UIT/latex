@@ -1,5 +1,7 @@
 # Đồng bộ qua LAN — 0.5.6
 
+Đồng bộ riêng từng project bằng mã qua Internet đã có thêm trong bảng **Đồng bộ**. Xem [INTERNET-SYNC.md](INTERNET-SYNC.md) để cấu hình máy chủ chuyển tiếp và ghép thiết bị khác mạng. Chế độ LAN toàn workspace bên dưới được giữ trong mục mở rộng và không chạy cùng lúc với đồng bộ project.
+
 ## Dùng ngay
 
 1. Cài hoặc mở ứng dụng desktop trên cả hai máy. Mac nên dùng 0.5.6; giao thức LAN v1 vẫn ghép được với bản Windows 0.5.1 để chia sẻ bản thảo. Bản cũ chưa hỗ trợ PDF và bảng LAN sẽ báo cần cập nhật. Kết nối cùng Wi-Fi/Ethernet; mạng khách có thể chặn hai máy nhìn thấy nhau.

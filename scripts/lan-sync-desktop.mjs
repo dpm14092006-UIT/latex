@@ -81,7 +81,9 @@ async function close(instance) {
 }
 async function panel(page) {
   if (!await page.getByRole('dialog').count()) await page.getByRole('button', { name: 'Quản lý tài liệu', exact: true }).click()
-  await page.getByRole('button', { name: 'Đồng bộ LAN', exact: true }).click()
+  await page.getByRole('button', { name: 'Đồng bộ', exact: true }).click()
+  const legacy = page.locator('details').filter({ has: page.locator('summary', { hasText: 'Đồng bộ LAN toàn workspace' }) })
+  if (await legacy.getAttribute('open') === null) await page.getByText('Đồng bộ LAN toàn workspace', { exact: true }).click()
 }
 async function sync(page) { await panel(page); await page.getByRole('button', { name: 'Đồng bộ ngay', exact: true }).click(); await page.getByText(/^(Đã đồng bộ và lưu trên máy\.|Đã lưu trên máy\. Còn \d+ xung đột)/, { exact: false }).waitFor() }
 async function edit(page, text) { if (await page.getByRole('dialog').count()) await page.getByRole('button', { name: 'Đóng', exact: true }).click(); await page.locator('.tiptap').fill(text) }
@@ -149,12 +151,21 @@ try {
   await client.page.getByRole('button', { name: 'Cập nhật PDF', exact: true }).click()
   await client.page.waitForFunction(() => Boolean(window.lanTestPdfUrl), { timeout: 45000 })
   await client.page.locator('.studio-panel-status[data-tone="ready"]').waitFor({ timeout: 45000 })
-  await host.page.locator('.studio-panel-status').filter({ hasText: 'Đã nhận qua LAN' }).waitFor({ timeout: 45000 })
+  await host.page.locator('.studio-panel-status').filter({ hasText: 'Đã nhận qua đồng bộ' }).waitFor({ timeout: 45000 })
   await host.page.locator('.studio-pdf-page canvas').first().waitFor()
   assert.equal(await host.page.getByRole('button', { name: 'Tin cậy và biên dịch', exact: true }).count(), 1)
   assert.equal(await host.page.getByRole('button', { name: 'Xuất PDF', exact: true }).isEnabled(), true)
   const pdfBytes = async page => page.evaluate(async () => Array.from(new Uint8Array(await (await fetch(window.lanTestPdfUrl)).arrayBuffer())))
-  assert.deepEqual(await pdfBytes(host.page), await pdfBytes(client.page), 'receiver renders exactly the sender PDF bytes')
+  // Manual and automatic compilation can finish back-to-back with different
+  // timestamps. Allow the next sync tick to deliver the sender's latest PDF.
+  let receiverPdf, senderPdf
+  const initialPdfDeadline = Date.now() + 30000
+  do {
+    receiverPdf = await pdfBytes(host.page); senderPdf = await pdfBytes(client.page)
+    if (JSON.stringify(receiverPdf) === JSON.stringify(senderPdf)) break
+    await host.page.waitForTimeout(100)
+  } while (Date.now() < initialPdfDeadline)
+  assert.deepEqual(receiverPdf, senderPdf, 'receiver renders exactly the sender PDF bytes')
   const pdfWorkspace = await host.page.evaluate(() => window.desktopAPI.loadWorkspace())
   assert.equal(pdfWorkspace.projects.flatMap(project => project.tasks).find(task => task.id === b.projects[0].tasks[0].id).sourceTrusted, false)
   await sync(client.page)

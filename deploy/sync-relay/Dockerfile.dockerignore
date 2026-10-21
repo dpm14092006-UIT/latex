@@ -1,0 +1,4 @@
+**
+!electron/
+!electron/lan-sync-transport.cjs
+!electron/sync-relay-server.cjs
