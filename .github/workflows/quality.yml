@@ -89,7 +89,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: github.event_name == 'workflow_dispatch'
         with:
           name: macos-universal-test-installer
@@ -125,7 +125,7 @@ jobs:
       - run: npm run test:spellcheck:desktop
         env:
           DESKTOP_EXE: artifacts/win-package/win-unpacked/Viet Latex Studio.exe
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: github.event_name == 'workflow_dispatch'
         with:
           name: windows-x64-test-installer
@@ -156,7 +156,7 @@ jobs:
           BENCH_ROUNDS: '5'
           BENCH_ENFORCE: '1'
           BENCH_OUTPUT: bench-result.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: compile-benchmark
