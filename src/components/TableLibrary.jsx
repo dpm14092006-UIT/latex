@@ -3,6 +3,7 @@ import { formatShortcut } from '../services/KeyboardShortcuts.js'
 import { TableMap } from '@tiptap/pm/tables'
 import { AlignCenter, AlignLeft, AlignRight, Check, Copy, Table2, Wand2, X } from 'lucide-react'
 import { tableLatexPreview } from '../services/DocumentSerializer.js'
+import { tableCaptionParts } from '../services/TableCaptions.js'
 import {
   createPresetTable,
   normalizeCellAlign,
@@ -71,6 +72,7 @@ export default function TableLibrary({ editor, onClose }) {
   const [draftStyle, setDraftStyle] = useState(() => normalizeTableStyle(TABLE_PRESETS[0].style))
   const [size, setSize] = useState({ rows: TABLE_PRESETS[0].rows, cols: TABLE_PRESETS[0].header.length })
   const [caption, setCaption] = useState('')
+  const [tableNumber, setTableNumber] = useState('')
   const [copied, setCopied] = useState(false)
   const [message, setMessage] = useState('')
 
@@ -91,14 +93,16 @@ export default function TableLibrary({ editor, onClose }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, editing, tablePos, revision])
   const editMode = mode === 'edit' && table
+  const captionParts = tableCaptionParts(table?.attrs)
   const style = editMode ? normalizeTableStyle(table.attrs) : draftStyle
   const columns = useMemo(() => (editMode ? columnInfo(table) : []), [editMode, table])
   const preset = TABLE_PRESETS.find(item => item.id === presetId) || TABLE_PRESETS[0]
   const draftTable = useMemo(() => {
     const json = createPresetTable({ ...preset, style: draftStyle }, size)
     json.attrs.caption = caption.trim()
+    json.attrs.tableNumber = tableNumber.trim()
     return json
-  }, [preset, draftStyle, size, caption])
+  }, [preset, draftStyle, size, caption, tableNumber])
   const latex = useMemo(() => {
     try {
       return tableLatexPreview(editMode ? table.toJSON() : draftTable)
@@ -125,7 +129,8 @@ export default function TableLibrary({ editor, onClose }) {
     dispatchTable((transaction, current) => transaction.setNodeMarkup(tablePos, null, { ...current.attrs, ...patch }))
   }
   const updateTableText = (name, value) => dispatchTable((transaction, current) => {
-    if ((current.attrs[name] || '') !== value) transaction.setNodeMarkup(tablePos, null, { ...current.attrs, [name]: value })
+    const attrs = { ...current.attrs, ...tableCaptionParts(current.attrs) }
+    if ((attrs[name] || '') !== value) transaction.setNodeMarkup(tablePos, null, { ...attrs, [name]: value })
   })
   const setColumnAlign = (column, align) => dispatchTable((transaction, current) => {
     const map = TableMap.get(current)
@@ -184,7 +189,8 @@ export default function TableLibrary({ editor, onClose }) {
           <div className="table-library-size">
             <label>Số hàng nội dung<input type="number" min={1} max={100} value={size.rows} onChange={event => setSize(value => ({ ...value, rows: clampSize(event.target.value, 100) }))} /></label>
             <label>Số cột<input type="number" min={1} max={20} value={size.cols} onChange={event => setSize(value => ({ ...value, cols: clampSize(event.target.value, 20) }))} /></label>
-            <label className="table-library-grow">Chú thích<input maxLength={500} placeholder="Ví dụ: Kết quả thực nghiệm" value={caption} onChange={event => setCaption(event.target.value)} /></label>
+            <label>Table No.<input maxLength={50} value={tableNumber} onChange={event => setTableNumber(event.target.value)} /></label>
+            <label className="table-library-grow">Caption<input maxLength={500} placeholder="Table title…" value={caption} onChange={event => setCaption(event.target.value)} /></label>
           </div>
         </section>}
 
@@ -209,7 +215,8 @@ export default function TableLibrary({ editor, onClose }) {
             <label className="table-library-check"><input type="checkbox" checked={style.headerBold} onChange={event => updateStyle({ headerBold: event.target.checked })} />Tiêu đề in đậm</label>
           </div>
           {editMode && <div className="table-library-size">
-            <label className="table-library-grow">Chú thích bảng<input maxLength={500} defaultValue={table.attrs.caption || ''} key={`caption-${tablePos}`} onBlur={event => updateTableText('caption', event.currentTarget.value.trim())} /></label>
+            <label>Table No.<input maxLength={50} defaultValue={captionParts.tableNumber} key={`number-${tablePos}`} onBlur={event => updateTableText('tableNumber', event.currentTarget.value.trim())} /></label>
+            <label className="table-library-grow">Caption<input maxLength={500} placeholder="Table title…" defaultValue={captionParts.caption} key={`caption-${tablePos}`} onBlur={event => updateTableText('caption', event.currentTarget.value.trim())} /></label>
             <label>Nhãn LaTeX<input maxLength={100} placeholder="tab:ket-qua" defaultValue={table.attrs.label || ''} key={`label-${tablePos}`} onBlur={event => updateTableText('label', event.currentTarget.value.trim().replace(/[^A-Za-z0-9:._-]/g, '').slice(0, 100))} /></label>
           </div>}
           {editMode && <div className="table-library-size">

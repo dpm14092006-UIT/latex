@@ -1,6 +1,6 @@
 import { unzip, zip, strToU8, strFromU8 } from 'fflate'
 import { sanitizeWorkspace } from './WorkspaceData.js'
-import { sanitizeFormulaTemplates, sanitizeDocumentTemplates } from './DocumentData.js'
+import { clampHeadingLevels, isValidDocument, sanitizeFormulaTemplates, sanitizeDocumentTemplates } from './DocumentData.js'
 import { validateAssets, validateDocumentImages, safeAssetPath, bytesToBase64, base64ToBytes, base64ByteLength, MAX_ASSET_BYTES, MAX_TOTAL_ASSET_BYTES, MAX_ASSETS } from './ProjectAssets.js'
 
 const MAX_ARCHIVE = 128 * 1024 * 1024
@@ -63,6 +63,24 @@ export async function importWorkspace(file) {
   if (!files['workspace.json']) throw new Error('Không tìm thấy workspace.json trong gói sao lưu.')
   const raw = JSON.parse(strFromU8(files['workspace.json']))
   if (raw.format !== 'vietlatex-workspace' || raw.version !== 1) throw new Error('Phiên bản gói sao lưu chưa được hỗ trợ.')
+  // Local recovery may salvage a damaged task by dropping invalid nodes or
+  // assets. An explicit backup import must never report that as a full restore.
+  if (!Array.isArray(raw.projects)) throw new Error('Gói sao lưu có danh sách dự án không hợp lệ.')
+  for (const project of raw.projects) {
+    if (!project || !Array.isArray(project.tasks)) throw new Error('Gói sao lưu có danh sách tài liệu không hợp lệ.')
+    for (const task of project.tasks) {
+      if (!task || !isValidDocument(clampHeadingLevels(task.document))) {
+        throw new Error('Gói sao lưu có nội dung tài liệu không hợp lệ; chưa nhập để tránh mất nội dung.')
+      }
+      if (task.assets !== undefined) validateAssets(task.assets)
+      if (task.sourceDraft !== undefined && typeof task.sourceDraft !== 'string') {
+        throw new Error('Gói sao lưu có source LaTeX không hợp lệ; chưa nhập để tránh mất nội dung.')
+      }
+      if (task.settings?.bibliography !== undefined && (typeof task.settings.bibliography !== 'string' || task.settings.bibliography.length > 500_000)) {
+        throw new Error('Gói sao lưu có danh mục BibTeX không hợp lệ hoặc vượt 500.000 ký tự; chưa nhập để tránh mất nội dung.')
+      }
+    }
+  }
   const workspace = sanitizeWorkspace(raw)
   if (!workspace || workspace.projects.length !== raw.projects.length || workspace.projects.some((p, i) => p.tasks.length !== raw.projects[i].tasks.length)) throw new Error('Gói sao lưu có tài liệu không hợp lệ; chưa nhập để tránh mất nội dung.')
   const importedWorkspace = {

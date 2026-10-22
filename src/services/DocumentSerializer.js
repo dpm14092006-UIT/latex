@@ -6,6 +6,8 @@ import { normalizeTextColor } from './RichTextFormats.js'
 import { sanitizeSettings } from './DocumentSettings.js'
 import { base64ByteLength } from './ProjectAssets.js'
 import { normalizeCellAlign, normalizeTableStyle } from './TableStyles.js'
+import { tableCaptionParts, tableCaptionText } from './TableCaptions.js'
+import { MAX_TABLE_COLUMNS } from './DocumentData.js'
 
 export const starter = { type: 'doc', content: [{ type: 'paragraph' }] }
 export const builtInTemplates = [
@@ -593,8 +595,11 @@ function tableNoteLatex(note) {
   const label = /^([^\s:$\\]{1,15}(?: [^\s:$\\]{1,15}){0,2}):\s*/u.exec(text)
   return label
     ? `\\textit{${latexEscape(label[1])}:} ${latexTextWithMath(text.slice(label[0].length))}`
-    : `\\textit{Ghi chú:} ${latexTextWithMath(text)}`
+    : `\\textit{Note:} ${latexTextWithMath(text)}`
 }
+const manualTableLabelDefinition = String.raw`\makeatletter
+\providecommand{\vietlatextablelabel}[2]{\phantomsection\def\@currentlabel{#1}\label{#2}}
+\makeatother`
 const highlightDefinition = String.raw`\providecommand{\vietlatexhl}[2]{{\setlength{\fboxsep}{0.5pt}\colorbox[HTML]{#1}{\strut #2}}}`
 function latexHexColor(value) { return /^#[0-9a-f]{6}$/i.test(value || '') ? value.slice(1).toUpperCase() : '' }
 function latexFontSize(value) {
@@ -637,8 +642,8 @@ function renderLatexTable(node, context) {
     let column = 0
     const cells = []
     for (const cell of row.content || []) {
-      const colspan = Math.max(1, Math.min(20, Number(cell.attrs?.colspan) || 1))
-      const rowspan = Math.max(1, Math.min(100, Number(cell.attrs?.rowspan) || 1))
+      const colspan = Math.max(1, Math.min(MAX_TABLE_COLUMNS, Number(cell.attrs?.colspan) || 1))
+      const rowspan = Math.max(1, Math.min(MAX_TABLE_COLUMNS, Number(cell.attrs?.rowspan) || 1))
       while (true) {
         while ((occupiedUntil[column] || 0) > rowIndex) column += 1
         const overlaps = Array.from({ length: colspan }, (_, offset) => (occupiedUntil[column + offset] || 0) > rowIndex).some(Boolean)
@@ -850,9 +855,9 @@ ${coloured ? String.raw`\setlength{\aboverulesep}{0pt}
   const tabular = `${tableStyle}${tabularBody}\n\\endgroup`
   if (context.inTable) return `${tabular}\n`
 
-  // An untitled table is still numbered, but prints "Bảng 1" alone instead of
-  // repeating the number as its title ("Bảng 1: Bảng 1").
-  const caption = latexTextWithMath(String(node.attrs?.caption || '').replace(/\s+/gu, ' ').trim())
+  // Table No. is author-supplied; the title stays independent of numbering.
+  const captionText = tableCaptionText(node.attrs)
+  const caption = latexTextWithMath(captionText)
   const note = tableNoteLatex(node.attrs?.note)
   const requestedLabel = safeLabel(node.attrs?.label) || `tab:table-${tableNumber}`
   context.tableLabels ||= new Set()
@@ -860,24 +865,28 @@ ${coloured ? String.raw`\setlength{\aboverulesep}{0pt}
   let duplicate = 2
   while (context.tableLabels.has(label)) label = `${requestedLabel.slice(0, 94)}-${duplicate++}`
   context.tableLabels.add(label)
+  // Cross-references must follow the author's designation, never longtable's
+  // internal counter. Missing designations remain unresolved instead of guessing.
+  const designation = tableCaptionParts(node.attrs).tableNumber || '??'
+  const labelBlock = `\\vietlatextablelabel{${latexEscape(designation)}}{${label}}`
   const captionBelow = style.captionPosition === 'bottom'
   const estimatedLines = rows.reduce((total, row) => total + Math.max(1, ...row.map(({ cell, column, colspan }) => Math.ceil(tableCellText(cell).length / Math.max(8, widths.slice(column, column + colspan).reduce((sum, width) => sum + width, 0) * 80)))), 0)
   const fullWidth = context.twoColumn && (rows.length > 24 || estimatedLines > 40)
   if (!context.twoColumn || fullWidth) {
     const heading = `${topRule}${header}${headerRule}`
-    // longtable steps the table counter itself; \caption* prints the bare number.
-    const captionRow = `${caption ? `\\caption{${caption}}` : '\\caption*{\\tablename~\\thetable}'}\\label{${label}}`
-    const firstHead = captionBelow ? heading : `${captionRow} \\\\\n${heading}`
-    // A longtable caption is a table row; terminate it explicitly in the last-page footer.
-    const lastFoot = captionBelow ? `${bottomRule}${captionRow} \\\\\n` : bottomRule
+    // longtable supports unnumbered captions without loading caption.sty,
+    // which would override caption formatting in journal classes such as IEEE.
+    const captionRow = caption ? `\\caption*{${caption}} \\\\\n` : ''
+    const firstHead = `${captionBelow ? '' : captionRow}${heading}`
+    const lastFoot = `${bottomRule}${captionBelow ? captionRow : ''}`
     // The note follows the last row, so it shrinks the gap after the table and
     // is kept on the same page as that row.
     const noteBlock = note ? `\\nopagebreak\n\\par\\vspace{3pt}\n{\\footnotesize\\setlength{\\parindent}{0pt}${note}\\par}\n\\vspace{\\LTpost}\n` : ''
-    return `${fullWidth ? '\\onecolumn\n' : ''}${tableStyle}${note ? '\\setlength{\\LTpost}{0pt}\n' : ''}\\begin{longtable}{${specification}}\n${firstHead}\\endfirsthead\n${heading}\\endhead\n${bottomRule}\\endfoot\n${lastFoot}\\endlastfoot\n${body}\\end{longtable}\n${noteBlock}\\endgroup\n${fullWidth ? '\\twocolumn\n' : ''}\n`
+    return `${fullWidth ? '\\onecolumn\n' : ''}${tableStyle}${note ? '\\setlength{\\LTpost}{0pt}\n' : ''}\\begin{longtable}{${specification}}\n\\noalign{${labelBlock}}\n${firstHead}\\endfirsthead\n${heading}\\endhead\n${bottomRule}\\endfoot\n${lastFoot}\\endlastfoot\n${body}\\end{longtable}\n${noteBlock}\\endgroup\n${fullWidth ? '\\twocolumn\n' : ''}\n`
   }
   const captionBlock = caption
-    ? `\\caption{${caption}}\n\\label{${label}}\n`
-    : `\\refstepcounter{table}\\label{${label}}\n${captionBelow ? '\\par\\vspace{\\abovecaptionskip}\n' : ''}{\\tablename~\\thetable\\par}\n${captionBelow ? '' : '\\vspace{\\abovecaptionskip}\n'}`
+    ? `\\par\\vspace{\\abovecaptionskip}\n{\\small ${caption}\\par}\n\\vspace{\\belowcaptionskip}\n`
+    : ''
   // A table whose natural width needs more than one column spans both
   // columns (table*), as journals set wide tables.
   const naturalWidth = lengths.reduce((sum, length, index) => sum + (wraps[index] ? Math.min(length, 20) : length) + 2, 0)
@@ -888,7 +897,7 @@ ${coloured ? String.raw`\setlength{\aboverulesep}{0pt}
   // of running into the margin or the other column.
   // The style settings stay outside the box, where their line ends are not spaces.
   const noteBox = note ? `\\noindent\\parbox{\\vietlatextablewidth}{\\vspace{3pt}\n\\footnotesize\\setlength{\\parindent}{0pt}\\setlength{\\parskip}{0pt}${note}\\par}\n` : ''
-  return `\\begin{${environment}}[${environment === 'table' ? 'htbp' : 'tp'}]\n\\centering\n${captionBelow ? '' : captionBlock}${tableStyle}\\setbox0=\\hbox{${tabularBody}}%\n\\ifdim\\wd0>\\linewidth\\setbox0=\\hbox{\\resizebox{\\linewidth}{!}{\\box0}}\\fi\n\\xdef\\vietlatextablewidth{\\the\\wd0}%\n\\leavevmode\\box0\\par\n\\endgroup\n${captionBelow ? captionBlock : ''}${noteBox}\\end{${environment}}\n\n`
+  return `\\begin{${environment}}[${environment === 'table' ? 'htbp' : 'tp'}]\n\\centering\n${labelBlock}\n${captionBelow ? '' : captionBlock}${tableStyle}\\setbox0=\\hbox{${tabularBody}}%\n\\ifdim\\wd0>\\linewidth\\setbox0=\\hbox{\\resizebox{\\linewidth}{!}{\\box0}}\\fi\n\\xdef\\vietlatextablewidth{\\the\\wd0}%\n\\leavevmode\\box0\\par\n\\endgroup\n${captionBelow ? captionBlock : ''}${noteBox}\\end{${environment}}\n\n`
 }
 
 function citationPartLatex(part, mode, context) {
@@ -1552,7 +1561,7 @@ export function toLatex(doc, title, templateSource = defaultDocumentTemplate, do
     latex = latex.replace(/\\begin\{document\}/, () => `${definition}\n\\begin{document}`)
   }
   if (/\\(?:includegraphics|resizebox)\b/.test(latex)) latex = ensureLatexPackage(latex, 'graphicx')
-  if (/\\(?:href|hyperlink|hypertarget|url|nolinkurl|ref|label|cite\w*)\b/.test(latex)) {
+  if (/\\(?:href|hyperlink|hypertarget|url|nolinkurl|ref|label|vietlatextablelabel|cite\w*)\b/.test(latex)) {
     latex = ensureLatexPackage(latex, 'hyperref')
     if (!/\\hypersetup\s*\{[^}]*\b(?:pdfborder|colorlinks)\s*=/is.test(latex)) {
       latex = latex.replace(/\\begin\{document\}/i, '\\hypersetup{pdfborder={0 0 0}}\n\\begin{document}')
@@ -1569,11 +1578,7 @@ export function toLatex(doc, title, templateSource = defaultDocumentTemplate, do
     latex = ensureLatexPackage(latex, 'colortbl')
   }
   if (/\\begin\{longtable\}/.test(latex)) latex = ensureLatexPackage(latex, 'longtable')
-  // Without a language package the classes print "Table 1"; a template that
-  // chooses its own language or name keeps it.
-  if (/\\(?:caption\*?|tablename)\b/.test(latex) && !/\\(?:usepackage|RequirePackage)(?:\[[^\]]*\])?\{[^}]*\b(?:babel|polyglossia)\b|\\(?:renewcommand|def)\s*\{?\\tablename\b/.test(latex)) {
-    latex = latex.replace(/\\begin\{document\}/i, () => '\\renewcommand{\\tablename}{Bảng}\n\\begin{document}')
-  }
+  if (/\\vietlatextablelabel\s*\{/.test(latex)) latex = ensureLatexDefinition(latex, 'vietlatextablelabel', manualTableLabelDefinition)
   if (/\\multirow\b/.test(latex)) latex = ensureLatexPackage(latex, 'multirow')
   if (needsAutomaticBibliography) {
     latex = latex.replace(/\\end\{document\}/, () => citationStyle === 'apa' ? '\\printbibliography\n\\end{document}' : `\\bibliographystyle{${bibliographyStyleName(citationStyle)}}\n\\bibliography{references}\n\\end{document}`)

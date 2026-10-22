@@ -241,6 +241,7 @@ try {
 } catch (error) {
   for (const app of running) {
     const page = app.windows()[0]
+    console.error(await page?.evaluate(async () => ({ nativeTicks: window.lanNativeTicks, visibility: document.visibilityState, status: await window.desktopAPI.syncStatus() })).catch(() => null))
     console.error(await page?.evaluate(() => document.body.innerText.slice(-5000)).catch(() => null))
     await page?.screenshot({ path: join(output, `failure-${running.size}-${app.process().pid}.png`) }).catch(() => {})
   }

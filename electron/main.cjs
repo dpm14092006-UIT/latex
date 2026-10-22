@@ -47,6 +47,12 @@ const syncAfterResume = () => { requestSyncTick(); setTimeout(requestSyncTick, 2
 // unable to sync. Blocks system sleep only; the display may still turn off.
 function applyKeepAwake() {
   const status = lanSync?.status()
+  // A packaged hidden window can suspend autosave/render work even though the
+  // main-process sync clock still fires. Keep its save/merge handlers responsive
+  // only while sharing; return to normal background limits when sync is off.
+  const syncing = Boolean(status && (status.mode !== 'off' || status.projectSync?.length || status.pendingJoin))
+  const contents = mainWindow?.webContents
+  if (contents && !contents.isDestroyed() && contents.getBackgroundThrottling() !== !syncing) contents.setBackgroundThrottling(!syncing)
   const wanted = Boolean(!backendShutdownPromise && ((status?.mode === 'host' && status.keepAwake) || status?.projectSync?.some(group => group.mode === 'host' && group.keepAwake)))
   if (wanted && keepAwakeBlocker === null) keepAwakeBlocker = powerSaveBlocker.start('prevent-app-suspension')
   if (!wanted && keepAwakeBlocker !== null) { powerSaveBlocker.stop(keepAwakeBlocker); keepAwakeBlocker = null }
@@ -136,6 +142,7 @@ function finishWindowClose(saved) {
   closeSavePending = false
   if (!saved) {
     quitRequested = false
+    void updater?.cancelInstall().catch(error => console.error('Không dọn được bản cập nhật đã hủy:', error))
     dialog.showErrorBox('Tiến trình chưa được lưu', 'Ứng dụng chưa lưu xong tiến trình nên vẫn đang mở. Hãy kiểm tra dung lượng ổ đĩa rồi thử đóng lại.')
     return
   }
@@ -350,6 +357,7 @@ async function createMainWindow() {
       await createdWindow.loadURL(RENDERER_URL)
       createdWindow.webContents.openDevTools({ mode: 'detach' })
     }
+    applyKeepAwake()
   } catch (error) {
     // The UI never loaded, so nothing can answer the close flush; without this the
     // blank window (and a quit after the startup error) waits 15 s and stays open.

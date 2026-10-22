@@ -154,7 +154,7 @@ test('serializer preserves table cells and uses unboxed booktabs rules', () => {
   }
   const { latex } = toLatex(document, 'Table')
 
-  assert.match(latex, /\\begin\{longtable\}\{@\{\}lrrrrr@\{\}\}\s*\\caption\{Predictor budgets\}\\label\{tab:budget\}/)
+  assert.match(latex, /\\begin\{longtable\}\{@\{\}lrrrrr@\{\}\}\s*\\noalign\{\\vietlatextablelabel\{\?\?\}\{tab:budget\}\}\s*\\caption\*\{Predictor budgets\}/)
   assert.ok(latex.includes('\\toprule'))
   assert.ok(latex.includes('\\textbf{(n,k)} & \\textbf{p} & \\textbf{RMSE} & \\textbf{MAE} & \\textbf{MAPE} & \\textbf{R2} \\\\\n\\midrule'))
   assert.ok(latex.includes('(3,10) & 13 & 0.0322 & 0.0212 & 31.97 & 0.1165 \\\\'))
@@ -165,7 +165,7 @@ test('serializer preserves table cells and uses unboxed booktabs rules', () => {
   assert.match(latex, /\\end\{longtable\}\s*\\endgroup/)
   assert.match(latex, /\\endfirsthead/)
   assert.match(latex, /\\endhead/)
-  assert.equal((latex.match(/\\caption\{Predictor budgets\}/g) || []).length, 1)
+  assert.equal((latex.match(/\\caption\*\{Predictor budgets\}/g) || []).length, 1)
   assert.doesNotMatch(latex, /\\begin\{table\}|\\hline|\\begin\{longtable\}\{[^}]*\|/)
 })
 

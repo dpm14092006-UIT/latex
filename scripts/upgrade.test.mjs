@@ -247,6 +247,45 @@ test('APA same-year labels and BibTeX string expansion agree across editor, PDF 
   assert.match(content, /Example Press/)
 })
 
+test('real PDFs retain manual journal captions and references without automatic table prefixes', async () => {
+  const { builtInDocumentTemplates } = await import('../src/services/DocumentSerializer.js')
+  const cell = value => ({ type: 'tableCell', content: [paragraph(value)] })
+  const table = (tableNumber, caption, label, captionPosition) => ({ type: 'table', attrs: { tableNumber, caption, label, captionPosition, note: 'Values in percent.' }, content: [
+    { type: 'tableRow', content: [cell('Forecast'), cell('8.7')] },
+  ] })
+  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC'
+  for (const source of [undefined, builtInDocumentTemplates.find(item => item.id === 'ieee-conference').source]) {
+    for (const position of ['top', 'bottom']) {
+      const reference = { type: 'paragraph', content: [text('Manual reference: '), { type: 'crossReference', attrs: { target: 'tab:manual' } }] }
+      const document = { type: 'doc', content: [reference,
+        table('5.2.2', 'Forecast comparison', 'tab:manual', position),
+        table('???', 'Pending title', 'tab:pending', position),
+        table('', '', 'tab:blank', position),
+        { type: 'imageBlock', attrs: { src: `data:image/png;base64,${png}`, caption: 'Figure ??? Forecast plot' } },
+      ] }
+      const { latex, images } = toLatex(document, 'Journal captions', source)
+      const printed = await pdfText(await goBackend.compileLatex(latex, images, { fresh: true }))
+      assert.match(printed, /Manual reference: 5\.2\.2/)
+      for (const caption of ['Table 5.2.2. Forecast comparison', 'Table ???. Pending title', 'Figure ??? Forecast plot']) {
+        assert.equal(printed.split(caption).length - 1, 1, printed)
+      }
+      assert.match(printed, /Note: Values in percent\./)
+      assert.doesNotMatch(printed, /Bảng|Table [123]:|TABLE [123]|Ghi chú/u)
+      assert.equal((printed.match(/Table /g) || []).length, 2, 'an empty caption must not create another Table heading')
+      if (!source && position === 'top') {
+        const tableDocument = { type: 'doc', content: document.content.filter(node => node.type === 'table') }
+        const exported = await goBackend.convertWord('export', toWordAst(tableDocument, 'Journal captions'))
+        const converted = await goBackend.convertWord('import', exported.bytes)
+        const imported = await importWordAst(converted.ast)
+        const tables = imported.document.content.filter(node => node.type === 'table')
+        assert.equal(tables[0].attrs.tableNumber, '5.2.2')
+        assert.equal(tables[0].attrs.caption, 'Forecast comparison')
+        assert.equal(tables[1].attrs.tableNumber, '???')
+      }
+    }
+  }
+})
+
 test('real XeLaTeX paginates long tables and repeats headers in single-column and IEEE documents', async () => {
   const { builtInDocumentTemplates } = await import('../src/services/DocumentSerializer.js')
   const cell = (type, value) => ({ type, content: [paragraph(value)] })

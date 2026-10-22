@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { zipSync, strToU8 } from 'fflate'
 import { isValidBase64, safeAssetPath, validateAssets, bytesToBase64, base64ToBytes } from '../src/services/ProjectAssets.js'
-import { importLatexProject, readZip } from '../src/services/ArchiveService.js'
+import { importLatexProject, importWorkspace, readZip } from '../src/services/ArchiveService.js'
 
 // Simulates archivers (macOS Finder, older Windows tools) that store UTF-8 names without the EFS flag.
 function clearUtf8Flags(archive) {
@@ -47,4 +47,34 @@ test('resource path validation reserves compiler filenames in nested directories
     assert.throws(() => validateAssets([{ filename: path, data: 'YQ==' }]), /không hợp lệ/)
   }
   for (const path of ['refs.bib', 'nested/chapter.tex', 'figures/photo.pdf']) assert.equal(safeAssetPath(path), true, path)
+})
+
+test('backup imports reject damaged content and assets instead of silently salvaging them', async () => {
+  const snapshot = () => ({ format: 'vietlatex-workspace', version: 1, activeProjectId: 'p', projects: [{ id: 'p', name: 'Backup', activeTaskId: 't', tasks: [{ id: 't', title: 'Keep all content', document: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Preserved' }] }] }, assets: [] }] }] })
+  const archive = value => new File([zipSync({ 'workspace.json': strToU8(JSON.stringify(value)) })], 'backup.vls')
+  const original = snapshot()
+  const restored = await importWorkspace(archive(original))
+  assert.equal(restored.projects[0].tasks[0].document.content[0].content[0].text, 'Preserved')
+  assert.equal(restored.projects[0].tasks[0].sourceTrusted, false)
+
+  const invalidNode = snapshot()
+  invalidNode.projects[0].tasks[0].document.content.push({ type: 'unsupportedNode', text: 'Must not disappear' })
+  await assert.rejects(importWorkspace(archive(invalidNode)), /chưa nhập để tránh mất nội dung/)
+
+  const invalidAsset = snapshot()
+  invalidAsset.projects[0].tasks[0].assets.push({ filename: '../lost.bib', data: 'YQ==' })
+  await assert.rejects(importWorkspace(archive(invalidAsset)), /không hợp lệ/)
+
+  const invalidSource = snapshot()
+  invalidSource.projects[0].tasks[0].sourceDraft = { text: 'Must not become empty' }
+  await assert.rejects(importWorkspace(archive(invalidSource)), /source LaTeX không hợp lệ/)
+
+  const oversizedReferences = snapshot()
+  oversizedReferences.projects[0].tasks[0].settings = { bibliography: 'x'.repeat(500_001) }
+  await assert.rejects(importWorkspace(archive(oversizedReferences)), /BibTeX/)
+
+  const legacy = snapshot()
+  legacy.projects[0].tasks[0].document.content[0] = { type: 'heading', attrs: { level: 6 }, content: [{ type: 'text', text: 'Legacy heading' }] }
+  const migrated = await importWorkspace(archive(legacy))
+  assert.equal(migrated.projects[0].tasks[0].document.content[0].attrs.level, 3)
 })

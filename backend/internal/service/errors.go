@@ -73,7 +73,10 @@ func runCommandWithLimit(ctx context.Context, executable string, args []string, 
 		releaseCommand(command)
 	}
 	if err == nil {
-		return append([]byte(nil), stdout.data...), nil
+		// Wait has joined both output-copy goroutines. This buffer is now
+		// exclusively owned by the caller; copying a full Pandoc AST again
+		// could otherwise allocate another 32 MB for a single conversion.
+		return stdout.data, nil
 	}
 	if errors.Is(commandContext.Err(), context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
 		return nil, errClientCancelled

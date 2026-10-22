@@ -67,7 +67,7 @@ export default function AiTools({ editor, sourceView, sourceMode, compileError, 
     if (sourceMode) {
       const range = sourceView?.state.selection.main
       if (!range || range.empty) return setRequest(null)
-      return setRequest({ kind: 'source', text: sourceView.state.sliceDoc(range.from, range.to), from: range.from, to: range.to, original: sourceView.state.sliceDoc(range.from, range.to) })
+      return setRequest({ kind: 'source', text: sourceView.state.sliceDoc(range.from, range.to), from: range.from, to: range.to, original: sourceView.state.sliceDoc(range.from, range.to), doc: sourceView.state.doc })
     }
     if (!editor || editor.isDestroyed) return setRequest(null)
     const selection = nextAction === 'abstract' && editor.state.selection.empty ? { text: editor.getText({ blockSeparator: '\n\n' }).trim().slice(0, 20_000), whole: true } : selectionForAi(editor.state)
@@ -98,7 +98,7 @@ export default function AiTools({ editor, sourceView, sourceMode, compileError, 
   const replace = () => {
     if (!result || readOnly) return
     if (request.kind === 'source') {
-      if (sourceView?.state.sliceDoc(request.from, request.to) !== request.original) return setNotice('Source đã thay đổi; hãy chọn lại đoạn cần thay.')
+      if (!sourceView || sourceView.state.doc !== request.doc || sourceView.state.sliceDoc(request.from, request.to) !== request.original) return setNotice('Source đã thay đổi; hãy chọn lại đoạn cần thay.')
       sourceView.dispatch({ changes: { from: request.from, to: request.to, insert: result.text }, selection: { anchor: request.from, head: request.from + result.text.length } })
       sourceView.focus()
     } else {
@@ -119,7 +119,7 @@ export default function AiTools({ editor, sourceView, sourceMode, compileError, 
   if (!available) return null
   const canReplace = result && !readOnly && action !== 'explain-error' && request && !request.whole && request.kind !== 'error'
   return <>
-    <button type="button" aria-expanded={open} aria-haspopup="dialog" onClick={() => open ? setOpen(false) : show()}>Trợ lý AI</button>
+    <button type="button" disabled={busy} aria-expanded={open} aria-haspopup="dialog" onClick={() => open ? setOpen(false) : show()}>Trợ lý AI</button>
     {open && <div ref={panel} className="ai-panel" role="dialog" aria-label="Trợ lý AI Gemini">
       <div className="spellcheck-panel-head"><strong>Trợ lý AI · Gemini</strong><button type="button" aria-label="Đóng trợ lý AI" disabled={busy} onClick={() => setOpen(false)}>Đóng</button></div>
       {configured === false ? <p>Chưa kết nối Gemini. <button type="button" onClick={() => { setOpen(false); onOpenSettings() }}>Nhập API key</button></p> : <>

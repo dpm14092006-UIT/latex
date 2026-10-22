@@ -103,7 +103,7 @@ try {
   await dialog.getByRole('button', { name: 'Cite 5 vị trí đã duyệt', exact: true }).click()
   const linkedKeys = await page.locator('.tiptap [data-type="citation"]').evaluateAll(nodes => nodes.map(node => node.getAttribute('data-key')))
   assert.deepEqual(linkedKeys, ['smith2021', 'lee2022', 'lee2022', 'lee2022', 'smith2021'])
-  assert.equal(await page.locator('.tiptap [data-citation-mode="narrative"]').getAttribute('data-citation-label'), 'Smith (2021)')
+  assert.equal(await page.locator('.tiptap [data-citation-mode="narrative"]').getAttribute('data-citation-source'), 'Smith (2021)')
   await dialog.getByRole('button', { name: 'Đóng', exact: true }).click()
   await page.waitForFunction(() => {
     const workspace = JSON.parse(localStorage.getItem('latex-workspace-v1'))
@@ -179,12 +179,12 @@ try {
   assert.equal(await unknown.getByRole('combobox').inputValue(), 'giri')
   assert.equal(await unknown.getByRole('checkbox').isChecked(), false)
   assert.equal(await page.locator('.tiptap [data-citation-mode="narrative"]').count(), 4)
-  const groupLabel = await page.locator('.tiptap [data-key="swami,anitha"]').getAttribute('data-citation-label')
-  assert.equal(groupLabel, '(Anitha & Neelakandan, 2025; Swaminathan & Venkitasubramony, 2024)')
+  const groupLabel = await page.locator('.tiptap [data-key="swami,anitha"]').getAttribute('data-citation-source')
+  assert.equal(groupLabel, '(Swaminathan & Venkitasubramony, 2024; Anitha & Neelakandan, 2025)')
   await dialog.getByRole('button', { name: 'Đóng', exact: true }).click()
   await page.reload()
   await page.locator('.tiptap [data-citation-mode="narrative"]').first().waitFor()
-  assert.equal(await page.locator('.tiptap [data-citation-mode="narrative"]').first().getAttribute('data-citation-label'), 'Sousa et al. (2025)')
+  assert.equal(await page.locator('.tiptap [data-citation-mode="narrative"]').first().getAttribute('data-citation-source'), 'Sousa et al. (2025)')
   assert.deepEqual(errors, [])
 
   const tableTask = createTask('Table metadata', { type: 'doc', content: [{ type: 'table', content: [{ type: 'tableRow', content: [
@@ -251,7 +251,7 @@ try {
   await unverified.getByRole('checkbox').check()
   await dialog.getByRole('button', { name: 'Cite 1 vị trí đã duyệt', exact: true }).click()
   assert.equal(await page.locator('.tiptap [data-key="kant2024"]').count(), 1)
-  assert.equal(await page.locator('.tiptap [data-citation-label="(Kant et al., 2024)"]').count(), 1)
+  assert.equal(await page.locator('.tiptap [data-key="kant2024"][data-citation-source="(Kant et al., 2025)"]').count(), 1)
   assert.equal(await page.locator('.tiptap [data-type="citation"]').count(), 1)
   assert.equal(await dialog.locator('.citation-scan-row').count(), 3)
   assert.deepEqual(errors, [])

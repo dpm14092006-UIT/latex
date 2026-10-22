@@ -7,6 +7,7 @@ import { FONT_SIZES, HIGHLIGHT_COLORS, MATH_SYMBOLS, TEXT_COLORS, TEXT_SYMBOLS }
 import { useTrackpadZoom } from '../hooks/useTrackpadZoom.js'
 import ZoomControls, { ZOOM_LEVELS } from './ZoomControls.jsx'
 import { formatShortcut, matchesShortcut, shortcutKeys } from '../services/KeyboardShortcuts.js'
+import { tableCaptionParts } from '../services/TableCaptions.js'
 
 // Marks the format painter copies; links and code are content, not formatting.
 const PAINTABLE_MARKS = new Set(['bold', 'italic', 'underline', 'strike', 'superscript', 'subscript', 'textStyle', 'highlight'])
@@ -273,7 +274,8 @@ export default function EditorPane({
       inTable: current.isActive('table'),
       ...Object.fromEntries(['bold', 'italic', 'underline', 'strike', 'bulletList', 'orderedList', 'blockquote', 'codeBlock'].map(name => [name, current.isActive(name)])),
       paragraphStyle: [1, 2, 3].map(level => current.isActive('heading', { level }) ? `heading-${level}` : '').find(Boolean) || 'paragraph',
-      tableCaption: current.getAttributes('table').caption || '',
+      tableNumber: tableCaptionParts(current.getAttributes('table')).tableNumber,
+      tableCaption: tableCaptionParts(current.getAttributes('table')).caption,
       tableLabel: current.getAttributes('table').label || '',
     } : {},
   }) || {}
@@ -622,11 +624,18 @@ export default function EditorPane({
             {format.inTable && <>
               <ToolDivider />
               <RibbonGroup label="Chú thích bảng">
+                <label className="studio-table-meta-field studio-table-meta-field-label">
+                  <span>Table No.</span>
+                  <input aria-label="Table No." maxLength={50} defaultValue={format.tableNumber} key={`table-number-${format.tableNumber}`} onBlur={event => {
+                    const tableNumber = event.currentTarget.value.trim()
+                    if (tableNumber !== format.tableNumber) editor?.chain().updateAttributes('table', { tableNumber, caption: format.tableCaption }).run()
+                  }} />
+                </label>
                 <label className="studio-table-meta-field">
-                  <span>Chú thích</span>
-                  <input aria-label="Chú thích bảng" maxLength={500} defaultValue={format.tableCaption} key={`table-caption-${format.tableCaption}`} onBlur={event => {
+                  <span>Caption</span>
+                  <input aria-label="Chú thích bảng" placeholder="Table title…" title="Chỉ nhập tiêu đề. Số bảng được nhập riêng ở Table No." maxLength={500} defaultValue={format.tableCaption} key={`table-caption-${format.tableCaption}`} onBlur={event => {
                     const caption = event.currentTarget.value.trim()
-                    if (caption !== format.tableCaption) editor?.chain().updateAttributes('table', { caption }).run()
+                    if (caption !== format.tableCaption) editor?.chain().updateAttributes('table', { tableNumber: format.tableNumber, caption }).run()
                   }} />
                 </label>
                 <label className="studio-table-meta-field studio-table-meta-field-label">

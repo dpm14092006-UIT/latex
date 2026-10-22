@@ -64,6 +64,19 @@ function documentWithChild(parentType, child) {
 function repairDocumentNode(node, parentType, depth, budget) {
   if (!node || typeof node !== 'object' || Array.isArray(node) || depth > 128 || ++budget.visited > MAX_DOCUMENT_NODES) return null
   const repaired = { ...node }
+  // A damaged format must not take the manuscript text with it. Validate each
+  // mark on a small text node so the same allowlist as document loading applies.
+  if (node.marks !== undefined) {
+    const marks = Array.isArray(node.marks) ? node.marks.filter(mark => isValidDocument({
+      type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'x', marks: [mark] }] }],
+    })) : []
+    if (marks.length) repaired.marks = marks
+    else delete repaired.marks
+  }
+  if (node.attrs?.textAlign !== undefined && ![null, 'left', 'center', 'right', 'justify'].includes(node.attrs.textAlign)) {
+    repaired.attrs = { ...node.attrs }
+    delete repaired.attrs.textAlign
+  }
   if (Array.isArray(node.content)) {
     const content = []
     for (const child of node.content) {

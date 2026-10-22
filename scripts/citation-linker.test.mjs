@@ -124,6 +124,7 @@ test('each source keeps its page locator in a grouped cite, including several ye
   assert.equal(redo(state, tr => { state = state.apply(tr) }), true)
   assert.equal(state.doc.firstChild.content.content.find(node => node.type.name === 'citation')?.attrs.sourceText, linked[0].attrs.sourceText)
   assert.deepEqual(state.doc.firstChild.content.content.find(node => node.type.name === 'citation')?.attrs.sourceParts, linked[0].attrs.sourceParts)
+  assert.equal(state.apply(removeAllCitationTransaction(state).transaction).doc.textContent, doc.textContent, 'unlink restores original grouped wording and page locators')
 })
 
 test('mapped numeric narratives preserve author semantics when switching citation style', () => {
@@ -345,6 +346,7 @@ test('surfaces careful REF suggestions for year mismatches and compound surnames
   assert.equal(narrative.attrs.mode, 'narrative')
   assert.equal(narrative.attrs.sourceText, 'Kant et al. (2025, p. 6)')
   assert.deepEqual(narrative.attrs.sourceParts, [{ key: 'kant2024', separatorBefore: '', suffixText: ' (p. 6)' }])
+  assert.equal(linked.apply(removeAllCitationTransaction(linked).transaction).doc.textContent, doc.textContent)
 })
 
 test('preserves a page locator after linking a parenthetical author-year citation', () => {
@@ -358,6 +360,7 @@ test('preserves a page locator after linking a parenthetical author-year citatio
   assert.equal(linked.doc.child(0).firstChild.attrs.sourceText, '(Smith, 2021, pp. 14–16)')
   assert.deepEqual(linked.doc.child(0).firstChild.attrs.sourceParts, [{ key: 'smith2021', separatorBefore: '', suffixText: ' (pp. 14–16)' }])
   assert.equal(linked.doc.child(0).child(1).text, ' remains relevant.')
+  assert.equal(linked.apply(removeAllCitationTransaction(linked).transaction).doc.textContent, doc.textContent)
 })
 
 test('recognizes protected corporate authors and particle surnames as complete citation identities', () => {

@@ -35,6 +35,8 @@ Chế độ **Đồng bộ LAN toàn workspace** ở phần mở rộng cuối b
 
 ## Chức năng
 
+- **Khung tài liệu**: nút biểu tượng cấu trúc trên thanh trên mở sơ đồ các khối trong bản thảo; bấm để đến tiêu đề, đoạn, bảng, ảnh hoặc công thức. Thẻ **Trang & lề** minh họa khổ giấy/vùng in và cho chỉnh nhanh lề, cỡ chữ, giãn dòng, Abstract, mục lục. Màn hình rộng có khung cạnh vùng viết; màn hình nhỏ mở ngăn riêng. Kiểm tra phân trang cuối cùng ở **Bản in**.
+
 - Kiểm tra chính tả tiếng Anh cục bộ (Anh Mỹ/Anh Anh) trong bản thảo và source LaTeX: gạch chân, gợi ý sửa, bỏ qua, từ điển cá nhân có nhập/xuất. Kiểm tra cả Abstract, caption và footnote; bảo vệ công thức và khóa tham chiếu. Bật trên thanh **Chính tả tiếng Anh** theo từng tài liệu. Xem [hướng dẫn và phạm vi](docs/ENGLISH-SPELLCHECK.md).
 
 - Soạn tiêu đề, đậm/nghiêng/gạch chân/gạch bỏ, liên kết, danh sách, trích dẫn, khối mã, ảnh; undo/redo, tìm/thay thế, căn lề.

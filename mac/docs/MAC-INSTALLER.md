@@ -1,4 +1,4 @@
-# Cài Viet LaTeX Studio 0.5.6 trên MacBook
+# Cài Viet LaTeX Studio trên MacBook
 
 Bộ cài: `release-desktop/mac/Viet-Latex-Studio-<phiên bản>-universal.dmg`.
 Bản universal chứa Electron, backend Go, Pandoc 3.11 và TeX Live 2026 (TinyTeX) cho Apple Silicon và Intel. Cần macOS 26 trở lên. Apple Silicon được kiểm thử trực tiếp; kiến trúc Intel được kiểm tra trong các binary, chưa chạy thử trên máy Intel.
@@ -55,6 +55,10 @@ shasum -a 256 -c Viet-Latex-Studio-0.5.6-universal.dmg.sha256
 Sau khi build và xác minh thành công, chạy `npm run desktop:update:local` để cập nhật app trong Applications. Script mở một bản sao workspace bằng app mới, so sánh nội dung/source/cấu hình/REF/tài nguyên sau khi lưu và thoát; nếu khác thì dừng trước khi thay app.
 
 App cũ nhận SIGTERM và tự lưu trước khi thoát. Script chờ tối đa 30 giây; nếu chưa thoát thì giữ nguyên app. Sau đó sao lưu toàn bộ hồ sơ cùng app cũ vào `~/Library/Application Support/VietLatex Upgrade Backups/<thời điểm>/`, thay app bằng bản đã kiểm tra chữ ký rồi mở lại. Kiểm tra SHA-256 xác nhận thao tác cài không ghi vào workspace; dữ liệu sau mở lại được so sánh thêm một lần. Không đổi schema workspace v1, ID dự án/tài liệu hoặc hồ sơ LAN.
+
+Nếu di chuyển hoặc xác minh bản mới sau khi thay thế bị lỗi, script khôi phục app cũ trước khi báo lỗi. Bản mới bị từ chối được giữ ở `rejected.app` để kiểm tra; không ghi đè bản khôi phục đã tồn tại. Cơ chế này không thay nội dung workspace. Kiểm thử hỏng chữ ký, bản tạm bị thiếu và xung đột đường dẫn chạy trong `npm run test:updater`.
+
+Nếu home nằm trên volume khác Applications, script sao chép/xác minh app cũ trong backup trước rồi hoán đổi bằng các thư mục tạm ngay cạnh app. Trường hợp bản mới bị từ chối, bản tạm chẩn đoán nằm cạnh app trong Applications để quá trình khôi phục vẫn dùng đổi tên nguyên tử trên cùng volume.
 
 Nếu đã đặt vị trí dữ liệu riêng trong `user-data-location.json`, script dùng đúng đường dẫn đó. Với `VIETLATEX_USER_DATA`, cần giữ cùng biến khi chạy script để kiểm tra hồ sơ tương ứng.
 

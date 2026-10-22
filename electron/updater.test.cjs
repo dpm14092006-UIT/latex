@@ -67,27 +67,75 @@ function fakeFetch(routes) {
   }
 }
 
-async function harness(t, { payload = Buffer.from('hello world'), checksum, platform = 'linux', skippedVersion } = {}) {
+async function harness(t, { payload = Buffer.from('hello world'), checksum, platform = 'linux', skippedVersion, wrapFetch = fetch => fetch } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'vls-updater-'))
   t.after(() => rm(directory, { recursive: true, force: true }))
   if (skippedVersion) { await mkdir(directory, { recursive: true }); await writeFile(join(directory, 'settings.json'), JSON.stringify({ autoCheck: true, skippedVersion })) }
   const info = release('0.5.7')
   const sha = checksum || createHash('sha256').update(payload).digest('hex')
   const statuses = [], opened = []
+  const routes = {
+    'https://feed.test/latest': info,
+    [info.assets[0].browser_download_url]: payload,
+    [info.assets[1].browser_download_url]: `${sha}  ${info.assets[0].name}\n`,
+  }
   const updater = createUpdater({
     app: { getVersion: () => '0.5.6', isPackaged: false, getPath: () => '/tmp', quit: () => {} },
     shell: { openPath: async path => { opened.push(path); return '' } },
-    fetch: fakeFetch({
-      'https://feed.test/latest': info,
-      [info.assets[0].browser_download_url]: payload,
-      [info.assets[1].browser_download_url]: `${sha}  ${info.assets[0].name}\n`,
-    }),
+    fetch: wrapFetch(fakeFetch(routes)),
     feedUrl: 'https://feed.test/latest', directory, platform,
     onStatus: status => statuses.push(status.status),
   })
   await updater.start({ automatic: false })
-  return { updater, directory, statuses, opened }
+  return { updater, directory, statuses, opened, routes }
 }
+
+test('a manual recheck preserves a verified installer for the same release', async t => {
+  const { updater } = await harness(t)
+  await updater.check({ manual: true })
+  await updater.download()
+  assert.equal((await updater.check({ manual: true })).status, 'ready')
+  assert.equal((await updater.install()).manual, true)
+})
+
+test('a failed manual recheck leaves the verified installer usable', async t => {
+  let failFeed = false
+  const { updater } = await harness(t, { wrapFetch: fetch => async url => {
+    if (failFeed && url === 'https://feed.test/latest') throw new Error('offline')
+    return fetch(url)
+  } })
+  await updater.check({ manual: true })
+  await updater.download()
+  failFeed = true
+  const status = await updater.check({ manual: true })
+  assert.equal(status.status, 'ready')
+  assert.match(status.error, /offline/)
+  assert.equal((await updater.install()).manual, true)
+})
+
+test('manual checks cannot replace the release during download', async t => {
+  let resume, reached
+  const held = new Promise(resolve => { resume = resolve })
+  const fetching = new Promise(resolve => { reached = resolve })
+  let feedRequests = 0
+  const { updater, routes } = await harness(t, { wrapFetch: fetch => async url => {
+    if (url === 'https://feed.test/latest') feedRequests++
+    if (url.endsWith('.dmg')) { reached(); await held }
+    return fetch(url)
+  } })
+  await updater.check({ manual: true })
+  const download = updater.download()
+  await fetching
+  routes['https://feed.test/latest'] = release('0.5.8')
+  const checked = await updater.check({ manual: true })
+  assert.equal(checked.status, 'downloading')
+  assert.equal(checked.version, '0.5.7')
+  assert.equal(feedRequests, 1)
+  resume()
+  assert.equal((await download).status, 'ready')
+  assert.equal((await updater.install()).manual, true)
+  assert.equal((await updater.check({ manual: true })).version, '0.5.8')
+})
 
 test('check, download and verify a release, then hand the DMG to Finder when not installable', async t => {
   const { updater, directory, statuses, opened } = await harness(t)
@@ -167,6 +215,9 @@ test('Windows NSIS install runs the verified Setup.exe silently after the app qu
     { name: `${setup}.sha256`, size: 90, browser_download_url: `${base}/v0.5.7/${setup}.sha256` },
   ] })
   const calls = []
+  let resumeInstall, reachedInstall
+  const preparing = new Promise(resolve => { reachedInstall = resolve })
+  const held = new Promise(resolve => { resumeInstall = resolve })
   let quitCallback = null
   const exe = join('C:', 'Users', 'u', 'AppData', 'Local', 'Programs', 'viet-latex-studio', 'Viet Latex Studio.exe')
   const updater = createUpdater({
@@ -178,7 +229,7 @@ test('Windows NSIS install runs the verified Setup.exe silently after the app qu
       [info.assets[0].browser_download_url]: payload,
       [info.assets[1].browser_download_url]: `${createHash('sha256').update(payload).digest('hex')}  ${setup}\n`,
     }),
-    beforeInstall: async () => calls.push('backup'),
+    beforeInstall: async () => { calls.push('backup'); reachedInstall(); await held },
     requestQuit: () => calls.push('quit'),
     onQuit: callback => { quitCallback = callback },
     launch: (file, args, options) => { calls.push({ file, args, detached: options.detached }); return { unref() {} } },
@@ -186,7 +237,12 @@ test('Windows NSIS install runs the verified Setup.exe silently after the app qu
   await updater.start({ automatic: false })
   assert.equal((await updater.check({ manual: true })).canInstall, true)
   await updater.download()
-  await updater.install()
+  const install = updater.install()
+  await preparing
+  assert.equal((await updater.check({ manual: true })).status, 'installing', 'manual checks cannot change a staged release')
+  await assert.rejects(updater.download(), /Đang cài/)
+  resumeInstall()
+  await install
   assert.deepEqual(calls, ['backup', 'quit'], 'nothing runs before the app has quit')
   quitCallback()
   assert.deepEqual(calls[2], { file: join(directory, 'downloads', setup), args: ['/S', '--updated', '--force-run'], detached: true })
@@ -201,4 +257,132 @@ test('a portable Windows run is not updated in place', async t => {
     env: { PORTABLE_EXECUTABLE_FILE: join('D:', 'Viet-Latex-Studio-0.5.1-Portable.exe') }, exists: () => true,
   })
   assert.equal(updater.status().canInstall, false)
+})
+
+async function cancellableInstallHarness(t, platform, { beforeInstall = async () => {}, wrapRun = run => run } = {}) {
+  const directory = await mkdtemp(join(tmpdir(), 'vls-updater-cancel-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const name = installerName('0.5.7', platform)
+  const payload = Buffer.from('hello world')
+  const info = release('0.5.7', { assets: [
+    { name, size: payload.length, browser_download_url: `${base}/v0.5.7/${name}` },
+    { name: `${name}.sha256`, size: 90, browser_download_url: `${base}/v0.5.7/${name}.sha256` },
+  ] })
+  const callbacks = [], launches = [], unsubscribed = []
+  const bundle = join(directory, 'Viet Latex Studio.app')
+  const updater = createUpdater({
+    app: { getVersion: () => '0.5.6', isPackaged: true, getName: () => 'Viet Latex Studio', getPath: key => key === 'exe' ? join(bundle, 'Contents', 'MacOS', 'Viet Latex Studio') : join(directory, 'appdata') },
+    directory, platform, shell: {}, env: {}, exists: () => true,
+    feedUrl: 'https://feed.test/latest',
+    fetch: fakeFetch({
+      'https://feed.test/latest': info,
+      [info.assets[0].browser_download_url]: payload,
+      [info.assets[1].browser_download_url]: `${createHash('sha256').update(payload).digest('hex')}  ${name}\n`,
+    }),
+    beforeInstall,
+    onQuit: callback => { callbacks.push(callback); return () => unsubscribed.push(callback) },
+    requestQuit: () => {},
+    launch: (file, args) => { launches.push({ file, args }); return { unref() {} } },
+    run: wrapRun(async (file, args) => {
+      if (file.endsWith('PlistBuddy')) return { stdout: args[1].includes('CFBundleShortVersionString') ? '0.5.7' : 'vn.vietlatex.studio' }
+      if (file.endsWith('ditto')) { await mkdir(args[1], { recursive: true }); await writeFile(join(args[1], 'staged-marker'), 'new app') }
+      return { stdout: '', stderr: 'TeamIdentifier=not set' }
+    }),
+  })
+  await updater.start({ automatic: false })
+  await updater.check({ manual: true })
+  await updater.download()
+  return { updater, directory, callbacks, launches, unsubscribed }
+}
+
+for (const platform of ['win32', 'darwin']) test(`${platform} cancelled quit disarms installation, cleans staging and allows retry`, async t => {
+  const { updater, directory, callbacks, launches, unsubscribed } = await cancellableInstallHarness(t, platform)
+  await updater.install()
+  assert.equal(updater.status().status, 'installing')
+  assert.equal(launches.length, 0, 'no installer/helper starts before quit is accepted')
+  const cancelled = callbacks[0]
+  assert.equal((await updater.cancelInstall('Lưu tài liệu thất bại.')).status, 'ready')
+  assert.match(updater.status().error, /Lưu tài liệu/)
+  assert.deepEqual(unsubscribed, [cancelled])
+  assert.deepEqual((await readdir(directory)).filter(name => /^\.Viet Latex Studio-update-/.test(name)), [])
+  cancelled()
+  assert.equal(launches.length, 0, 'a later ordinary quit cannot trigger the cancelled update')
+  assert.equal((await updater.check({ manual: true })).status, 'ready')
+  await updater.install()
+  cancelled()
+  assert.equal(launches.length, 0, 'old callbacks cannot trigger a newer installation attempt')
+  callbacks[1]()
+  callbacks[1]()
+  assert.equal(launches.length, 1, 'accepted quit starts exactly one installer')
+})
+
+test('cancelling during preparation prevents late quit registration and allows retry', async t => {
+  let resume, reached, preparations = 0
+  const held = new Promise(resolve => { resume = resolve })
+  const preparing = new Promise(resolve => { reached = resolve })
+  const { updater, callbacks, launches } = await cancellableInstallHarness(t, 'win32', { beforeInstall: async () => {
+    if (++preparations === 1) { reached(); await held }
+  } })
+  const install = updater.install()
+  await preparing
+  const cancellation = updater.cancelInstall()
+  assert.equal(updater.status().status, 'ready')
+  resume()
+  await Promise.all([install, cancellation])
+  assert.equal(callbacks.length, 0)
+  assert.equal(launches.length, 0)
+  await updater.install()
+  callbacks[0]()
+  assert.equal(launches.length, 1)
+})
+
+test('macOS cancellation stops an active staging command before removing its partial copy', async t => {
+  let reached
+  const copying = new Promise(resolve => { reached = resolve })
+  const { updater, directory, callbacks, launches } = await cancellableInstallHarness(t, 'darwin', { wrapRun: run => async (file, args, options) => {
+    const result = await run(file, args, options)
+    if (file.endsWith('ditto')) {
+      reached()
+      await new Promise((_, reject) => {
+        options.signal.addEventListener('abort', () => reject(new Error('copy cancelled')), { once: true })
+        if (options.signal.aborted) reject(new Error('copy cancelled'))
+      })
+    }
+    return result
+  } })
+  const install = updater.install()
+  await copying
+  const cancellation = updater.cancelInstall()
+  await Promise.all([install, cancellation])
+  assert.equal(updater.status().status, 'ready')
+  assert.equal(callbacks.length, 0)
+  assert.equal(launches.length, 0)
+  assert.deepEqual((await readdir(directory)).filter(name => /^\.Viet Latex Studio-update-/.test(name)), [])
+})
+
+test('macOS detaches a partially mounted image when attach is cancelled', async t => {
+  let reached
+  const attaching = new Promise(resolve => { reached = resolve })
+  const mountActions = []
+  const { updater, callbacks, launches } = await cancellableInstallHarness(t, 'darwin', { wrapRun: run => async (file, args, options) => {
+    if (file.endsWith('hdiutil')) {
+      mountActions.push({ action: args[0], mount: args[args[0] === 'attach' ? args.length - 1 : 1], aborted: options.signal?.aborted })
+      if (args[0] === 'attach') {
+        reached()
+        await new Promise((_, reject) => {
+          options.signal.addEventListener('abort', () => reject(new Error('attach cancelled after mount')), { once: true })
+        })
+      }
+    }
+    return run(file, args, options)
+  } })
+  const install = updater.install()
+  await attaching
+  await Promise.all([install, updater.cancelInstall()])
+  assert.deepEqual(mountActions.map(item => item.action), ['attach', 'detach'])
+  assert.equal(mountActions[0].mount, mountActions[1].mount)
+  assert.equal(mountActions[1].aborted, undefined, 'cleanup must not inherit the aborted installation signal')
+  assert.equal(updater.status().status, 'ready')
+  assert.equal(callbacks.length, 0)
+  assert.equal(launches.length, 0)
 })

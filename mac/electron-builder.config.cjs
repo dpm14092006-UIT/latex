@@ -18,7 +18,7 @@ module.exports = {
     icon: join(resources, 'app-icon.icns'),
     minimumSystemVersion: '26.0',
     extendInfo: {
-      NSLocalNetworkUsageDescription: 'Viet Latex Studio cần truy cập mạng nội bộ để đồng bộ tài liệu và PDF với máy bạn đã ghép. Chia sẻ chỉ bắt đầu khi bạn bật Đồng bộ LAN.',
+      NSLocalNetworkUsageDescription: 'Viet Latex Studio cần truy cập mạng nội bộ để đồng bộ tài liệu và PDF với máy bạn đã ghép. Chia sẻ chỉ bắt đầu khi bạn bật Đồng bộ; kết nối LAN được ưu tiên khi khả dụng.',
     },
     hardenedRuntime: true,
     entitlements: join(resources, 'entitlements.mac.plist'),

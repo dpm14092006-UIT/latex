@@ -23,8 +23,11 @@ const suites = [
   { name: 'smoke:math-paste' },
   { name: 'smoke:latex' },
   { name: 'smoke:serializer' },
+  { name: 'test:word:roundtrip' },
   { name: 'test:ui' },
+  { name: 'test:document-frame' },
   { name: 'image-captions-ui', args: ['scripts/image-captions-ui.mjs'] },
+  { name: 'test:table-deletion:ui' },
   { name: 'test:project-tabs' },
   { name: 'test:project-pdf' },
   { name: 'test:pdf-batching' },
@@ -44,6 +47,7 @@ const suites = [
   { name: 'test:load', env: { VIETLATEX_COMPILE_WORKERS: '4' } },
   { name: 'test:stress', env: { STRESS_CLIENTS: '64', STRESS_REQUESTS: '8', VIETLATEX_COMPILE_WORKERS: '4' } },
   { name: 'test:bench', env: { BENCH_ENFORCE: '1', BENCH_ROUNDS: '5', BENCH_OUTPUT: join(output, 'benchmark.json'), VIETLATEX_COMPILE_WORKERS: '4' } },
+  { name: 'test:bench:cache', env: { BENCH_ROUNDS: '5', BENCH_OUTPUT: join(output, 'cache-benchmark.json'), VIETLATEX_COMPILE_WORKERS: '4' } },
   { name: 'audit', args: [npmCli, 'audit', '--audit-level=low'] },
 ]
 

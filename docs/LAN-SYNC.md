@@ -101,4 +101,4 @@ npm run desktop:build:mac
 
 Script tự chuẩn bị Pandoc và bộ TeX Live gọn, xác minh kiến trúc x86_64/arm64 bằng lipo, ghép backend universal rồi tạo DMG và SHA-256. Bản phát hành cho người khác cần chứng thư Apple và notarization theo cơ chế electron-builder; bản cục bộ dùng chữ ký ad-hoc.
 
-Bản macOS có bài kiểm tra đồng bộ hai app universal đã đóng gói, gồm ghép máy, truyền sửa đổi, xung đột, gõ khi có phản hồi mạng và lưu offline. Xem báo cáo macOS hiện tại; lịch nền đã được kiểm tra với bộ hẹn giờ renderer bị đình chỉ và không dùng cờ bỏ throttling; sleep/wake phần cứng chưa được xác minh.
+Bản macOS có bài kiểm tra đồng bộ hai app universal đã đóng gói, gồm ghép máy, truyền sửa đổi, xung đột, gõ khi có phản hồi mạng và lưu offline. Lịch nền được kiểm tra khi bộ hẹn giờ 5 giây của renderer bị đình chỉ, không dùng cờ Chromium riêng cho kiểm thử. Từ 0.6.0, khi có kết nối đồng bộ, ứng dụng giữ tác vụ lưu/gộp của renderer không bị giảm nhịp khi cửa sổ ẩn; khi tắt đồng bộ thì trở lại giới hạn chạy nền bình thường. Sleep/wake phần cứng chưa được xác minh.

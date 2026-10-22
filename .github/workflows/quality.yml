@@ -42,6 +42,9 @@ jobs:
         run: npm run test:ui
         env:
           UI_TEST_BROWSER: chromium
+      - run: npm run test:document-frame
+      - run: npm run test:shortcuts
+      - run: npm run test:table-deletion:ui
       - run: npm run build
       - run: npm run test:spellcheck:ui
         env:
@@ -74,6 +77,7 @@ jobs:
       - run: node scripts/build-desktop.mjs
       - run: npm run test:spellcheck:desktop
       - run: node scripts/ai-desktop.mjs
+      - run: npm run test:shortcuts:desktop
       - run: npm run test:project-tabs
         env:
           UI_TEST_BROWSER: chromium

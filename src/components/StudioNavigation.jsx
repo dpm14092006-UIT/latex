@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { formatShortcut } from '../services/KeyboardShortcuts.js'
 import { BookOpen, FileText, FolderPlus, Plus, Search, Trash2, X } from 'lucide-react'
 
-export default function StudioNavigation({ projects, activeProject, activeTaskId, currentTitle, outline, open, onToggle, onClose, isCompact, onSelect, onProjectChange, onCreateProject, onCreateTask, onJump, onTemplates, onDelete, onCommand, blocked, summary = false, wordCount = 0, formulaCount = 0, imageCount = 0 }) {
+export default function StudioNavigation({ projects, activeProject, activeTaskId, currentTitle, outline, open, onToggle, onClose, isCompact, onSelect, onProjectChange, onCreateProject, onCreateTask, onJump, onTemplates, onDelete, onCommand, blocked, summary = false }) {
   const [query, setQuery] = useState('')
   const searchRef = useRef(null)
+  const runAction = action => { if (isCompact) onClose(); action() }
   const results = (query.trim() ? projects : [activeProject]).flatMap(project => project.tasks.map(task => ({ ...task, projectId: project.id, projectName: project.name, title: task.id === activeTaskId ? currentTitle : task.title }))).filter(task => `${task.title} ${task.projectName}`.toLocaleLowerCase('vi').includes(query.trim().toLocaleLowerCase('vi')))
   useEffect(() => {
     if (!isCompact || !open) return
@@ -36,18 +37,14 @@ export default function StudioNavigation({ projects, activeProject, activeTaskId
         <div className="aurora-brand"><strong>VietLaTeX<span>studio</span></strong><small>Ý tưởng thành bản thảo.</small></div>
         {isCompact && <button type="button" className="btn btn--icon btn--ghost" title="Đóng" aria-label="Thu gọn điều hướng" onClick={onToggle}><X size={16} /></button>}
       </div>
-      <label className="mono-search"><Search size={15} /><input ref={searchRef} type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Tìm tài liệu…" aria-label="Tìm theo tên tài liệu" /><button type="button" className="mono-search-command" title={formatShortcut('Bảng lệnh (Ctrl+K)')} aria-label="Bảng lệnh" onClick={onCommand}><kbd>{formatShortcut('Ctrl K')}</kbd></button></label>
-      <div className="mono-project-select"><select aria-label="Chọn dự án" value={activeProject.id} onChange={event => onProjectChange(event.target.value)}>{projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}</select><button type="button" className="btn btn--icon btn--ghost" title="Dự án mới" aria-label="Dự án mới" onClick={onCreateProject}><FolderPlus size={15} /></button></div>
-      <div className="mono-doc-section"><div className="mono-section-title"><span>Tài liệu</span><button type="button" className="btn btn--icon btn--ghost" title="Tài liệu mới" aria-label="Tài liệu mới" onClick={onCreateTask}><Plus size={16} /></button></div>
+      <label className="mono-search"><Search size={15} /><input ref={searchRef} type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Tìm tài liệu…" aria-label="Tìm theo tên tài liệu" /><button type="button" className="mono-search-command" title={formatShortcut('Bảng lệnh (Ctrl+K)')} aria-label="Bảng lệnh" onClick={() => runAction(onCommand)}><kbd>{formatShortcut('Ctrl K')}</kbd></button></label>
+      <div className="mono-project-select"><select aria-label="Chọn dự án" value={activeProject.id} onChange={event => onProjectChange(event.target.value)}>{projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}</select><button type="button" className="btn btn--icon btn--ghost" title="Dự án mới" aria-label="Dự án mới" onClick={() => runAction(onCreateProject)}><FolderPlus size={15} /></button></div>
+      <div className="mono-doc-section"><div className="mono-section-title"><span>Tài liệu</span><button type="button" className="btn btn--icon btn--ghost" title="Tài liệu mới" aria-label="Tài liệu mới" onClick={() => runAction(onCreateTask)}><Plus size={16} /></button></div>
         <nav className="mono-doc-list" aria-label="Tài liệu trong dự án">{results.map(task => <button type="button" key={task.id} className="mono-doc-item" aria-current={task.id === activeTaskId ? 'page' : undefined} title={task.title || 'Chưa đặt tên'} onClick={() => { onSelect(task.projectId, task.id); if (isCompact) onClose() }}><FileText size={15} /><span>{task.title || 'Chưa đặt tên'}{query && <small>{task.projectName}</small>}</span>{task.id === activeTaskId && <small>ĐANG MỞ</small>}</button>)}{!results.length && <p className="mono-empty-note">Không tìm thấy tài liệu phù hợp.</p>}</nav>
       </div>
       <section className="mono-outline-wrap"><div className="mono-section-title"><span>Mục lục</span><span>{outline.length}</span></div><nav aria-label="Mục lục bản thảo" className="mono-outline">{outline.map((heading, index) => <button type="button" key={index} style={{ paddingLeft: 9 + (heading.level - 1) * 11 }} title={heading.label} onClick={() => { onJump(index); if (isCompact) onClose() }}>{heading.label}</button>)}</nav>{!outline.length && <p className="mono-empty-note">Thêm tiêu đề vào bản thảo để điều hướng nhanh giữa các phần.</p>}</section>
-      <div className="mono-nav-foot"><button type="button" disabled={summary} onClick={onTemplates}><BookOpen size={15} />Thư viện mẫu</button><button type="button" disabled={summary} onClick={onDelete}><Trash2 size={15} />Xóa tài liệu hiện tại</button></div>
-      <div className="aurora-insights" aria-label="Thống kê bản thảo">
-        <div className="aurora-insights-heading"><span>BẢN THẢO HIỆN TẠI</span><span className="aurora-status-dot" /></div>
-        <div className="aurora-metrics"><div><strong>{wordCount.toLocaleString('vi-VN')}</strong><span>Từ</span></div><div><strong>{formulaCount}</strong><span>Công thức</span></div><div><strong>{imageCount}</strong><span>Hình ảnh</span></div></div>
-        <p>Khoảng {Math.max(1, Math.ceil(wordCount / 200))} phút đọc <span>· Lưu trên máy</span></p>
-      </div>
+      <div className="mono-nav-foot"><button type="button" disabled={summary} onClick={() => runAction(onTemplates)}><BookOpen size={15} />Thư viện mẫu</button><button type="button" disabled={summary} onClick={() => runAction(onDelete)}><Trash2 size={15} />Xóa tài liệu hiện tại</button></div>
+
     </aside>
   </>
 }

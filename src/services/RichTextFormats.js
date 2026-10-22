@@ -1,4 +1,5 @@
 import { normalizeDocumentSpacing } from './DocumentSpacing.js'
+import { normalizeTableCaptions } from './TableCaptions.js'
 
 // Word-style character formatting. Every value here must survive both the
 // LaTeX serializer and the document validator, so the UI only offers values
@@ -87,4 +88,4 @@ export function normalizeDocumentTextColors(node) {
   return result
 }
 
-export const normalizeDocumentContent = node => normalizeDocumentSpacing(normalizeDocumentTextColors(node))
+export const normalizeDocumentContent = node => normalizeTableCaptions(normalizeDocumentSpacing(normalizeDocumentTextColors(node)))

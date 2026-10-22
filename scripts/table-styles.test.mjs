@@ -4,6 +4,7 @@ import { tableLatexPreview, toLatex } from '../src/services/DocumentSerializer.j
 import { isValidDocument } from '../src/services/DocumentData.js'
 import { importWordAst, toWordAst } from '../src/services/WordDocument.js'
 import { createPresetTable, normalizeTableStyle, TABLE_PRESETS, TABLE_STYLE_DEFAULTS, TABLE_STYLES } from '../src/services/TableStyles.js'
+import { normalizeTableCaptions, tableCaptionParts, tableCaptionText } from '../src/services/TableCaptions.js'
 
 const paragraph = text => ({ type: 'paragraph', content: text ? [{ type: 'text', text }] : [] })
 const cell = (type, text, attrs = {}) => ({ type, attrs: { colspan: 1, rowspan: 1, ...attrs }, content: [paragraph(text)] })
@@ -30,7 +31,7 @@ test('tables saved before the table library keep the academic layout', () => {
   assert.match(latex, /^\\begingroup\n\\small\n/)
   assert.match(latex, /\\renewcommand\{\\arraystretch\}\{1\.2\}/)
   assert.match(latex, /\\begin\{longtable\}\{@\{\}lr@\{\}\}/)
-  assert.match(latex, /\\caption\*\{\\tablename~\\thetable\}\\label\{tab:table-1\} \\\\\n\\toprule/)
+  assert.doesNotMatch(latex, /\\caption|\\tablename|\\thetable/)
   assert.match(latex, /\\textbf\{Tên\}/)
   assert.doesNotMatch(latex, /\\rowcolor|\\hline/)
 })
@@ -74,7 +75,7 @@ test('font size, row spacing, width, caption position and header weight are appl
   assert.match(latex, /^\\begingroup\n\\footnotesize\n/)
   assert.match(latex, /\\arraystretch\}\{1\.5\}/)
   assert.match(latex, /\\begin\{longtable\}\{@\{\}>\{\\raggedright\\arraybackslash\}p\{[\d.]+\\linewidth\}>\{\\raggedleft\\arraybackslash\}p\{[\d.]+\\linewidth\}@\{\}\}/)
-  assert.match(latex, /\\bottomrule\n\\caption\{Kết quả\}\\label\{tab:table-1\} \\\\\n\\endlastfoot/)
+  assert.match(latex, /\\bottomrule\n\\caption\*\{Kết quả\} \\\\\n\\endlastfoot/)
   assert.doesNotMatch(latex, /\\endfirsthead[\s\S]*\\caption[\s\S]*\\endhead/)
   assert.doesNotMatch(latex, /\\textbf/)
   const natural = tableLatexPreview(table({ tableWidth: 'natural' }, [[cell('tableCell', 'x'.repeat(60)), cell('tableCell', 'y')]]))
@@ -124,6 +125,37 @@ test('a rowspan past the last row still closes a grid table', () => {
   assert.match(latex, / & 2 \\\\\n\\hline\n\\end\{longtable\}/)
 })
 
+test('LaTeX export preserves merged spans supported by the document model', () => {
+  const wide = table({}, [[cell('tableCell', 'Wide merged cell', { colspan: 21 })]])
+  assert.equal(isValidDocument({ type: 'doc', content: [wide] }), true)
+  assert.match(tableLatexPreview(wide), /\\multicolumn\{21\}/)
+  const tall = table({}, [
+    [cell('tableCell', 'Tall merged cell', { rowspan: 101 }), cell('tableCell', 'First')],
+    ...Array.from({ length: 100 }, () => [cell('tableCell', 'Next')]),
+  ])
+  assert.equal(isValidDocument({ type: 'doc', content: [tall] }), true)
+  assert.match(tableLatexPreview(tall), /\\multirow\{101\}/)
+})
+
+test('Word column specifications include columns occupied by continuing merged cells', () => {
+  const node = table({}, [
+    [cell('tableCell', 'Continuing', { rowspan: 2 }), cell('tableCell', 'First')],
+    [cell('tableCell', 'Second'), cell('tableCell', 'Third')],
+  ])
+  assert.equal(isValidDocument({ type: 'doc', content: [node] }), true)
+  const ast = toWordAst({ type: 'doc', content: [node] }, 'Merged grid')
+  assert.equal(ast.blocks[0].c[2].length, 3)
+})
+
+test('oversized legacy merged grids remain recoverable and report a clear Word export limit', () => {
+  const node = table({}, [
+    [cell('tableCell', 'Continuing', { rowspan: 2, colspan: 256 })],
+    [cell('tableCell', 'One column too many')],
+  ])
+  assert.equal(isValidDocument({ type: 'doc', content: [node] }), true)
+  assert.throws(() => toWordAst({ type: 'doc', content: [node] }, 'Overflow'), /vượt giới hạn 256/)
+})
+
 test('library presets create valid documents in every style', () => {
   for (const preset of TABLE_PRESETS) {
     const node = createPresetTable(preset)
@@ -150,16 +182,45 @@ test('cell alignment survives Word export and import', async () => {
   assert.deepEqual(importedTable.content.map(row => row.content.map(item => item.attrs.align ?? null)), [['center', 'right'], ['center', 'right'], ['center', 'right']], 'header cells without their own alignment take the column alignment')
 })
 
-test('untitled tables print only their number, named "Bảng" instead of "Table"', () => {
-  const { latex } = toLatex({ type: 'doc', content: [simple({ caption: '' }), simple({ caption: 'Kết quả' })] }, 'T')
-  assert.doesNotMatch(latex, /\\caption\{Bảng/)
-  assert.match(latex, /\\caption\*\{\\tablename~\\thetable\}\\label\{tab:table-1\}/)
-  assert.match(latex, /\\caption\{Kết quả\}\\label\{tab:table-2\}/)
-  assert.match(latex, /\\renewcommand\{\\tablename\}\{Bảng\}\n\\begin\{document\}/)
-  const babel = toLatex({ type: 'doc', content: [simple({ caption: 'A' })] }, 'T', '\\documentclass{article}\n\\usepackage[english]{babel}\n\\begin{document}\n{{content}}\n\\end{document}').latex
-  assert.doesNotMatch(babel, /\\renewcommand\{\\tablename\}/)
-  const floating = toLatex({ type: 'doc', content: [simple({ caption: '' })] }, 'T', '\\documentclass[twocolumn]{article}\n\\begin{document}\n{{content}}\n\\end{document}').latex
-  assert.match(floating, /\\refstepcounter\{table\}\\label\{tab:table-1\}\n\{\\tablename~\\thetable\\par\}/)
+test('legacy captions split into manual numbers and English Table captions in every layout', () => {
+  const captions = ['', 'Table 5.2.2. Forecast comparison', 'Table ???', 'table S1: Robustness', 'Bảng 7. Bản nháp', 'Results without a number']
+  for (const twoColumn of [false, true]) {
+    const template = `\\documentclass${twoColumn ? '[twocolumn]' : ''}{article}\n\\begin{document}\n{{content}}\n\\end{document}`
+    for (const captionPosition of ['top', 'bottom']) {
+      const { latex } = toLatex({ type: 'doc', content: captions.map(caption => simple({ caption, captionPosition })) }, 'T', template)
+      assert.doesNotMatch(latex, /\\caption\{|\\tablename|\\thetable|\\refstepcounter\{table\}/)
+      for (const caption of captions.filter(Boolean)) assert.equal(latex.split(tableCaptionText({ caption })).length - 1, 1, caption)
+      for (const [index, number] of ['??', '5.2.2', '???', 'S1', '7', '??'].entries()) {
+        assert.ok(latex.includes(`\\vietlatextablelabel{${number}}{tab:table-${index + 1}}`), number)
+      }
+    }
+  }
+  const blank = tableLatexPreview(simple({ caption: '' }))
+  assert.doesNotMatch(blank, /\\caption|\\tablename|\\thetable/)
+})
+
+test('Table No. is independent of the title and survives Word roundtrip', async () => {
+  for (const tableNumber of ['5.2.2', '???', 'S1', '']) {
+    const attrs = { tableNumber, caption: 'Forecast comparison', label: 'tab:manual' }
+    const expected = tableNumber ? `Table ${tableNumber}. Forecast comparison` : 'Forecast comparison'
+    assert.equal(tableCaptionText(attrs), expected)
+    const source = tableLatexPreview(simple(attrs))
+    assert.ok(source.includes(`\\caption*{${expected}}`))
+    assert.ok(source.includes(`\\vietlatextablelabel{${tableNumber || '??'}}{tab:manual}`))
+    const ast = toWordAst({ type: 'doc', content: [simple(attrs)] }, 'T')
+    const imported = await importWordAst(ast)
+    assert.deepEqual(tableCaptionParts(imported.document.content[0].attrs), { tableNumber, caption: attrs.caption })
+  }
+  assert.equal(tableCaptionText({ tableNumber: '???', caption: '' }), 'Table ???')
+  const legacy = { type: 'doc', content: [simple({ caption: 'Bảng 5.2.2. Đối chiếu dự báo' })] }
+  const normalized = normalizeTableCaptions(legacy)
+  assert.equal(normalized.content[0].attrs.tableNumber, '5.2.2')
+  assert.equal(normalized.content[0].attrs.caption, 'Đối chiếu dự báo')
+  assert.equal(normalizeTableCaptions(normalized), normalized)
+  assert.equal(legacy.content[0].attrs.caption, 'Bảng 5.2.2. Đối chiếu dự báo')
+  for (const tableNumber of [123, 'x'.repeat(51)]) assert.equal(isValidDocument({ type: 'doc', content: [simple({ tableNumber })] }), false)
+  const safe = tableLatexPreview(simple({ tableNumber: '5}\\input{x}', caption: 'A & B' }))
+  assert.doesNotMatch(safe, /\\input\{x\}/)
 })
 
 test('table notes are typeset under the table, with inline math', () => {
@@ -167,15 +228,15 @@ test('table notes are typeset under the table, with inline math', () => {
   const latex = tableLatexPreview(simple({ caption: 'Kết quả', note }))
   assert.ok(latex.includes('\\end{longtable}\n\\nopagebreak\n\\par\\vspace{3pt}\n{\\footnotesize\\setlength{\\parindent}{0pt}\\textit{Ghi chú:} RMSE tính theo điểm \\% với $p = n+k$; giá \\$5 và \\$10.\\par}\n\\vspace{\\LTpost}\n\\endgroup'), latex)
   assert.ok(latex.includes('\\setlength{\\LTpost}{0pt}\n\\begin{longtable}'))
-  assert.ok(tableLatexPreview(simple({ note: 'Số liệu năm 2025' })).includes('\\textit{Ghi chú:} Số liệu năm 2025'))
+  assert.ok(tableLatexPreview(simple({ note: 'Số liệu năm 2025' })).includes('\\textit{Note:} Số liệu năm 2025'))
   assert.ok(tableLatexPreview(simple({ note: 'Nguồn: Tổng cục Thống kê' })).includes('\\textit{Nguồn:} Tổng cục Thống kê'))
   assert.ok(tableLatexPreview(simple({ note: 'Lỗi $x}$' })).includes('Lỗi \\$x\\}\\$'))
   const floating = toLatex({ type: 'doc', content: [simple({ caption: 'A', note: 'Đơn vị: %' })] }, 'T', '\\documentclass[twocolumn]{article}\n\\begin{document}\n{{content}}\n\\end{document}').latex
-  assert.ok(floating.includes('\\caption{A}\n\\label{tab:table-1}\n\\begingroup\n'), floating)
+  assert.ok(floating.includes('{\\small A\\par}\n\\vspace{\\belowcaptionskip}\n\\begingroup\n'), floating)
   assert.ok(floating.includes('\\setlength{\\parindent}{0pt}\n\\setbox0=\\hbox{\\begin{tabular}'), 'no line end of the style settings is typeset as a space in the box')
   assert.ok(floating.includes('\\end{tabular}}%\n\\ifdim\\wd0>\\linewidth\\setbox0=\\hbox{\\resizebox{\\linewidth}{!}{\\box0}}\\fi\n\\xdef\\vietlatextablewidth{\\the\\wd0}%\n\\leavevmode\\box0\\par\n\\endgroup\n\\noindent\\parbox{\\vietlatextablewidth}{\\vspace{3pt}\n\\footnotesize\\setlength{\\parindent}{0pt}\\setlength{\\parskip}{0pt}\\textit{Đơn vị:} \\%\\par}\n\\end{table}'), floating)
   const below = toLatex({ type: 'doc', content: [simple({ caption: 'A', note: 'B', captionPosition: 'bottom' })] }, 'T', '\\documentclass[twocolumn]{article}\n\\begin{document}\n{{content}}\n\\end{document}').latex
-  assert.ok(below.includes('\\leavevmode\\box0\\par\n\\endgroup\n\\caption{A}\n\\label{tab:table-1}\n\\noindent\\parbox{\\vietlatextablewidth}'), 'a caption below the table comes before the note')
+  assert.ok(below.includes('\\leavevmode\\box0\\par\n\\endgroup\n\\par\\vspace{\\abovecaptionskip}\n{\\small A\\par}\n\\vspace{\\belowcaptionskip}\n\\noindent\\parbox{\\vietlatextablewidth}'), 'a caption below the table comes before the note')
   assert.ok(isValidDocument({ type: 'doc', content: [simple({ note })] }))
   assert.equal(isValidDocument({ type: 'doc', content: [simple({ note: 'x'.repeat(2001) })] }), false)
   const word = toWordAst({ type: 'doc', content: [simple({ note: 'Đơn vị: %' })] }, 'T')
@@ -206,8 +267,8 @@ test('two-column tables too wide for one column span both and never overflow', (
   const headers = ['Window', 'Model', 'Configuration (n, k)', 'Total p', 'RMSE (pp)', 'MAE (pp)', 'R2 OOS']
   const wide = table({ caption: 'Rộng' }, [headers.map(text => cell('tableHeader', text)), headers.map(() => cell('tableCell', '2013Q1'))])
   const latex = toLatex({ type: 'doc', content: [wide, simple({ caption: 'Hẹp' })] }, 'T', template).latex
-  assert.ok(latex.includes('\\begin{table*}[tp]\n\\centering\n\\caption{Rộng}'))
-  assert.ok(latex.includes('\\begin{table}[htbp]\n\\centering\n\\caption{Hẹp}'))
+  assert.match(latex, /\\begin\{table\*\}\[tp\][\s\S]*?\{\\small Rộng\\par\}/)
+  assert.match(latex, /\\begin\{table\}\[htbp\][\s\S]*?\{\\small Hẹp\\par\}/)
   assert.equal((latex.match(/\\resizebox\{\\linewidth\}\{!\}\{\\box0\}/g) || []).length, 2)
   assert.match(latex, /\\usepackage\{graphicx\}/)
 })

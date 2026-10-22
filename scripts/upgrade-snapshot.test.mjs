@@ -37,3 +37,25 @@ test('upgrade comparison rejects automatic rewriting of existing Unicode prose',
   ]
   assert.notDeepEqual(upgradeSnapshot(after), upgradeSnapshot(before))
 })
+
+test('upgrade preflight rejects raw content that sanitizer would silently drop on both sides', () => {
+  for (const corrupt of [
+    task => { task.document.content.push({ type: 'unknownBlock', content: [{ type: 'text', text: 'Không được mất' }] }) },
+    task => { task.assets = [{ filename: '../hidden.txt', data: 'YWJj' }] },
+    task => { task.sourceDraft = { latex: 'original' } },
+    task => { task.settings.bibliography = 'x'.repeat(500_001) },
+  ]) {
+    const raw = fixture('Nội dung gốc')
+    corrupt(raw.projects[0].tasks[0])
+    assert.throws(() => upgradeSnapshot(raw))
+  }
+  const duplicate = fixture('Nội dung gốc')
+  duplicate.projects[0].tasks.push(structuredClone(duplicate.projects[0].tasks[0]))
+  assert.throws(() => upgradeSnapshot(duplicate), /bị bỏ/u)
+})
+
+test('upgrade preflight keeps the established h4-h6 migration compatible', () => {
+  const raw = fixture('Tiêu đề cũ')
+  raw.projects[0].tasks[0].document.content[0] = { type: 'heading', attrs: { level: 6 }, content: [{ type: 'text', text: 'Tiêu đề cũ' }] }
+  assert.equal(upgradeSnapshot(raw).projects[0].tasks[0].document.content[0].attrs.level, 3)
+})

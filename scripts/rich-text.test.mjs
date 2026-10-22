@@ -164,20 +164,42 @@ test('Word/LaTeX import keeps figure captions, drops empty text and shortens lon
   assert.equal(isValidDocument(document), true)
 })
 
-test('LaTeX source import finds images referenced without a file extension', async () => {
+test('Word import preserves links, code and math in plain-text footnotes and table captions', async () => {
+  const attr = ['hidden-id', ['hidden-class'], [['hidden-key', 'hidden-value']]]
+  const content = [
+    { t: 'Str', c: 'See' }, { t: 'Space' },
+    { t: 'Link', c: [attr, [{ t: 'Strong', c: [{ t: 'Str', c: 'linked study' }] }], ['https://example.test', 'hidden title']] },
+    { t: 'Space' }, { t: 'Code', c: [attr, 'x_1'] }, { t: 'Space' },
+    { t: 'Math', c: [{ t: 'InlineMath' }, 'y^2'] },
+  ]
+  const { document } = await importWordAst({ blocks: [
+    { t: 'Para', c: [{ t: 'Note', c: [{ t: 'Para', c: content }] }] },
+    { t: 'Table', c: [attr, [null, [{ t: 'Plain', c: content }]], [[{ t: 'AlignDefault' }, { t: 'ColWidthDefault' }]], [attr, []], [[attr, 0, [], [[attr, [[attr, { t: 'AlignDefault' }, 1, 1, [{ t: 'Plain', c: [{ t: 'Str', c: 'Cell' }] }]]]]]]], [attr, []]] },
+  ] })
+  assert.equal(document.content[0].content[0].attrs.text, 'See linked study x_1 y^2')
+  assert.equal(document.content[1].attrs.caption, 'See linked study x_1 y^2')
+  assert.doesNotMatch(document.content[0].content[0].attrs.text + document.content[1].attrs.caption, /hidden-/)
+})
+
+test('LaTeX source import finds extensionless images and preserves exact paths with colliding basenames', async () => {
   const png = bytesToBase64(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]))
-  const ast = { meta: {}, blocks: [{ t: 'Para', c: [{ t: 'Image', c: [['', [], []], [{ t: 'Str', c: 'Plot' }], ['figures/plot', '']] }] }] }
+  const nestedPng = bytesToBase64(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 5, 6, 7, 8]))
+  const ast = { meta: { title: { t: 'MetaInlines', c: [{ t: 'Link', c: [['', [], []], [{ t: 'Str', c: 'Linked paper' }], ['https://example.test', '']] }] } }, blocks: ['figures/plot', 'plot.png', 'figures/plot.png'].map(path => ({ t: 'Para', c: [{ t: 'Image', c: [['', [], []], [{ t: 'Str', c: 'Plot' }], [path, '']] }] })) }
   const saved = Object.fromEntries(['window', 'document', 'createImageBitmap', 'FileReader'].map(name => [name, globalThis[name]]))
   Object.assign(globalThis, {
     window: { desktopAPI: { parseLatexSource: async () => ({ ast: structuredClone(ast) }) } },
-    createImageBitmap: async () => ({ width: 4, height: 4, close() {} }),
-    document: { createElement: () => ({ getContext: () => ({ clearRect() {}, fillRect() {}, drawImage() {} }), toBlob: (done, type) => done(new Blob([Buffer.from(png, 'base64')], { type })) }) },
+    createImageBitmap: async blob => ({ width: 4, height: 4, bytes: await blob.arrayBuffer(), close() {} }),
+    document: { createElement: () => {
+      let bitmap
+      return { getContext: () => ({ clearRect() {}, fillRect() {}, drawImage: image => { bitmap = image } }), toBlob: (done, type) => done(new Blob([bitmap.bytes], { type })) }
+    } },
     FileReader: class { readAsDataURL(blob) { blob.arrayBuffer().then(buffer => { this.result = `data:${blob.type};base64,${Buffer.from(buffer).toString('base64')}`; this.onload() }) } },
   })
   try {
-    const result = await readLatexSource('\\documentclass{article}', [], [{ filename: 'figures/plot.png', data: png }])
+    const result = await readLatexSource('\\documentclass{article}', [], [{ filename: 'plot.png', data: png }, { filename: 'figures/plot.png', data: nestedPng }])
+    assert.equal(result.title, 'Linked paper')
     assert.equal(result.document.content[0].type, 'imageBlock')
-    assert.equal(result.document.content[0].attrs.src, `data:image/png;base64,${png}`)
+    assert.deepEqual(result.document.content.map(node => node.attrs.src), [nestedPng, png, nestedPng].map(data => `data:image/png;base64,${data}`))
     const figure = toWordAst(doc([{ ...result.document.content[0], attrs: { ...result.document.content[0].attrs, caption: 'Chú thích nhập lại' } }]), 'Figure')
     const imported = await importWordAst(figure)
     assert.equal(imported.document.content.length, 1)

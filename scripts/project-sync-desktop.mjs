@@ -11,9 +11,10 @@ import { buildDesktop } from './build-desktop.mjs'
 
 const require = createRequire(import.meta.url)
 const { createRelayServer } = require('../electron/sync-relay-server.cjs')
-await buildDesktop()
+const packaged = Boolean(process.env.DESKTOP_EXE)
+if (!packaged) await buildDesktop()
 const directory = await mkdtemp(join(tmpdir(), 'vietlatex-internet-desktop-'))
-const output = resolve('artifacts/project-sync-desktop')
+const output = resolve(packaged ? 'artifacts/project-sync-packaged' : 'artifacts/project-sync-desktop')
 await mkdir(output, { recursive: true })
 const relay = createRelayServer()
 await new Promise(resolve => relay.server.listen(0, '127.0.0.1', resolve))
@@ -28,7 +29,7 @@ async function launch(name) {
   const profile = join(directory, name)
   const env = { ...process.env, VIETLATEX_USER_DATA: profile, VIETLATEX_TEST_PACKAGED_RENDERER: 'true', VIETLATEX_TEST_HIDE_WINDOW: 'true', VIETLATEX_DISABLE_UPDATE_CHECK: 'true', VIETLATEX_TEST_SYNC_RELAY_ONLY: 'true', VIETLATEX_SYNC_RELAY_URL: relayUrl }
   delete env.ELECTRON_RUN_AS_NODE
-  const child = spawn(require('electron'), ['.', '--built-renderer', `--remote-debugging-port=${port}`], { env, stdio: ['ignore', 'pipe', 'pipe'] })
+  const child = spawn(process.env.DESKTOP_EXE || require('electron'), [...(packaged ? [] : ['.', '--built-renderer']), `--remote-debugging-port=${port}`], { env, stdio: ['ignore', 'pipe', 'pipe'] })
   const instance = { child, profile }; apps.push(instance)
   let stderr = '', browser
   child.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-6000) }); child.stdout.resume()
@@ -49,7 +50,7 @@ async function launch(name) {
   return instance
 }
 async function panel(page) {
-  if (!await page.getByRole('dialog').count()) await page.getByRole('button', { name: 'Quản lý tài liệu', exact: true }).click()
+  if (!await page.getByRole('dialog').count()) await page.getByRole('button', { name: 'Đồng bộ dự án', exact: true }).click()
   await page.getByRole('button', { name: 'Đồng bộ', exact: true }).click()
 }
 async function saved(instance, text) {
@@ -70,6 +71,9 @@ async function stop(instance) {
 }
 try {
   const host = await launch('host'), client = await launch('client')
+  assert.equal(await host.page.getByRole('button', { name: 'Đồng bộ dự án', exact: true }).isVisible(), true)
+  assert.equal(await host.page.locator('.aurora-insights').count(), 0)
+  await host.page.screenshot({ path: join(output, 'toolbar.png') })
   await host.page.locator('.tiptap').fill('Project đồng bộ qua Internet 2026')
   await saved(host, 'Project đồng bộ qua Internet 2026')
   await client.page.locator('.tiptap').fill('Tài liệu riêng không chia sẻ')
@@ -88,7 +92,7 @@ try {
   assert.equal(received.projects.length, 2)
   assert.equal(received.activeProjectId, privateId)
   assert.ok(received.projects.some(project => project.id === privateId && JSON.stringify(project).includes('Tài liệu riêng không chia sẻ')))
-  await client.page.getByText('Đã kết nối · qua Internet', { exact: false }).waitFor()
+  await client.page.getByText(packaged ? /Đã kết nối · qua (Internet|LAN)/ : 'Đã kết nối · qua Internet', { exact: false }).waitFor()
   await client.page.screenshot({ path: join(output, 'connected.png') })
   // Open the received document through the normal project picker.
   await client.page.getByRole('button', { name: 'Tài liệu', exact: true }).click()
@@ -98,9 +102,10 @@ try {
   await saved(host, 'Sửa từ laptop qua máy chủ chuyển tiếp')
   const hostStored = JSON.parse(await readFile(join(host.profile, 'workspace-v1.json'), 'utf8'))
   assert.ok(!JSON.stringify(hostStored).includes('Tài liệu riêng không chia sẻ'))
-  assert.ok(calls.includes('/pair') && calls.includes('/exchange'))
+  assert.ok(calls.includes('/pair'))
+  if (!packaged) assert.ok(calls.includes('/exchange'))
   assert.deepEqual(errors, [])
-  console.log(JSON.stringify({ passed: true, projectsOnRecipient: received.projects.length, privateProjectPreserved: true, encryptedRelayPairAndExchange: true, screenshot: join(output, 'connected.png') }))
+  console.log(JSON.stringify({ passed: true, packaged, projectsOnRecipient: received.projects.length, privateProjectPreserved: true, encryptedRelayPairAndExchange: !packaged, screenshot: join(output, 'connected.png') }))
 } finally {
   await Promise.allSettled(apps.map(stop))
   await relay.stop(); await rm(directory, { recursive: true, force: true })

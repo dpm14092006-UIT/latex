@@ -47,11 +47,13 @@ export default function UpdatePanel({ updates }) {
   </section>
 }
 
-// One header button walks the whole update: check, download, then install.
+// Keep the header focused on writing; routine version checks live in Settings.
+// Show the update action when there is progress, a new release or an error.
 export function UpdateButton({ updates }) {
   const { status, call } = updates
   const [error, setError] = useState('')
   const state = status?.status
+  if (!state || ['idle', 'up-to-date', 'skipped'].includes(state)) return null
   const busy = updateBusy(status)
   const action = state === 'ready' ? 'install' : state === 'available' ? (status.downloadable ? 'download' : 'openPage') : 'check'
   const label = state === 'checking' ? 'Đang kiểm tra…'
@@ -59,8 +61,7 @@ export function UpdateButton({ updates }) {
       : state === 'installing' ? 'Đang cài…'
         : state === 'ready' ? `Cài bản ${status.version}`
           : state === 'available' ? `Cập nhật ${status.version}`
-            : state === 'up-to-date' ? 'Đã mới nhất'
-              : 'Cập nhật'
+            : 'Cập nhật'
   const run = async () => {
     setError('')
     try { await call(action) } catch (failure) { setError(failure.message || 'Không cập nhật được.') }

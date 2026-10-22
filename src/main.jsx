@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client'
 import { useEditor } from '@tiptap/react'
 import { Extension } from '@tiptap/core'
 import { ImageBlock } from './services/ImageBlock.js'
-import { Plugin } from '@tiptap/pm/state'
+import { Plugin, Selection } from '@tiptap/pm/state'
 import { isHistoryTransaction } from '@tiptap/pm/history'
 import { convertUnicodeScriptMath } from './services/UnicodeScriptMath.js'
 import StarterKit from '@tiptap/starter-kit'
@@ -57,6 +57,7 @@ import { ImageEncoder } from './services/ImageEncoder.js'
 import DocumentHeader from './components/DocumentHeader.jsx'
 import StudioNavigation from './components/StudioNavigation.jsx'
 import WorkflowBar from './components/WorkflowBar.jsx'
+import DocumentFrame from './components/DocumentFrame.jsx'
 import ProjectTabs from './components/ProjectTabs.jsx'
 import { compileProject } from './services/ProjectCompilation.js'
 import CommandPalette from './components/CommandPalette.jsx'
@@ -83,6 +84,7 @@ import './table-library.css'
 import './spellcheck.css'
 import './ai.css'
 import './keyboard-shortcuts.css'
+import './document-frame.css'
 
 // LaTeX và bộ kiểm tra workspace chỉ có ba cấp tiêu đề; h4–h6 dán từ web/Word hạ về cấp 3.
 const ThreeLevelHeading = Heading.extend({
@@ -342,6 +344,8 @@ function App({ initialWorkspace }) {
   const toggleNavigation = () => isCompact ? setMobileNavOpen(value => !value) : setNavCollapsed(value => !value)
   const [commandOpen, setCommandOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  const [frameOpen, setFrameOpen] = useState(false)
+  const [pendingBlock, setPendingBlock] = useState(null)
   const [managerContext, setManagerContext] = useState(null)
   const [pendingHeading, setPendingHeading] = useState(null)
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: 'editor-preview-layout', storage: layoutStorageRef.current })
@@ -867,7 +871,7 @@ function App({ initialWorkspace }) {
       const dialog = document.querySelector('.modal-backdrop [role="dialog"], dialog[open]')
       let action
       if (matchesShortcut(event, 'help') && (!dialog || dialog.classList.contains('studio-shortcuts'))) action = () => setShortcutsOpen(value => !value)
-      else if (matchesShortcut(event, 'commands') && (!dialog || dialog.classList.contains('mono-command') && !dialog.classList.contains('studio-shortcuts'))) action = () => setCommandOpen(value => !value)
+      else if (matchesShortcut(event, 'commands') && (!dialog || dialog.classList.contains('mono-command') && !dialog.classList.contains('studio-shortcuts'))) action = () => { setMobileNavOpen(false); setCommandOpen(value => !value) }
       else if (matchesShortcut(event, 'save') && !dialog) action = () => { void persistWorkspaceRef.current?.(true) }
       if (!action) return
       event.preventDefault()
@@ -1298,6 +1302,26 @@ function App({ initialWorkspace }) {
     })
     return () => cancelAnimationFrame(frame)
   }, [pendingHeading, currentView, editor])
+  useEffect(() => {
+    if (pendingBlock === null || currentView === 'preview' || currentView === 'source' || !editor) return
+    const frame = requestAnimationFrame(() => {
+      let index = 0
+      editor.state.doc.forEach((node, position) => {
+        if (index++ !== pendingBlock) return
+        if (node.isAtom) editor.commands.setNodeSelection(position)
+        else {
+          const selection = Selection.near(editor.state.doc.resolve(position + 1))
+          editor.commands.setTextSelection({ from: selection.from, to: selection.to })
+        }
+        editor.commands.focus(undefined, { scrollIntoView: false })
+        const dom = editor.view.nodeDOM(position)
+        const element = dom?.nodeType === 1 ? dom : dom?.parentElement
+        element?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      })
+      setPendingBlock(null)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [pendingBlock, currentView, editor])
   const requestImage = () => {
     imageInsertPositionRef.current = editor?.state.selection.to ?? null
     uploadInputRef.current?.click()
@@ -1546,11 +1570,13 @@ function App({ initialWorkspace }) {
     }))),
     { id: 'formula', label: 'Chèn công thức', Icon: Sigma, run: openFormula },
     { id: 'templates', label: 'Mẫu tài liệu', Icon: BookOpen, disabled: summaryMode, run: () => setDocumentTemplatesOpen(true) },
+    { id: 'document-frame', label: 'Khung tài liệu: cấu trúc, trang và lề', Icon: BookOpen, run: () => { setFocusMode(false); setFrameOpen(true) } },
     { id: 'write', label: 'Soạn thảo', Icon: FilePenLine, run: () => changeView('write') },
     { id: 'source', label: 'Mã LaTeX', Icon: FileCode2, run: () => changeView('source') },
     { id: 'preview', label: 'Xem bản in PDF', Icon: Eye, run: () => changeView('preview') },
     { id: 'export', label: 'Xuất PDF', Icon: FileDown, disabled: exporting || !sourceTrusted || Boolean(compileAssetError), run: exportPdf },
     { id: 'scan-math', label: 'Quét công thức và gợi ý LaTeX', Icon: Sigma, disabled: summaryMode || !editor, run: () => editor && setMathScanOpen(true) },
+    ...(window.desktopAPI?.enableProjectSync ? [{ id: 'project-sync', label: 'Đồng bộ dự án giữa các thiết bị', Icon: Settings2, run: () => openManager({ tab: 'sync' }) }] : []),
     { id: 'manager', label: 'Quản lý tài liệu và sao lưu', Icon: Settings2, run: () => openManager() },
     { id: 'focus', label: focusMode ? 'Thoát chế độ tập trung' : 'Chế độ tập trung', Icon: PanelTopOpen, run: toggleFocusMode },
     { id: 'shortcuts', label: 'Phím tắt bàn phím (F1)', Icon: BookOpen, run: () => setShortcutsOpen(true) },
@@ -1559,7 +1585,6 @@ function App({ initialWorkspace }) {
   return (
     <div className={`studio-app mono-root${focusMode ? ' mono-focus' : ''}${!navOpen ? ' mono-nav-collapsed' : ''}`}>
       {!focusMode && <StudioNavigation
-        wordCount={wordCount} formulaCount={formulaCount} imageCount={imageSummary.count}
         summary={summaryMode}
         projects={workspace.projects} activeProject={activeProject} activeTaskId={activeTask.id} currentTitle={title}
         outline={outline} open={navOpen} onToggle={toggleNavigation} onClose={closeNavigation} isCompact={isCompact}
@@ -1572,8 +1597,10 @@ function App({ initialWorkspace }) {
       <div className="mono-shell" inert={modalOpen || (!focusMode && isCompact && mobileNavOpen)}>
       {!focusMode ? <DocumentHeader
         readOnly={summaryMode}
+        onOpenSync={window.desktopAPI?.enableProjectSync ? () => openManager({ tab: 'sync' }) : undefined}
         onOpenManager={() => openManager()} updates={updates} title={title} projectName={activeProject.name}
         onOpenShortcuts={() => setShortcutsOpen(true)}
+        frameOpen={frameOpen} onToggleFrame={() => setFrameOpen(value => !value)}
         onTitleChange={event => { if (!summaryMode) setTitle(event.target.value) }} saved={saved} theme={theme}
         onToggleTheme={() => setTheme(value => value === 'dark' ? 'light' : 'dark')}
         exporting={exporting} canExport={(sourceTrusted && !compileAssetError) || (pdfCached && !pdfStale)} onExport={exportPdf}
@@ -1623,6 +1650,15 @@ function App({ initialWorkspace }) {
             {!focusMode && <footer className="studio-statusbar" role="status">
               <span><span><b>{wordCount.toLocaleString('vi-VN')}</b> từ</span><span>/</span><span><b>{formulaCount}</b> công thức</span><span>/</span><span><b>{imageSummary.count}</b> ảnh</span></span><span>{window.desktopAPI?.exchangeSync && <button type="button" className="studio-lan-status" aria-label="Mở trạng thái đồng bộ" onClick={() => { setManagerContext({ tab: 'sync' }); setManagerOpen(true) }}>{lanSyncLabel(syncStatus)}</button>}Lưu trên máy · Tiếng Việt</span>            </footer>}
         </main>
+        {!focusMode && frameOpen && <DocumentFrame
+          editor={editor} document={docData} title={title} settings={settings} onSettings={setSettings}
+          templateName={activeDocumentTemplate?.name} sourceEdited={sourceEdited} readOnly={summaryMode}
+          onClose={() => setFrameOpen(false)}
+          onJump={index => { changeView(currentView === 'split' ? 'split' : 'write'); setPendingBlock(index) }}
+          onSource={() => { setFrameOpen(false); changeView('source') }}
+          onOpenManager={tab => { setFrameOpen(false); openManager({ tab }) }}
+          onTemplates={() => { setFrameOpen(false); if (!summaryMode) setDocumentTemplatesOpen(true) }}
+        />}
       </div>
 
       </div>

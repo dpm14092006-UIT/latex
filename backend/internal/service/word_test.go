@@ -4,11 +4,14 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestMain lets the test binary stand in for Pandoc when
@@ -51,6 +54,56 @@ func TestWordImportReportsOversizedASTAsTooLarge(t *testing.T) {
 	_, err := newWordService().importDocument(context.Background(), buildZip(t, "word/document.xml"))
 	if status := statusOf(t, err); status != http.StatusRequestEntityTooLarge {
 		t.Fatalf("status %d (%v), want 413", status, err)
+	}
+}
+
+func TestWordArchiveValidationWaitsForWorkerAndCancelsWhileQueued(t *testing.T) {
+	s := newWordService()
+	if err := s.queue.acquire(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer s.queue.release()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		// An invalid archive must wait its turn too, instead of bypassing the
+		// worker and performing decompression before shutdown can track it.
+		_, err := s.importDocument(ctx, []byte("invalid archive"))
+		done <- err
+	}()
+	waitFor(t, "archive validation to queue", func() bool { return s.queue.stats()["queued"] == 1 })
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, errClientCancelled) {
+			t.Fatalf("queued archive returned %v, want cancellation", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("queued archive ignored cancellation")
+	}
+}
+
+type cancelWordArchiveReader struct {
+	cancel context.CancelFunc
+}
+
+func (r cancelWordArchiveReader) Read(p []byte) (int, error) {
+	r.cancel()
+	p[0] = 'x'
+	return 1, nil
+}
+
+func TestWordArchiveDecompressionStopsBetweenReads(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	reader := wordArchiveReader{ctx: ctx, reader: cancelWordArchiveReader{cancel: cancel}}
+	written, err := io.Copy(io.Discard, reader)
+	if written != 1 || !errors.Is(err, errClientCancelled) {
+		t.Fatalf("read %d bytes with %v; want immediate cancellation after first read", written, err)
+	}
+	if err := validateWordZipContext(ctx, buildZip(t, "word/document.xml")); !errors.Is(err, errClientCancelled) {
+		t.Fatalf("cancelled archive returned %v", err)
 	}
 }
 
@@ -123,5 +176,40 @@ func TestAttachWordImagesSkipsUnsupportedAndMissingTargets(t *testing.T) {
 	}
 	if total != len(png) {
 		t.Fatalf("image budget counted %d bytes, want %d", total, len(png))
+	}
+}
+
+func TestWordExportValidationWaitsForWorkerAndCancelsWhileQueued(t *testing.T) {
+	s := newWordService()
+	if err := s.queue.acquire(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer s.queue.release()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		// JSON/AST parsing and validation must run inside the worker just like
+		// archive decompression, even for input that will eventually be rejected.
+		_, err := s.exportDocument(ctx, []byte("invalid JSON"))
+		done <- err
+	}()
+	waitFor(t, "export validation to queue", func() bool { return s.queue.stats()["queued"] == 1 })
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, errClientCancelled) {
+			t.Fatalf("queued export returned %v, want cancellation", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("queued export ignored cancellation")
+	}
+}
+
+func TestWordExportAfterShutdownSkipsASTValidation(t *testing.T) {
+	s := newWordService()
+	s.cancelAll()
+	if _, err := s.exportDocument(context.Background(), []byte("invalid JSON")); !errors.Is(err, errClientCancelled) {
+		t.Fatalf("stopped export returned %v", err)
 	}
 }

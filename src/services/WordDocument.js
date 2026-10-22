@@ -4,6 +4,7 @@ import { isValidDocument, MAX_TABLE_COLUMNS } from './DocumentData.js'
 import { downloadBlob } from './ArchiveService.js'
 import { MAX_DOCUMENT_IMAGES, MAX_LATEX_SOURCE_BYTES, MAX_WORD_DOCUMENT_BYTES } from './DocumentLimits.js'
 import { isValidBase64, matchesImageSignature } from './ProjectAssets.js'
+import { tableCaptionParts, tableCaptionText } from './TableCaptions.js'
 
 const PANDOC_ALIGNMENTS = { AlignLeft: 'left', AlignCenter: 'center', AlignRight: 'right' }
 
@@ -15,7 +16,23 @@ export const WORD_PAGE_BREAK = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>'
 const paragraph = content => ({ type: 'paragraph', ...(content.length ? { content } : {}) })
 // Matches the footnote limit of isValidDocument.
 const MAX_FOOTNOTE_CHARS = 5000
-function plain(inlines = []) { return inlines.map(item => item.t === 'Str' ? item.c : ['Space', 'SoftBreak', 'LineBreak'].includes(item.t) ? ' ' : Array.isArray(item.c) ? plain(item.c) : '').join('') }
+// Pandoc containers do not all store visible text in the same slot. Walking
+// their tuple arrays generically drops Link/Code/Math and leaks attributes.
+function plain(items = []) {
+  if (!Array.isArray(items)) return ''
+  return items.map(item => {
+    if (!item || typeof item !== 'object') return ''
+    if (item.t === 'Str') return item.c || ''
+    if (['Space', 'SoftBreak', 'LineBreak'].includes(item.t)) return ' '
+    if (['Code', 'CodeBlock', 'Math'].includes(item.t)) return typeof item.c?.[1] === 'string' ? item.c[1] : ''
+    if (['Link', 'Image', 'Span', 'Quoted', 'Cite'].includes(item.t)) return plain(item.c?.[1])
+    if (item.t === 'Header') return plain(item.c?.[2])
+    if (item.t === 'Div') return plain(item.c?.[1])
+    if (['BulletList', 'OrderedList'].includes(item.t)) return (item.t === 'BulletList' ? item.c : item.c?.[1] || []).map(blocks => plain(blocks)).join(' ')
+    if (item.t === 'RawInline' || item.t === 'RawBlock') return ''
+    return Array.isArray(item.c) ? plain(item.c) : ''
+  }).join('')
+}
 export function dataUrlToBlob(url) {
   const match = /^data:([^;,]*)((?:;[^;,]*)*?)(;base64)?,(.*)$/s.exec(String(url || ''))
   if (!match) throw new Error('Ảnh trong tài liệu Word không hợp lệ.')
@@ -47,7 +64,7 @@ export async function importWordAst(ast) {
         const src = await encoder.encode(blob)
         result.push({ type: 'imageBlock', attrs: { src, alt: plain(item.c[1]), filename: '' } })
       } else if (item.t === 'Note') {
-        const note = item.c.map(block => plain(block.c)).join(' ')
+        const note = item.c.map(block => plain([block])).join(' ')
         if (note.length > MAX_FOOTNOTE_CHARS) warnings.add(`Chú thích dài hơn ${MAX_FOOTNOTE_CHARS} ký tự đã được rút gọn.`)
         result.push({ type: 'footnote', attrs: { text: note.slice(0, MAX_FOOTNOTE_CHARS) } })
       }
@@ -73,11 +90,18 @@ export async function importWordAst(ast) {
         flush()
         if (!children.length) result.push(paragraph([]))
       } else if (item.t === 'BulletList' || item.t === 'OrderedList') {
-        const content = await Promise.all((item.t === 'BulletList' ? item.c : item.c[1]).map(async row => ({ type: 'listItem', content: await blocks(row) })))
+        const content = await Promise.all((item.t === 'BulletList' ? item.c : item.c[1]).map(async row => {
+          const children = await blocks(row)
+          // Tiptap's listItem requires paragraph block*. Pandoc permits a
+          // heading, image, code block or nested list as the first block.
+          if (children[0]?.type !== 'paragraph') children.unshift(paragraph([]))
+          return { type: 'listItem', content: children }
+        }))
         result.push({ type: item.t === 'BulletList' ? 'bulletList' : 'orderedList', attrs: item.t === 'OrderedList' ? { start: item.c[0][0] } : {}, content })
       } else if (item.t === 'BlockQuote') result.push({ type: 'blockquote', content: await blocks(item.c) })
       else if (item.t === 'CodeBlock') result.push({ type: 'codeBlock', ...(item.c[1] ? { content: [{ type: 'text', text: item.c[1] }] } : {}) })
       else if (item.t === 'HorizontalRule') result.push({ type: 'horizontalRule' })
+      else if (item.t === 'RawBlock' && item.c?.[0] === 'openxml' && item.c?.[1] === WORD_PAGE_BREAK) result.push({ type: 'pageBreak' })
       else if (item.t === 'Div') result.push(...await blocks(item.c[1]))
       else if (item.t === 'Table') {
         const rows = [...item.c[3][1].map(row => [row, true]), ...item.c[4].flatMap(body => [...body[2], ...body[3]].map(row => [row, false])), ...item.c[5][1].map(row => [row, false])]
@@ -88,16 +112,17 @@ export async function importWordAst(ast) {
           const align = cellAlign(row, cell, index)
           return { type: header ? 'tableHeader' : 'tableCell', attrs: { rowspan: cell[2], colspan: cell[3], ...(align ? { align } : {}) }, content: await blocks(cell[4]) }
         })) })))
-        const caption = item.c[1][1].map(block => plain(block.c)).join(' ').trim()
+        const caption = item.c[1][1].map(block => plain([block])).join(' ').trim()
         const requestedLabel = item.c[0][0] || ''
         const label = /^[A-Za-z0-9:._-]{1,100}$/.test(requestedLabel) ? requestedLabel : ''
-        if (caption.length > 500) warnings.add('Chú thích bảng dài hơn 500 ký tự đã được rút gọn.')
-        result.push({ type: 'table', attrs: { caption: caption.slice(0, 500), label }, content })
+        const parts = tableCaptionParts({ caption })
+        if (parts.caption.length > 500) warnings.add('Chú thích bảng dài hơn 500 ký tự đã được rút gọn.')
+        result.push({ type: 'table', attrs: { caption: parts.caption.slice(0, 500), ...(parts.tableNumber ? { tableNumber: parts.tableNumber } : {}), label }, content })
       } else if (item.t === 'Figure') {
         const caption = Array.isArray(item.c[1]?.[1]) ? item.c[1][1] : []
         const contents = await blocks(item.c[2])
         if (contents.length === 1 && contents[0].type === 'imageBlock') {
-          const text = caption.map(block => plain(block.c)).join(' ').trim()
+          const text = caption.map(block => plain([block])).join(' ').trim()
           if (text.length > 500) warnings.add('Chú thích hình dài hơn 500 ký tự đã được rút gọn.')
           contents[0].attrs.caption = text.slice(0, 500)
           result.push(...contents)
@@ -119,10 +144,11 @@ export function toWordAst(doc, title, settings = {}, templateSource = '') {
   const byKey = new Map(parseBibtex(settings.bibliography || '').map(entry => [entry.key, entry]))
   function inline(node) {
     if (node.type === 'text') {
-      let output = node.text.split(/(\s+)/).filter(Boolean).map(part => /^\s+$/.test(part) ? { t: 'Space' } : { t: 'Str', c: part })
+      let output = (node.marks || []).some(mark => mark.type === 'code')
+        ? [{ t: 'Code', c: [attr, node.text] }]
+        : node.text.split(/(\s+)/).filter(Boolean).map(part => /^\s+$/.test(part) ? { t: 'Space' } : { t: 'Str', c: part })
       for (const mark of node.marks || []) {
-        if (mark.type === 'code') output = [{ t: 'Code', c: [attr, node.text] }]
-        else if (mark.type === 'link') output = [{ t: 'Link', c: [attr, output, [mark.attrs.href, '']] }]
+        if (mark.type === 'link') output = [{ t: 'Link', c: [attr, output, [mark.attrs.href, '']] }]
         else if (markWords[mark.type]) output = [{ t: markWords[mark.type], c: output }]
         else if (mark.type === 'highlight') output = [{ t: 'Span', c: [['', ['mark'], []], output] }]
       }
@@ -167,12 +193,16 @@ export function toWordAst(doc, title, settings = {}, templateSource = '') {
         return value
       }
       let cols = 1
-      for (const row of children) {
+      const occupiedColumns = []
+      for (const [rowIndex, row] of children.entries()) {
         let rowColumns = 0
         for (const cell of row.content || []) {
-          rowColumns += span(cell, 'colspan')
-          span(cell, 'rowspan')
+          const colspan = span(cell, 'colspan')
+          const rowspan = span(cell, 'rowspan')
+          while (rowColumns + colspan <= MAX_TABLE_COLUMNS && Array.from({ length: colspan }, (_, offset) => (occupiedColumns[rowColumns + offset] || 0) > rowIndex).some(Boolean)) rowColumns++
+          rowColumns += colspan
           if (rowColumns > MAX_TABLE_COLUMNS) throw new Error(`Bảng Word vượt giới hạn ${MAX_TABLE_COLUMNS} cột.`)
+          for (let offset = rowColumns - colspan; offset < rowColumns; offset++) occupiedColumns[offset] = rowIndex + rowspan
         }
         cols = Math.max(cols, rowColumns)
       }
@@ -183,8 +213,8 @@ export function toWordAst(doc, title, settings = {}, templateSource = '') {
       children.forEach((row, rowIndex) => {
         let column = 0
         for (const cell of row.content || []) {
-          while ((occupied[column] || 0) > rowIndex) column++
           const colspan = span(cell, 'colspan')
+          while (Array.from({ length: colspan }, (_, offset) => (occupied[column + offset] || 0) > rowIndex).some(Boolean)) column++
           if (colspan === 1 && column < cols) columnVotes[column].set(pandocAlign(cell).t, (columnVotes[column].get(pandocAlign(cell).t) || 0) + 1)
           for (let offset = 0; offset < colspan; offset++) occupied[column + offset] = rowIndex + span(cell, 'rowspan')
           column += colspan
@@ -197,7 +227,7 @@ export function toWordAst(doc, title, settings = {}, templateSource = '') {
         if (!(row.content || []).some(cell => cell.type === 'tableHeader')) break
         headCount++
       }
-      const caption = String(node.attrs?.caption || '').trim()
+      const caption = tableCaptionText(node.attrs)
       return { t: 'Table', c: [[node.attrs?.label || '', [], []], [null, caption ? [{ t: 'Plain', c: inline({ type: 'text', text: caption }) }] : []], columnSpecs, [attr, rows.slice(0, headCount)], [[attr, 0, [], rows.slice(headCount)]], [attr, []]] }
     }
     return { t: 'Para', c: node.type === 'paragraph' ? children.flatMap(inline) : inline(node) }
@@ -228,7 +258,7 @@ function latexMetadataText(value) {
   if (typeof value.c === 'string') return value.c.trim()
   if (!Array.isArray(value.c)) return ''
   if (value.t === 'MetaList') return value.c.map(latexMetadataText).filter(Boolean).join('; ')
-  if (value.t === 'MetaBlocks') return value.c.map(block => plain(block.c || [])).filter(Boolean).join('\n\n').trim()
+  if (value.t === 'MetaBlocks') return value.c.map(block => plain([block])).filter(Boolean).join('\n\n').trim()
   return plain(value.c).trim()
 }
 
@@ -269,6 +299,7 @@ export async function readLatexSource(source, editorImages = [], assets = []) {
     ast = await response.json()
   }
   const knownImages = new Map()
+  const imageAliases = []
   for (const file of [...editorImages, ...assets]) {
     const filename = String(file?.filename || '')
     const mime = /\.png$/i.test(filename) ? 'png' : /\.jpe?g$/i.test(filename) ? 'jpeg' : ''
@@ -277,9 +308,14 @@ export async function readLatexSource(source, editorImages = [], assets = []) {
     const image = `data:image/${mime};base64,${data}`
     const path = sourceImageKey(filename)
     knownImages.set(path, image)
-    knownImages.set(path.split('/').pop(), image)
-    // \includegraphics{figures/plot} usually omits the extension; the first matching file wins, as in TeX.
-    for (const key of [path, path.split('/').pop()].map(value => value.replace(/\.(?:png|jpe?g)$/u, ''))) if (!knownImages.has(key)) knownImages.set(key, image)
+    imageAliases.push({ path, image })
+  }
+  // Exact project paths take priority over aliases. A nested figures/plot.png
+  // must not overwrite a root plot.png merely because their basenames match.
+  for (const { path, image } of imageAliases) {
+    const basename = path.split('/').pop()
+    // \includegraphics{figures/plot} usually omits the extension; the first matching file wins.
+    for (const key of [basename, path.replace(/\.(?:png|jpe?g)$/u, ''), basename.replace(/\.(?:png|jpe?g)$/u, '')]) if (!knownImages.has(key)) knownImages.set(key, image)
   }
   hydrateLatexImages(ast, knownImages)
   const result = await importWordAst(ast)

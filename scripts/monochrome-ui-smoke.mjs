@@ -53,7 +53,7 @@ try {
   await page.goto('http://127.0.0.1:5184')
   await page.locator('.tiptap .katex').first().waitFor()
   const assertGrayscaleChrome = async () => {
-    const samples = await page.evaluate(() => ['.mono-root', '.mono-navigator', '.mono-brand-mark', '.mono-doc-item[aria-current="page"]', '.aurora-insights', '.aurora-workflow', '.studio-export', '.studio-views button[aria-pressed="true"]'].flatMap(selector => {
+    const samples = await page.evaluate(() => ['.mono-root', '.mono-navigator', '.mono-brand-mark', '.mono-doc-item[aria-current="page"]', '.aurora-workflow', '.studio-export', '.studio-views button[aria-pressed="true"]'].flatMap(selector => {
       const style = getComputedStyle(document.querySelector(selector))
       return [style.color, style.backgroundColor, style.borderTopColor, ...style.backgroundImage.matchAll(/rgba?\([^)]+\)/g)].map(value => String(value))
     }))
@@ -64,8 +64,8 @@ try {
   }
   await assertGrayscaleChrome()
   assert.equal(await page.locator('.mono-doc-item').count(), 2)
-  assert.match(await page.getByLabel('Thống kê bản thảo').innerText(), /Công thức/)
-  assert.equal(await page.locator('.aurora-metrics strong').nth(1).innerText(), '1')
+  assert.match(await page.locator('.studio-statusbar').innerText(), /1.*công thức/)
+  assert.equal(await page.locator('.aurora-insights').count(), 0, 'statistics appear once in the status bar')
   const modeNavigation = page.getByRole('navigation', { name: 'Chế độ làm việc', exact: true })
   assert.equal(await modeNavigation.count(), 1)
   assert.equal(await modeNavigation.getByRole('button').count(), 4)

@@ -323,6 +323,38 @@ func (s *latexService) compile(parent context.Context, input compileRequest) ([]
 	if len(input.Latex) > maxLatexBytes {
 		return nil, appError(http.StatusRequestEntityTooLarge, "Tài liệu vượt quá 800 KB.")
 	}
+	// Oversized or excessive inputs must retain the validators' cheap rejection
+	// path instead of spending time hashing data that cannot be compiled.
+	checkBounds := len(input.Images) > maxDocumentImages || len(input.Assets) > maxAssets
+	var encodedImageBytes, encodedAssetBytes int
+	for _, image := range input.Images {
+		checkBounds = checkBounds || len(image.Data) > base64.StdEncoding.EncodedLen(maxDocumentImage)
+		encodedImageBytes += len(image.Data)
+	}
+	for _, asset := range input.Assets {
+		checkBounds = checkBounds || len(asset.Data) > base64.StdEncoding.EncodedLen(maxOneAssetBytes)
+		encodedAssetBytes += len(asset.Data)
+	}
+	checkBounds = checkBounds || encodedImageBytes > base64.StdEncoding.EncodedLen(maxAllImageBytes)+4*maxDocumentImages || encodedAssetBytes > base64.StdEncoding.EncodedLen(maxAllAssetBytes)+4*maxAssets
+	if checkBounds {
+		if _, err := validateImages(input.Images); err != nil {
+			return nil, err
+		}
+		if _, err := validateAssets(input.Assets); err != nil {
+			return nil, err
+		}
+	}
+	cacheKey := compileHash(input.Latex, input.Images, input.Assets)
+	if parent.Err() != nil {
+		return nil, errClientCancelled
+	}
+	if !input.Fresh {
+		if cached := s.cache.get(cacheKey); cached != nil {
+			s.cache.hit()
+			return cached, nil
+		}
+	}
+
 	images, err := validateImages(input.Images)
 	if err != nil {
 		return nil, err
@@ -338,14 +370,6 @@ func (s *latexService) compile(parent context.Context, input compileRequest) ([]
 	for _, asset := range assets {
 		if _, exists := names[strings.ToLower(asset.filename)]; exists {
 			return nil, appError(http.StatusBadRequest, fmt.Sprintf("Tài nguyên trùng tên ảnh: %s", asset.filename))
-		}
-	}
-
-	cacheKey := compileHash(input.Latex, images, assets)
-	if !input.Fresh {
-		if cached := s.cache.get(cacheKey); cached != nil {
-			s.cache.hit()
-			return cached, nil
 		}
 	}
 
@@ -425,6 +449,11 @@ func (s *latexService) runFlight(ctx context.Context, key, latex string, files [
 	}
 	started := time.Now()
 	pdf, err := s.compileFn(ctx, latex, files)
+	// Cancellation can arrive after the final process exits, while its PDF is
+	// being read or cleaned up. Never publish a result from abandoned work.
+	if ctx.Err() != nil {
+		return nil, errClientCancelled
+	}
 	if !errors.Is(err, errClientCancelled) && ctx.Err() == nil {
 		s.compileTimes.add(time.Since(started))
 		if err != nil {
@@ -564,24 +593,37 @@ func windowsReservedName(part string) bool {
 	return false
 }
 
-func compileHash(latex string, images, assets []fileAsset) string {
+// compileHash fingerprints the wire representation, so cache hits do not need
+// to allocate and decode every asset again. Strict base64 validation makes the
+// representation canonical; only successful, validated compiles enter cache.
+func compileHash(latex string, images, assets []encodedAsset) string {
 	hash := sha256.New()
-	writeHashField(hash, []byte("vietlatex-compile-cache-v2"))
-	// \today uses the TeX process's local date, so cached PDFs must expire at
-	// local midnight rather than UTC midnight (07:00 in Vietnam).
-	writeHashField(hash, []byte(time.Now().Format("2006-01-02")))
-	writeHashField(hash, []byte(latex))
-	writeHashField(hash, []byte(fmt.Sprint(len(images))))
+	var scratch [4096]byte
+	writeString := func(value string) {
+		var length [8]byte
+		binary.BigEndian.PutUint64(length[:], uint64(len(value)))
+		_, _ = hash.Write(length[:])
+		for len(value) > 0 {
+			n := copy(scratch[:], value)
+			_, _ = hash.Write(scratch[:n])
+			value = value[n:]
+		}
+	}
+	writeString("vietlatex-compile-cache-v3")
+	// \today follows the TeX process's local date, including Vietnam midnight.
+	writeString(time.Now().Format("2006-01-02"))
+	writeString(latex)
+	writeString(strconv.Itoa(len(images)))
 	for _, image := range images {
-		writeHashField(hash, []byte(image.filename))
-		writeHashField(hash, image.data)
+		writeString(image.Filename)
+		writeString(image.Data)
 	}
-	writeHashField(hash, []byte(fmt.Sprint(len(assets))))
+	writeString(strconv.Itoa(len(assets)))
 	for _, asset := range assets {
-		writeHashField(hash, []byte(asset.filename))
-		writeHashField(hash, asset.data)
+		writeString(asset.Filename)
+		writeString(asset.Data)
 	}
-	return fmt.Sprintf("%x", hash.Sum(nil))
+	return hex.EncodeToString(hash.Sum(nil))
 }
 
 func writeHashField(writer interface{ Write([]byte) (int, error) }, value []byte) {

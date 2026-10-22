@@ -3,8 +3,10 @@ import { Table, TableView } from '@tiptap/extension-table'
 import { Plugin, PluginKey, Selection } from '@tiptap/pm/state'
 import { closeHistory, redo, undo } from '@tiptap/pm/history'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
+import { CellSelection } from '@tiptap/pm/tables'
 import { citationKeys, citationLabel, citationNumbers, describeEntry } from './Bibliography.js'
 import { isValidTableStyleAttribute, normalizeTableStyle, TABLE_STYLE_DEFAULTS } from './TableStyles.js'
+import { tableCaptionParts } from './TableCaptions.js'
 export const AcademicAttributes = Extension.create({
   name: 'academicAttributes',
   addGlobalAttributes() { return [{ types: ['heading', 'blockMath'], attributes: { label: { default: '', parseHTML: element => element.getAttribute('data-label') || '', renderHTML: attrs => attrs.label ? { 'data-label': attrs.label } : {} } } }] },
@@ -102,14 +104,20 @@ export class StyledTableView extends TableView {
     this.id = String(++styledTableCount)
     this.table.dataset.styledTable = this.id
     this.alignStyle = document.createElement('style')
-    this.caption = tableTextField('table-caption-field', 'Tên bảng', 'Nhập tên bảng…', false)
+    this.number = tableTextField('table-number-field', 'Table No.', '', false)
+    this.number.input.maxLength = 50
+    this.caption = tableTextField('table-caption-field', 'Caption', 'Table title…', false)
     this.caption.input.maxLength = 500
+    this.captionRow = document.createElement('div')
+    this.captionRow.className = 'table-caption-row'
+    this.captionRow.contentEditable = 'false'
+    this.captionRow.append(this.number.field, this.caption.field)
     this.note = tableTextField('table-note-field', 'Ghi chú', 'Ghi chú dưới bảng: nguồn số liệu, đơn vị, giải thích ký hiệu… (có thể gõ công thức $p = n + k$)', true)
     this.note.input.maxLength = 2000
     this.dom.classList.add('styled-table')
     this.dom.prepend(this.alignStyle)
     this.listeners = []
-    for (const [name, { input }] of [['caption', this.caption], ['note', this.note]]) {
+    for (const [name, { input }] of [['tableNumber', this.number], ['caption', this.caption], ['note', this.note]]) {
       const listen = (type, handler) => {
         input.addEventListener(type, handler)
         this.listeners.push(() => input.removeEventListener(type, handler))
@@ -138,8 +146,9 @@ export class StyledTableView extends TableView {
 
   commit(name, value) {
     const position = this.position()
-    if (!this.editable() || position === null || (this.node.attrs[name] || '') === value) return
-    this.view.dispatch(this.view.state.tr.setNodeMarkup(position, undefined, { ...this.node.attrs, [name]: value }))
+    const attrs = { ...this.node.attrs, ...tableCaptionParts(this.node.attrs) }
+    if (!this.editable() || position === null || (attrs[name] || '') === value) return
+    this.view.dispatch(this.view.state.tr.setNodeMarkup(position, undefined, { ...attrs, [name]: value }))
   }
 
   onFieldKeyDown(event) {
@@ -155,6 +164,7 @@ export class StyledTableView extends TableView {
     // after the table, as a writer reading top to bottom would expect.
     if (event.key === 'Enter' && !event.isComposing && !event.shiftKey) {
       event.preventDefault()
+      if (event.currentTarget === this.number.input) { this.caption.input.focus(); return }
       const position = this.position()
       if (position === null) return
       const target = event.currentTarget === this.caption.input ? position + 3 : position + this.node.nodeSize
@@ -174,8 +184,9 @@ export class StyledTableView extends TableView {
     applyTableStyle(this.table, node)
     const style = normalizeTableStyle(node.attrs)
     // Keep what the writer is typing; the node catches up on the next input.
-    for (const [name, { input }] of [['caption', this.caption], ['note', this.note]]) {
-      if ((force || document.activeElement !== input) && input.value !== (node.attrs[name] || '')) input.value = node.attrs[name] || ''
+    const attrs = { ...node.attrs, ...tableCaptionParts(node.attrs) }
+    for (const [name, { input }] of [['tableNumber', this.number], ['caption', this.caption], ['note', this.note]]) {
+      if ((force || document.activeElement !== input) && input.value !== (attrs[name] || '')) input.value = attrs[name] || ''
       input.readOnly = !this.editable()
     }
     this.dom.classList.toggle('has-table-note', Boolean(node.attrs.note))
@@ -183,8 +194,8 @@ export class StyledTableView extends TableView {
     // caption, note. Moving the table itself would disturb the selection in
     // its cells, so only the two fields are placed around it.
     if (style.captionPosition === 'bottom') {
-      if (this.table.nextSibling !== this.caption.field) this.table.after(this.caption.field)
-    } else if (this.table.previousSibling !== this.caption.field) this.table.before(this.caption.field)
+      if (this.table.nextSibling !== this.captionRow) this.table.after(this.captionRow)
+    } else if (this.table.previousSibling !== this.captionRow) this.table.before(this.captionRow)
     if (this.dom.lastChild !== this.note.field) this.dom.append(this.note.field)
     const css = numericColumnCss(node, this.id)
     if (this.alignStyle.textContent !== css) this.alignStyle.textContent = css
@@ -198,11 +209,11 @@ export class StyledTableView extends TableView {
   }
 
   stopEvent(event) {
-    return this.caption.field.contains(event.target) || this.note.field.contains(event.target)
+    return this.captionRow.contains(event.target) || this.note.field.contains(event.target)
   }
 
   ignoreMutation(mutation) {
-    if (this.caption.field.contains(mutation.target) || this.note.field.contains(mutation.target) || mutation.target === this.dom) return true
+    if (this.captionRow.contains(mutation.target) || this.note.field.contains(mutation.target) || mutation.target === this.dom) return true
     return super.ignoreMutation(mutation)
   }
 
@@ -215,10 +226,28 @@ export const AcademicTable = Table.extend({
   addOptions() {
     return { ...this.parent?.(), View: StyledTableView }
   },
+  addKeyboardShortcuts() {
+    const removeSelectedStructure = () => {
+      const { selection } = this.editor.state
+      if (!(selection instanceof CellSelection)) return false
+      const rows = selection.isRowSelection()
+      const columns = selection.isColSelection()
+      if (rows && columns) return this.editor.commands.deleteTable()
+      if (rows) return this.editor.commands.deleteRow()
+      if (columns) return this.editor.commands.deleteColumn()
+      return false
+    }
+    return { ...this.parent?.(), Backspace: removeSelectedStructure, Delete: removeSelectedStructure }
+  },
   addAttributes() {
     return {
       ...this.parent?.(),
       ...tableStyleAttributes,
+      tableNumber: {
+        default: null,
+        parseHTML: element => element.getAttribute('data-table-number'),
+        renderHTML: attributes => attributes.tableNumber == null ? {} : { 'data-table-number': attributes.tableNumber },
+      },
       caption: {
         default: '',
         parseHTML: element => element.getAttribute('data-caption') || '',

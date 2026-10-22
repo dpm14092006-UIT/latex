@@ -27,7 +27,7 @@ const server = production ? await preview({ preview: { host: '127.0.0.1', port: 
 if (!production) await server.listen()
 let browser
 try {
-  const browserName = process.env.UI_TEST_BROWSER || 'msedge'
+  const browserName = process.env.UI_TEST_BROWSER || 'chromium'
   browser = await chromium.launch({ headless: true, ...(browserName === 'chromium' ? {} : { channel: browserName }) })
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } })
   page.setDefaultTimeout(15000)

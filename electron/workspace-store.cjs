@@ -1,6 +1,7 @@
 const { open, readFile, rename, rm, mkdir, readdir, stat, lstat, copyFile } = require('node:fs/promises')
 const { join } = require('node:path')
 const { randomUUID } = require('node:crypto')
+const { COPYFILE_EXCL } = require('node:fs').constants
 const { setTimeout: delay } = require('node:timers/promises')
 
 const MAX_WORKSPACE_BYTES = 128 * 1024 * 1024
@@ -44,15 +45,32 @@ function createWorkspaceStore(app) {
     return validate(JSON.parse(await readFile(path, 'utf8')))
   }
   async function listBackups() {
-    await mkdir(backupPath, { recursive: true })
+    await mkdir(backupPath, { recursive: true, mode: 0o700 })
     const names = (await readdir(backupPath)).filter(name => /^snapshot-\d+-[a-f0-9-]+\.json$/.test(name)).sort().reverse()
     return Promise.all(names.map(async id => ({ id, createdAt: Number(id.split('-')[1]), size: (await stat(join(backupPath, id))).size })))
   }
   async function backupNow() {
-    await mkdir(backupPath, { recursive: true })
+    await mkdir(backupPath, { recursive: true, mode: 0o700 })
     try { await readSnapshot(workspacePath) } catch (error) { if (error.code === 'ENOENT') return null; throw error }
     const id = `snapshot-${Date.now()}-${randomUUID()}.json`
-    await copyFile(workspacePath, join(backupPath, id))
+    const destination = join(backupPath, id)
+    const temporary = `${destination}.tmp`
+    let handle
+    try {
+      // A backup must only appear in the recovery list after its bytes reach
+      // disk. Interrupted copies stay invisible instead of looking recoverable.
+      await copyFile(workspacePath, temporary, COPYFILE_EXCL)
+      handle = await open(temporary, 'r+')
+      await handle.chmod(0o600)
+      await handle.sync()
+      await handle.close()
+      handle = null
+      await renameWithRetry(temporary, destination)
+      await syncDirectory(backupPath)
+    } finally {
+      await handle?.close().catch(() => {})
+      await rm(temporary, { force: true }).catch(() => {})
+    }
     lastBackup = Date.now()
     const snapshots = await listBackups()
     for (const old of snapshots.slice(15)) await rm(join(backupPath, old.id), { force: true })
@@ -118,7 +136,7 @@ function createWorkspaceStore(app) {
       const temporaryPath = `${workspacePath}.${process.pid}.${randomUUID()}.tmp`
       let handle
       try {
-        handle = await open(temporaryPath, 'w')
+        handle = await open(temporaryPath, 'wx', 0o600)
         await handle.writeFile(serialized, 'utf8')
         await handle.sync()
         await handle.close()

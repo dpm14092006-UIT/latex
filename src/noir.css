@@ -155,3 +155,5 @@
 }
 /* Dialog contents must shrink and scroll when the available height is small. */
 .mono-root .studio-manager-body { min-height:0; }
+
+@media(max-width:620px){.mono-root .mono-sync{width:28px;min-width:28px;padding:0;justify-content:center}.mono-root .mono-sync>span{display:none}}

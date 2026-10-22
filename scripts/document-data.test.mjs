@@ -33,6 +33,12 @@ test('workspaces saved with pasted h4-h6 headings still open, clamped to level 3
   assert.equal(workspace.projects[0].tasks[0].document.content[2].attrs.level, 3)
 })
 
+test('legacy heading migration leaves over-deep documents for bounded validation without overflowing the stack', () => {
+  let nested = { type: 'heading', attrs: { level: 6 }, content: [{ type: 'text', text: 'Too deep' }] }
+  for (let depth = 0; depth < 20_000; depth++) nested = { type: 'blockquote', content: [nested] }
+  assert.equal(isValidDocument(clampHeadingLevels({ type: 'doc', content: [nested] })), false)
+})
+
 test('document validation accepts supported editor content and rejects malformed structures', () => {
   const document = {
     type: 'doc',

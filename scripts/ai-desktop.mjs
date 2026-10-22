@@ -14,6 +14,9 @@ const userData = await mkdtemp(join(tmpdir(), 'vietlatex-ai-desktop-'))
 const output = resolve('artifacts/ai-desktop')
 await mkdir(output, { recursive: true })
 const requests = []
+let releaseGeneration
+let generationStarted
+const generating = new Promise(resolve => { generationStarted = resolve })
 const server = createServer((request, response) => {
   let body = ''
   request.on('data', chunk => { body += chunk })
@@ -22,7 +25,8 @@ const server = createServer((request, response) => {
     response.setHeader('content-type', 'application/json')
     if (request.headers['x-goog-api-key'] !== KEY) { response.statusCode = 400; return response.end(JSON.stringify({ error: { details: [{ reason: 'API_KEY_INVALID' }] } })) }
     if (request.url.startsWith('/models?')) return response.end(JSON.stringify({ models: [{ name: 'models/gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', supportedGenerationMethods: ['generateContent'] }] }))
-    response.end(JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: 'The result $x^2$ holds by \\cite{knuth}.' }] } }] }))
+    releaseGeneration = () => response.end(JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: 'The result $x^2$ holds by \\cite{knuth}.' }] } }] }))
+    generationStarted()
   })
 })
 await new Promise(done => server.listen(0, '127.0.0.1', done))
@@ -70,7 +74,14 @@ try {
   await panel.getByLabel('Thao tác').selectOption('to-english')
   await panel.getByText(/Sẽ gửi \d+ ký tự/).waitFor()
   await panel.getByRole('button', { name: 'Gửi tới Gemini' }).click()
+  await generating
+  // Reopening the assistant while a response is pending used to capture a new
+  // selection and associate the previous response with that different text.
+  assert.equal(await page.getByRole('button', { name: 'Trợ lý AI', exact: true }).isDisabled(), true)
+  assert.equal(await panel.getByRole('button', { name: 'Đóng trợ lý AI' }).isDisabled(), true)
+  releaseGeneration()
   await panel.getByLabel('Kết quả từ Gemini').waitFor()
+  assert.equal(await page.getByRole('button', { name: 'Trợ lý AI', exact: true }).isEnabled(), true)
   assert.equal(await panel.getByLabel('Kết quả từ Gemini').inputValue(), 'The result $x^2$ holds by \\cite{knuth}.')
   if (show) await page.screenshot({ path: join(output, 'result.png') })
   const generate = requests.find(item => item.url.endsWith(':generateContent'))
@@ -86,8 +97,31 @@ try {
   assert.ok(await page.locator('.tiptap').evaluate(editor => editor.contains(editor.ownerDocument.activeElement)), 'focus returns to the editor')
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Z' : 'Control+Z')
   await first.getByText('Kết quả').waitFor()
+
+  // Repeated source text can leave the old offsets pointing at an identical
+  // substring after an insertion. The original document identity must match
+  // before applying a response, rather than only comparing that substring.
+  await page.getByRole('button', { name: 'LaTeX', exact: true }).click()
+  const source = page.locator('.cm-content')
+  await source.click()
+  await source.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A')
+  await page.keyboard.insertText('alpha alpha')
+  for (let index = 0; index < 5; index++) await source.press('Shift+ArrowLeft')
+  await page.getByRole('button', { name: 'Trợ lý AI', exact: true }).click()
+  await panel.getByText('Sẽ gửi 5 ký tự tới Google', { exact: true }).waitFor()
+  const sourceGenerating = new Promise(resolve => { generationStarted = resolve })
+  await panel.getByRole('button', { name: 'Gửi tới Gemini' }).click()
+  await sourceGenerating
+  await source.press('Home')
+  await page.keyboard.insertText('alpha ')
+  assert.equal(await source.innerText(), 'alpha alpha alpha')
+  releaseGeneration()
+  await panel.getByLabel('Kết quả từ Gemini').waitFor()
+  await panel.getByRole('button', { name: 'Thay vùng đã chọn' }).click()
+  await panel.getByText('Source đã thay đổi; hãy chọn lại đoạn cần thay.').waitFor()
+  assert.equal(await source.innerText(), 'alpha alpha alpha', 'a response cannot replace a different identical substring after source offsets move')
   assert.deepEqual(pageErrors, [])
-  console.log('AI desktop passed: encrypted key, invalid-key message, model choice, caret paragraph with formula sent, replace keeps formula/citation nodes, one-step undo.')
+  console.log('AI desktop passed: encrypted key, invalid-key message, model choice, formula/citation replacement and undo, locked pending selection, stale source result rejected.')
 } finally {
   await app?.evaluate(({ app }) => app.quit()).catch(() => {})
   await app?.close().catch(() => {})

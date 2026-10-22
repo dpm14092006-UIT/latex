@@ -2,15 +2,16 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { promisify, isDeepStrictEqual } from 'node:util'
-import { cp, mkdir, readFile, writeFile, rename, lstat, realpath } from 'node:fs/promises'
+import { cp, mkdir, readFile, writeFile, lstat, realpath, rm } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
-import { join, resolve, isAbsolute } from 'node:path'
+import { dirname, join, resolve, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
 import { setTimeout as delay } from 'node:timers/promises'
 import { sanitizeWorkspace } from '../src/services/WorkspaceData.js'
 import { upgradeSnapshot } from '../scripts/upgrade-snapshot.mjs'
+import { applicationRecoveryPaths, replaceApplication } from './application-swap.mjs'
 
 if (process.platform !== 'darwin') throw new Error('Cập nhật cục bộ này dành cho macOS.')
 const require = createRequire(import.meta.url)
@@ -29,6 +30,7 @@ if (!process.env.VIETLATEX_USER_DATA) {
 }
 profile = await realpath(profile)
 const workspaceFile = join(profile, 'workspace-v1.json')
+const hash = data => createHash('sha256').update(data).digest('hex')
 assert.ok((await lstat(workspaceFile)).isFile(), 'workspace must be a regular file to create an independent backup')
 assert.ok(sanitizeWorkspace(JSON.parse(await readFile(workspaceFile))), 'current workspace must be valid before updating')
 const info = await lstat(installed)
@@ -36,6 +38,7 @@ assert.ok(info.isDirectory() && !info.isSymbolicLink(), 'installed app must be a
 await exec('/usr/bin/codesign', ['--verify', '--deep', '--strict', source])
 const { stdout: version } = await exec('/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleShortVersionString', join(source, 'Contents', 'Info.plist')])
 assert.equal(version.trim(), pkg.version)
+const sourceAsarHash = hash(await readFile(join(source, 'Contents', 'Resources', 'app.asar')))
 // Reopen a copy with the actual package before touching the running app.
 const { stdout: copyCheck } = await exec(process.execPath, [join(root, 'mac', 'mac-upgrade-profile-smoke.mjs')], {
   cwd: root, env: { ...process.env, UPGRADE_DEV: 'false', UPGRADE_PROFILE: profile, DESKTOP_EXE: join(source, 'Contents', 'MacOS', pkg.build.productName) }, timeout: 90000,
@@ -60,16 +63,29 @@ while ((await runningPids()).length && Date.now() < deadline) await delay(250)
 if ((await runningPids()).length) throw new Error('App chưa lưu/thoát xong. Giữ nguyên app và dữ liệu; chưa cài bản mới.')
 // The old app's SIGTERM handler flushes the editor before exit. Back up that final state.
 const finalBytes = await readFile(workspaceFile)
-const expected = sanitizeWorkspace(JSON.parse(finalBytes))
+const finalWorkspace = JSON.parse(finalBytes)
+upgradeSnapshot(finalWorkspace)
+const expected = sanitizeWorkspace(finalWorkspace)
 assert.ok(expected)
 await cp(profile, join(backup, 'profile'), { recursive: true, verbatimSymlinks: true })
-const hash = data => createHash('sha256').update(data).digest('hex')
 assert.equal(hash(await readFile(join(backup, 'profile', 'workspace-v1.json'))), hash(finalBytes))
-await rename(installed, join(backup, 'previous.app'))
-try { await rename(staged, installed) } catch (error) { await rename(join(backup, 'previous.app'), installed); throw error }
-await exec('/usr/bin/codesign', ['--verify', '--deep', '--strict', installed])
-assert.equal(hash(await readFile(workspaceFile)), hash(finalBytes), 'install must not write into the profile')
-const record = { version: pkg.version, installed, profile, backup, workspaceSHA256: hash(finalBytes), profileUnchangedDuringInstall: true, previousAppRetained: true }
+const recovery = applicationRecoveryPaths({ installed, backup, stamp, sameDevice: (await lstat(dirname(installed))).dev === (await lstat(backup)).dev })
+if (recovery.archiveCopyRequired) {
+  // Home may live on another volume. Archive and verify there first, while
+  // keeping the actual rename/rollback on the Applications volume.
+  await cp(installed, recovery.archivedPrevious, { recursive: true, verbatimSymlinks: true })
+  await exec('/usr/bin/codesign', ['--verify', '--deep', '--strict', recovery.archivedPrevious])
+}
+await replaceApplication({
+  installed, staged, previous: recovery.previous, rejected: recovery.rejected,
+  verify: async () => {
+    await exec('/usr/bin/codesign', ['--verify', '--deep', '--strict', installed])
+    assert.equal(hash(await readFile(workspaceFile)), hash(finalBytes), 'install must not write into the profile')
+    assert.equal(hash(await readFile(join(installed, 'Contents', 'Resources', 'app.asar'))), sourceAsarHash, 'installed app must contain the tested source bundle')
+  },
+})
+if (recovery.archiveCopyRequired) await rm(recovery.previous, { recursive: true, force: true }).catch(error => console.warn(`Đã giữ thêm bản app cũ tại ${recovery.previous}: ${error.message}`))
+const record = { version: pkg.version, installed, profile, backup, appAsarSHA256: sourceAsarHash, workspaceSHA256: hash(finalBytes), profileUnchangedDuringInstall: true, previousAppRetained: true }
 await writeFile(join(backup, 'upgrade.json'), JSON.stringify(record, null, 2), { mode: 0o600 })
 await exec('/usr/bin/open', ['-a', installed, ...(process.env.VIETLATEX_USER_DATA ? ['--env', `VIETLATEX_USER_DATA=${profile}`] : [])])
 await delay(3000)

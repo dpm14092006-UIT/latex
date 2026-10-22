@@ -1,6 +1,6 @@
 # Đồng bộ từng project bằng mã qua Internet
 
-Tính năng nằm trong **Quản lý tài liệu → Đồng bộ** của ứng dụng desktop macOS và Windows. Hai máy không cần cùng Wi-Fi. Mỗi project có nhóm và khóa riêng; không chia sẻ toàn bộ workspace. Mỗi máy hỗ trợ 32 project, mỗi project hỗ trợ một máy giữ kết nối và tối đa 16 thiết bị nhận.
+Từ bản 0.6.0, bấm **Đồng bộ** ngay trên thanh công cụ cạnh **Thiết lập**, hoặc mở **Quản lý tài liệu → Đồng bộ** trong ứng dụng desktop macOS và Windows. Hai máy không cần cùng Wi-Fi. Mỗi project có nhóm và khóa riêng; không chia sẻ toàn bộ workspace. Mỗi máy hỗ trợ 32 project, mỗi project hỗ trợ một máy giữ kết nối và tối đa 16 thiết bị nhận.
 
 ## Cách dùng
 

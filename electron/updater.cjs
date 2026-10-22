@@ -5,7 +5,7 @@
 // detached script after the normal save-and-quit handshake.
 // Windows: the verified NSIS Setup.exe runs silently (/S) into the existing
 // per-user install once the app has saved and quit, then relaunches it.
-const { createHash } = require('node:crypto')
+const { createHash, randomUUID } = require('node:crypto')
 const { createReadStream, createWriteStream, existsSync } = require('node:fs')
 const { access, constants, mkdir, readFile, readdir, rename, rm, stat, writeFile } = require('node:fs/promises')
 const { execFile, spawn } = require('node:child_process')
@@ -102,13 +102,14 @@ fi
 function createUpdater({
   app, shell, fetch, directory, currentVersion = app.getVersion(), feedUrl = DEFAULT_FEED,
   platform = process.platform, run = promisify(execFile), launch = spawn, onStatus = () => {},
-  beforeInstall = async () => {}, requestQuit = () => app.quit(), onQuit = callback => app.once('quit', callback),
+  beforeInstall = async () => {}, requestQuit = () => app.quit(), onQuit = callback => { app.once('quit', callback); return () => app.removeListener('quit', callback) },
   env = process.env, exists = existsSync,
 }) {
   const settingsPath = join(directory, 'settings.json')
   let settings = { autoCheck: true, skippedVersion: null }
   let state = { status: 'idle', currentVersion, autoCheck: true }
   let release = null, downloadPath = null, checking = null, downloading = null, installing = false, timers = []
+  let activeInstall = null
 
   const snapshot = () => ({ ...state, autoCheck: settings.autoCheck, skippedVersion: settings.skippedVersion, canInstall: installTarget() !== null })
   const update = patch => { state = { ...state, ...patch }; onStatus(snapshot()) }
@@ -149,7 +150,10 @@ function createUpdater({
 
   function check({ manual = false } = {}) {
     if (checking) return checking
-    if (['downloading', 'ready'].includes(state.status) && !manual) return Promise.resolve(snapshot())
+    // A check must never replace release metadata underneath an active
+    // download or staged install, including checks triggered through IPC.
+    if (installing || ['downloading', 'installing'].includes(state.status) || (state.status === 'ready' && !manual)) return Promise.resolve(snapshot())
+    const wasReady = state.status === 'ready' && Boolean(downloadPath)
     checking = (async () => {
       update({ status: 'checking', error: null })
       try {
@@ -160,15 +164,18 @@ function createUpdater({
         const checkedAt = new Date().toISOString()
         if (!found || (!manual && found.version === settings.skippedVersion)) {
           release = null
+          downloadPath = null
           update({ status: 'up-to-date', checkedAt, version: null, notes: '', pageUrl: null, downloadable: false })
         } else {
-          const sameAsReady = release?.version === found.version && downloadPath && state.status === 'ready'
+          const sameAsReady = wasReady && release?.version === found.version
           release = found
-          if (!sameAsReady) update({ status: 'available', checkedAt, version: found.version, name: found.name, notes: found.notes, publishedAt: found.publishedAt, pageUrl: found.pageUrl, downloadable: Boolean(found.installer), progress: 0 })
-          else update({ checkedAt })
+          if (!sameAsReady) {
+            downloadPath = null
+            update({ status: 'available', checkedAt, version: found.version, name: found.name, notes: found.notes, publishedAt: found.publishedAt, pageUrl: found.pageUrl, downloadable: Boolean(found.installer), progress: 0 })
+          } else update({ status: 'ready', checkedAt })
         }
       } catch (error) {
-        update({ status: 'error', error: `Không kiểm tra được bản cập nhật: ${error.message}` })
+        update({ status: wasReady ? 'ready' : 'error', error: `Không kiểm tra được bản cập nhật: ${error.message}` })
       }
       return snapshot()
     })().finally(() => { checking = null })
@@ -177,6 +184,8 @@ function createUpdater({
 
   function download() {
     if (downloading) return downloading
+    if (checking) return checking.then(() => download())
+    if (installing || state.status === 'installing') return Promise.reject(new Error('Đang cài bản cập nhật.'))
     if (!release?.installer) return Promise.reject(new Error('Chưa có bộ cài macOS cho bản cập nhật này.'))
     const { installer, version } = release
     downloading = (async () => {
@@ -229,44 +238,79 @@ function createUpdater({
     return hash.digest('hex')
   }
 
-  async function plist(bundle, key) {
-    const { stdout } = await run('/usr/libexec/PlistBuddy', ['-c', `Print :${key}`, join(bundle, 'Contents', 'Info.plist')])
+  async function plist(bundle, key, signal) {
+    const { stdout } = await run('/usr/libexec/PlistBuddy', ['-c', `Print :${key}`, join(bundle, 'Contents', 'Info.plist')], { timeout: 30_000, signal })
     return stdout.trim()
   }
 
-  async function teamIdentifier(bundle) {
+  async function teamIdentifier(bundle, signal) {
     // codesign prints its details on stderr; ad-hoc signatures report "not set".
-    const { stderr } = await run('/usr/bin/codesign', ['-dv', bundle]).catch(error => ({ stderr: error.stderr || '' }))
+    const { stderr } = await run('/usr/bin/codesign', ['-dv', bundle], { timeout: 30_000, signal }).catch(error => ({ stderr: error.stderr || '' }))
     const team = /^TeamIdentifier=(.+)$/m.exec(stderr)?.[1]?.trim()
     return team && team !== 'not set' ? team : null
   }
 
   // Mounts the verified DMG and copies the app next to the installed one (same
   // volume, so the final swap is a rename). Returns the staged bundle path.
-  async function stageBundle(target) {
+  async function stageBundle(target, attempt, expectedVersion) {
+    const signal = attempt.controller.signal
     const productApp = basename(target)
     const mountPoint = join(directory, 'mount')
     await rm(mountPoint, { recursive: true, force: true })
     await mkdir(mountPoint, { recursive: true })
-    const staged = join(dirname(target), `.${productApp.replace(/\.app$/, '')}-update-${Date.now()}.app`)
-    await run('/usr/bin/hdiutil', ['attach', downloadPath, '-nobrowse', '-readonly', '-noautoopen', '-mountpoint', mountPoint], { timeout: 120_000 })
+    const staged = join(dirname(target), `.${productApp.replace(/\.app$/, '')}-update-${Date.now()}-${randomUUID()}.app`)
+    attempt.staged = staged
     try {
+      // hdiutil can mount the image before it exits (or is aborted). Always
+      // detach our mount point, including when attach itself fails midway.
+      await run('/usr/bin/hdiutil', ['attach', attempt.installer, '-nobrowse', '-readonly', '-noautoopen', '-mountpoint', mountPoint], { timeout: 120_000, signal })
       const source = join(mountPoint, productApp)
-      await run('/usr/bin/codesign', ['--verify', '--deep', '--strict', source], { timeout: 300_000 })
-      if (await plist(source, 'CFBundleShortVersionString') !== release.version) throw new Error('Phiên bản trong bộ cài không khớp bản phát hành.')
-      if (await plist(source, 'CFBundleIdentifier') !== await plist(target, 'CFBundleIdentifier')) throw new Error('Bộ cài không phải Viet Latex Studio.')
-      const currentTeam = await teamIdentifier(target)
-      if (currentTeam && await teamIdentifier(source) !== currentTeam) throw new Error('Chữ ký Developer ID của bộ cài khác bản đang cài.')
-      await run('/usr/bin/ditto', [source, staged], { timeout: 600_000 })
+      await run('/usr/bin/codesign', ['--verify', '--deep', '--strict', source], { timeout: 300_000, signal })
+      if (await plist(source, 'CFBundleShortVersionString', signal) !== expectedVersion) throw new Error('Phiên bản trong bộ cài không khớp bản phát hành.')
+      if (await plist(source, 'CFBundleIdentifier', signal) !== await plist(target, 'CFBundleIdentifier', signal)) throw new Error('Bộ cài không phải Viet Latex Studio.')
+      const currentTeam = await teamIdentifier(target, signal)
+      if (currentTeam && await teamIdentifier(source, signal) !== currentTeam) throw new Error('Chữ ký Developer ID của bộ cài khác bản đang cài.')
+      await run('/usr/bin/ditto', [source, staged], { timeout: 600_000, signal })
     } catch (error) {
       await rm(staged, { recursive: true, force: true })
       throw error
     } finally {
       await run('/usr/bin/hdiutil', ['detach', mountPoint, '-force'], { timeout: 60_000 }).catch(() => {})
     }
-    await run('/usr/bin/xattr', ['-dr', 'com.apple.quarantine', staged]).catch(() => {})
-    await run('/usr/bin/codesign', ['--verify', '--deep', '--strict', staged], { timeout: 300_000 })
+    await run('/usr/bin/xattr', ['-dr', 'com.apple.quarantine', staged], { timeout: 30_000, signal }).catch(() => {})
+    await run('/usr/bin/codesign', ['--verify', '--deep', '--strict', staged], { timeout: 300_000, signal })
     return staged
+  }
+
+  async function removeStaging(attempt) {
+    if (attempt.staged) await rm(attempt.staged, { recursive: true, force: true })
+  }
+
+  async function cancelInstall(reason = 'Chưa lưu xong tài liệu; đã hủy cài đặt. Hãy lưu rồi thử lại.') {
+    const attempt = activeInstall
+    if (!attempt) return snapshot()
+    activeInstall = null
+    attempt.cancelled = true
+    attempt.controller.abort()
+    attempt.unsubscribe?.()
+    update({ status: 'ready', error: reason })
+    // If preparation is still running, let its catch/finally stop the command
+    // before removing the copy, so ditto cannot recreate a cancelled staging.
+    await attempt.finished
+    await removeStaging(attempt)
+    return snapshot()
+  }
+
+  function launchOnAcceptedQuit(attempt, file, args, options) {
+    attempt.unsubscribe = onQuit(() => {
+      // A stale callback must remain harmless even if an injected onQuit
+      // implementation cannot unsubscribe or a later ordinary quit occurs.
+      if (activeInstall !== attempt || attempt.cancelled) return
+      activeInstall = null
+      const child = launch(file, args, options)
+      child.once?.('error', error => console.error('Không khởi động được bộ cài:', error))
+      child.unref()
+    })
   }
 
   async function install() {
@@ -280,39 +324,58 @@ function createUpdater({
       return { ...snapshot(), manual: true }
     }
     installing = true
+    let finishPreparation
+    const attempt = { installer: downloadPath, cancelled: false, staged: null, controller: new AbortController(), finished: new Promise(resolve => { finishPreparation = resolve }) }
+    activeInstall = attempt
+    const expectedVersion = release.version
+    const assertActive = () => { if (activeInstall !== attempt || attempt.cancelled) throw new Error('Đã hủy cài bản cập nhật.') }
     if (platform === 'win32') {
       try {
         update({ status: 'installing', error: null })
         await beforeInstall()
+        assertActive()
         // Started from 'quit', after the workspace flush and backend shutdown;
         // a cancelled quit (failed save) therefore never replaces the app.
-        const installer = downloadPath
-        onQuit(() => launch(installer, ['/S', '--updated', '--force-run'], { detached: true, stdio: 'ignore', windowsHide: true }).unref())
+        launchOnAcceptedQuit(attempt, attempt.installer, ['/S', '--updated', '--force-run'], { detached: true, stdio: 'ignore', windowsHide: true })
         requestQuit()
         return snapshot()
       } catch (error) {
+        if (activeInstall === attempt) activeInstall = null
+        attempt.unsubscribe?.()
+        if (attempt.cancelled) return snapshot()
         update({ status: 'ready', error: `Không cài được bản cập nhật: ${error.message}` })
         throw error
-      } finally { installing = false }
+      } finally { installing = false; finishPreparation() }
     }
     try {
       await access(dirname(target), constants.W_OK).catch(() => { throw new Error(`Không có quyền ghi vào ${dirname(target)}. Hãy mở bộ cài và kéo app vào Applications.`) })
+      assertActive()
       update({ status: 'installing', error: null })
       await beforeInstall()
-      const staged = await stageBundle(target)
+      assertActive()
+      const staged = await stageBundle(target, attempt, expectedVersion)
+      assertActive()
       const stamp = new Date().toISOString().replace(/[:.]/g, '-')
       const backupRoot = join(app.getPath('appData'), 'VietLatex Upgrade Backups')
       await pruneAutomaticBackups(backupRoot)
+      assertActive()
       const backup = join(backupRoot, `${stamp}-auto-${currentVersion}`, basename(target))
       const script = join(directory, 'install-update.sh')
       await writeFile(script, INSTALL_SCRIPT, { mode: 0o700 })
-      launch('/bin/sh', [script, String(process.pid), target, staged, backup, join(directory, 'install.log')], { detached: true, stdio: 'ignore' }).unref()
+      assertActive()
+      // Start only after Electron accepted the final save-and-quit handshake.
+      // A failed flush therefore leaves no detached helper waiting for a later quit.
+      launchOnAcceptedQuit(attempt, '/bin/sh', [script, String(process.pid), target, staged, backup, join(directory, 'install.log')], { detached: true, stdio: 'ignore' })
       requestQuit()
       return snapshot()
     } catch (error) {
+      if (activeInstall === attempt) activeInstall = null
+      attempt.unsubscribe?.()
+      await removeStaging(attempt)
+      if (attempt.cancelled) return snapshot()
       update({ status: 'ready', error: `Không cài được bản cập nhật: ${error.message}` })
       throw error
-    } finally { installing = false }
+    } finally { installing = false; finishPreparation() }
   }
 
   // Each previous.app keeps a full TeX tree; keep only the two newest automatic ones.
@@ -351,7 +414,7 @@ function createUpdater({
 
   function stop() { clearTimeout(timers[0]); clearInterval(timers[1]); timers = [] }
 
-  return { start, stop, check, download, install, skip, setAutoCheck, status: snapshot }
+  return { start, stop, check, download, install, cancelInstall, skip, setAutoCheck, status: snapshot }
 }
 
 module.exports = { DEFAULT_FEED, INSTALL_SCRIPT, appBundlePath, compareVersions, createUpdater, installerName, isReleaseDownloadUrl, parseChecksum, parseVersion, selectRelease }

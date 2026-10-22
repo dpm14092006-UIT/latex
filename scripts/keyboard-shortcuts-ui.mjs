@@ -122,7 +122,7 @@ try {
 
     // Caption inputs live inside the editor DOM but own their text editing.
     await draft.evaluate(node => { node.editor.commands.insertTable({ rows: 1, cols: 1, withHeaderRow: false }) })
-    const caption = page.getByRole('textbox', { name: 'Tên bảng', exact: true })
+    const caption = page.getByRole('textbox', { name: 'Caption', exact: true })
     await caption.fill('Tên bảng kiểm tra')
     const beforeCaptionShortcut = await draft.evaluate(node => node.editor.getJSON())
     await caption.press(`${primary}+Shift+m`)

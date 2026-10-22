@@ -19,6 +19,9 @@ Thay đổi được yêu cầu sau khi chọn mẫu: **bỏ hoàn toàn thanh b
 
 ## Thành phần
 
+- `src/components/DocumentFrame.jsx`, `src/services/DocumentFrameData.js` và `src/document-frame.css`: khung trực quan cấu trúc/trang. Mở bằng **Khung tài liệu** trên thanh trên hoặc Ctrl+K → Khung tài liệu. Các khối liên kết với vị trí bản thảo thật; thiết lập dùng cùng dữ liệu với Trang & tác giả, không tạo bản sao tài liệu. Khung đặt bên phải ở độ rộng trên 1280 px, chuyển thành native modal drawer khi màn hình hẹp hơn; hỗ trợ Escape, focus trap và phím mũi tên giữa hai thẻ. Không lưu trạng thái mở để tránh chiếm vùng viết khi mở lại app.
+- Cấu trúc hiển thị 160 khối đầu và có **Xem thêm**. Ô tìm kiếm duyệt toàn bộ nội dung, hỗ trợ tiếng Việt có/không dấu và giữ nguyên vị trí khối gốc; sơ đồ trang không bị thay đổi bởi bộ lọc. Trên màn hình nhỏ, điều hướng dự án được đóng trước khi mở công cụ khác để vùng viết không bị khóa sau khi hoàn tất.
+
 - `src/obsidian.css`: lớp giao diện đen bóng áp dụng ngày 07/10/2026 từ demo đã duyệt. Chỉ đổi palette, nền, viền, bóng và chuyển trạng thái; giữ nguyên kích thước khung, ribbon, phân trang, kéo chia khung, component và dữ liệu. Không có điểm nhấn xanh lá. Nền đen mặc định và lựa chọn sáng/tối đã lưu tiếp tục dùng logic hiện có.
 
 - `src/monochrome.css`: hình thức theo mẫu, responsive và theme.
@@ -35,5 +38,6 @@ Không thay engine Tiptap, MathLive, CodeMirror, PDF.js, backend Go hay schema d
 - `npm run test:ui`: điều hướng, tạo/chuyển tài liệu, hủy xóa, bảng lệnh, LaTeX, kéo chia khung, focus, theme, môi trường backend, một thanh chọn chế độ và độ rộng 1600/1120/901/900/768/390 px. Mặc định dùng Chromium của Playwright; đặt `UI_TEST_BROWSER=msedge` để dùng Edge đã cài.
 - `npm run test:desktop`: công thức, PDF thật, Word/OMML, thiết lập, sao lưu, nhập dự án, nhân bản, lưu cuối phiên và khôi phục khi mở lại.
 - `npm run lint` và `npm run build`.
+- `npm run test:document-frame`: vị trí khối qua đoạn trống, giới hạn số khối hiển thị, chọn tiêu đề/bảng/công thức, cập nhật khi gõ, bảng lệnh, thay đổi và lưu thiết lập, khóa Tổng hợp/source riêng, sáng/tối và ngăn 390 px. Ảnh ở `artifacts/document-frame/`.
 
 `npm run test:ui` lưu ảnh kiểm tra giao diện ở `artifacts/monochrome-ui/`. Các bài kiểm tra dùng dữ liệu riêng, không sửa tài liệu đang dùng của người dùng.

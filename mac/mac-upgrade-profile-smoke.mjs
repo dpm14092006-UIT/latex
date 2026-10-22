@@ -11,13 +11,17 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { chromium } from 'playwright'
 import { sanitizeWorkspace } from '../src/services/WorkspaceData.js'
 import { upgradeSnapshot } from '../scripts/upgrade-snapshot.mjs'
+import { sanitizeDocumentTemplates, sanitizeFormulaTemplates } from '../src/services/DocumentData.js'
 
 if (process.platform !== 'darwin' || !process.env.DESKTOP_EXE || !process.env.UPGRADE_PROFILE) {
   throw new Error('Cần macOS, DESKTOP_EXE và UPGRADE_PROFILE để kiểm tra bản sao hồ sơ.')
 }
 const original = resolve(process.env.UPGRADE_PROFILE, 'workspace-v1.json')
 const bytes = await readFile(original)
-const expected = sanitizeWorkspace(JSON.parse(bytes))
+const originalWorkspace = JSON.parse(bytes)
+upgradeSnapshot(originalWorkspace)
+const expected = sanitizeWorkspace(originalWorkspace)
+const templates = value => ({ customTemplates: sanitizeFormulaTemplates(value.customTemplates || []), documentTemplates: sanitizeDocumentTemplates(value.documentTemplates || []) })
 assert.ok(expected)
 const directory = await mkdtemp(join(tmpdir(), 'vietlatex-upgrade-copy-'))
 await writeFile(join(directory, 'workspace-v1.json'), bytes)
@@ -52,12 +56,15 @@ try {
   await page.getByRole('textbox', { name: 'Tên tài liệu', exact: true }).waitFor({ timeout: 30000 })
   const loaded = await page.evaluate(() => window.desktopAPI.loadWorkspace())
   assert.ok(isDeepStrictEqual(upgradeSnapshot(loaded), upgradeSnapshot(expected)), 'all existing documents load intact')
+  assert.deepEqual(templates(loaded), templates(originalWorkspace), 'custom formula and document templates load intact')
   await delay(2000)
   child.kill('SIGTERM')
   const result = await Promise.race([exit, delay(20000).then(() => null)])
   assert.ok(result, 'new app must flush and quit cleanly')
   assert.equal(result.code, 0)
-  const saved = sanitizeWorkspace(JSON.parse(await readFile(join(directory, 'workspace-v1.json'))))
+  const savedWorkspace = JSON.parse(await readFile(join(directory, 'workspace-v1.json')))
+  const saved = sanitizeWorkspace(savedWorkspace)
+  assert.deepEqual(templates(savedWorkspace), templates(originalWorkspace), 'custom templates survive save and quit')
   // Timestamps can change on normal autosave; compare document data itself.
   const stable = upgradeSnapshot
   if (!isDeepStrictEqual(stable(saved), stable(expected))) {

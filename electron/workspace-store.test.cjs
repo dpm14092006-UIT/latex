@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict')
-const { mkdtemp, rm, writeFile, utimes, access, readFile, readdir } = require('node:fs/promises')
+const { mkdtemp, rm, writeFile, utimes, access, readFile, readdir, stat } = require('node:fs/promises')
 const { tmpdir } = require('node:os')
-const { join } = require('node:path')
+const { join, basename } = require('node:path')
 const { randomUUID } = require('node:crypto')
 const test = require('node:test')
 const { createWorkspaceStore, renameWithRetry } = require('./workspace-store.cjs')
@@ -75,4 +75,27 @@ test('workspace startup removes only old atomic-write leftovers', async t => {
   await assert.rejects(access(staleTemp), { code: 'ENOENT' })
   await access(recentTemp)
   await access(unrelated)
+})
+
+test('workspace and recovery snapshots are private and incomplete backups are never selected', async t => {
+  const userData = await mkdtemp(join(tmpdir(), 'vietlatex-workspace-backups-'))
+  t.after(() => rm(userData, { recursive: true, force: true }))
+  const store = createWorkspaceStore({ getPath: () => userData })
+  const workspace = { version: 1, projects: [{ id: 'private-project' }] }
+  await store.save(workspace)
+  const backup = await store.backup()
+  assert.deepEqual(await store.readBackup(backup.id), workspace)
+  if (process.platform !== 'win32') {
+    assert.equal((await stat(join(userData, 'workspace-v1.json'))).mode & 0o777, 0o600)
+    assert.equal((await stat(join(userData, 'backups', backup.id))).mode & 0o777, 0o600)
+    assert.equal((await stat(join(userData, 'backups'))).mode & 0o777, 0o700)
+  }
+  const unfinished = join(userData, 'backups', `snapshot-${Date.now() + 1000}-${randomUUID()}.json.tmp`)
+  await writeFile(unfinished, '{"version":')
+  assert.deepEqual((await store.listBackups()).map(entry => entry.id), [backup.id])
+  assert.deepEqual((await readdir(join(userData, 'backups'))).filter(name => name.endsWith('.tmp')), [basename(unfinished)])
+  await writeFile(join(userData, 'workspace-v1.json'), 'broken')
+  const recovered = await store.load()
+  assert.deepEqual(recovered.projects, workspace.projects)
+  assert.match(recovered.recoveryMessage, /khôi phục/)
 })

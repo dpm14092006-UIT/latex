@@ -53,12 +53,12 @@ function isValidMark(mark) {
 }
 
 // Bản cũ của editor lưu được tiêu đề h4–h6 khi dán HTML; hạ về cấp 3 thay vì từ chối cả workspace.
-export function clampHeadingLevels(node) {
-  if (!isRecord(node)) return node
+function clampHeadingNode(node, depth) {
+  if (!isRecord(node) || depth > 128) return node
   let changed = false
   let content = node.content
   if (Array.isArray(content)) {
-    const next = content.map(clampHeadingLevels)
+    const next = content.map(child => clampHeadingNode(child, depth + 1))
     if (next.some((child, index) => child !== content[index])) { content = next; changed = true }
   }
   let attrs = node.attrs
@@ -67,6 +67,10 @@ export function clampHeadingLevels(node) {
     changed = true
   }
   return changed ? { ...node, attrs, content } : node
+}
+
+export function clampHeadingLevels(node) {
+  return clampHeadingNode(node, 0)
 }
 
 export function isValidDocument(value) {
@@ -80,7 +84,7 @@ export function isValidDocument(value) {
     if (node.attrs !== undefined && !isRecord(node.attrs)) return false
     if (node.marks !== undefined && (!Array.isArray(node.marks) || node.marks.some(mark => !isValidMark(mark)))) return false
     if (node.attrs?.textAlign !== undefined && !TEXT_ALIGNMENTS.has(node.attrs.textAlign)) return false
-    if (node.type === 'text' && typeof node.text !== 'string') return false
+    if (node.type === 'text' && (typeof node.text !== 'string' || !node.text.length)) return false
     if (['inlineMath', 'blockMath'].includes(node.type) && typeof node.attrs?.latex !== 'string') return false
     if (node.type === 'citation' && (typeof node.attrs?.key !== 'string' || !/^[A-Za-z0-9:._-]{1,100}(?:,[A-Za-z0-9:._-]{1,100}){0,49}$/.test(node.attrs.key))) return false
     if (node.type === 'citation' && node.attrs?.mode !== undefined && !['parenthetical', 'narrative'].includes(node.attrs.mode)) return false
@@ -100,6 +104,7 @@ export function isValidDocument(value) {
       }
     }
     if (node.type === 'table') {
+      if (node.attrs?.tableNumber !== undefined && node.attrs.tableNumber !== null && (typeof node.attrs.tableNumber !== 'string' || node.attrs.tableNumber.length > 50)) return false
       if (node.attrs?.caption !== undefined && (typeof node.attrs.caption !== 'string' || node.attrs.caption.length > 500)) return false
       if (node.attrs?.note !== undefined && node.attrs.note !== null && (typeof node.attrs.note !== 'string' || node.attrs.note.length > 2000)) return false
       if (node.attrs?.label !== undefined && (typeof node.attrs.label !== 'string' || (node.attrs.label && !/^[A-Za-z0-9:._-]{1,100}$/.test(node.attrs.label)))) return false

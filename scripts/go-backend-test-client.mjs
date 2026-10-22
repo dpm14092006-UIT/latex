@@ -10,8 +10,9 @@ const executable = join(root, 'build', 'backend', process.platform === 'win32' ?
 export async function startGoBackendForTests({ env = {} } = {}) {
   const token = randomBytes(32).toString('hex')
   // Optional source-mode backend for development.
-  const goRun = process.env.VIETLATEX_TEST_BACKEND === 'go-run'
-  const child = spawn(goRun ? 'go' : executable, [...(goRun ? ['-C', 'backend', 'run', './cmd/vietlatex-backend'] : []), '--listen=127.0.0.1:0'], {
+  const overrideExecutable = process.env.VIETLATEX_TEST_BACKEND_EXE
+  const goRun = !overrideExecutable && process.env.VIETLATEX_TEST_BACKEND === 'go-run'
+  const child = spawn(goRun ? 'go' : overrideExecutable || executable, [...(goRun ? ['-C', 'backend', 'run', './cmd/vietlatex-backend'] : []), '--listen=127.0.0.1:0'], {
     cwd: root,
     stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, ...env, VIETLATEX_API_TOKEN: token, VIETLATEX_APP_PATH: root },

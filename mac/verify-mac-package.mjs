@@ -60,7 +60,7 @@ async function verifyTexTree(directory) {
 
 await access(executable)
 const { extractFile } = require('@electron/asar')
-for (const file of ['electron/spellcheck-store.cjs', 'electron/gemini.cjs', 'src/services/SpellcheckSettings.js', 'dist/spellcheck/en-US.aff', 'dist/spellcheck/en-US.dic', 'dist/spellcheck/en-GB.aff', 'dist/spellcheck/en-GB.dic', 'dist/spellcheck/en-US.LICENSE.txt', 'dist/spellcheck/en-GB.LICENSE.txt', 'dist/spellcheck/nspell.LICENSE.txt', 'dist/spellcheck/manifest.json']) {
+for (const file of ['electron/project-sync.cjs', 'electron/sync-relay-client.cjs', 'src/services/ProjectSyncData.js', 'electron/spellcheck-store.cjs', 'electron/gemini.cjs', 'src/services/SpellcheckSettings.js', 'dist/spellcheck/en-US.aff', 'dist/spellcheck/en-US.dic', 'dist/spellcheck/en-GB.aff', 'dist/spellcheck/en-GB.dic', 'dist/spellcheck/en-US.LICENSE.txt', 'dist/spellcheck/en-GB.LICENSE.txt', 'dist/spellcheck/nspell.LICENSE.txt', 'dist/spellcheck/manifest.json']) {
   if (!extractFile(join(resources, 'app.asar'), file).length) throw new Error(`Thiếu tài nguyên chính tả: ${file}`)
 }
 const { stdout: minimumVersion } = await promisify(execFile)('/usr/libexec/PlistBuddy', ['-c', 'Print :LSMinimumSystemVersion', join(app, 'Contents', 'Info.plist')])
@@ -77,5 +77,6 @@ await run(process.execPath, [join(root, 'mac', 'mac-packaged-smoke.mjs')], { ...
 await run(process.execPath, [join(root, 'scripts', 'dark-text-pdf-desktop.mjs')], { ...process.env, DESKTOP_EXE: executable })
 await run(process.execPath, [join(root, 'scripts', 'heading-numbering-desktop.mjs')], { ...process.env, DESKTOP_EXE: executable })
 await run(process.execPath, [join(root, 'scripts', 'lan-sync-desktop.mjs')], { ...process.env, DESKTOP_EXE: executable })
+await run(process.execPath, [join(root, 'scripts', 'project-sync-desktop.mjs')], { ...process.env, DESKTOP_EXE: executable })
 await run(process.execPath, [join(root, 'scripts', 'spellcheck-desktop.mjs')], { ...process.env, DESKTOP_EXE: executable })
 console.log('Packaged Mac app passed: signature integrity, universal binaries and two-desktop LAN regression.')

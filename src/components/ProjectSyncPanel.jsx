@@ -24,6 +24,7 @@ export default function ProjectSyncPanel({ status, workspace, onAction }) {
   return <section className="project-sync-panel">
     <h3>Đồng bộ project giữa các thiết bị</h3>
     <p>Nhập mã một lần để làm tiếp project trên máy khác, kể cả khi dùng Wi-Fi khác nhau. Hai máy cần đang chạy ứng dụng và có mạng. Khi mất kết nối, bạn vẫn soạn thảo và lưu trên máy.</p>
+    {!url && !groups.length && <p className="studio-notice" role="status">Để tạo mã kết nối qua Internet, cần cấu hình máy chủ HTTPS ở mục bên dưới. Nếu đã có mã từ máy khác, bạn có thể dán mã để kết nối ngay.</p>}
     {message && <p className="studio-notice" role="status">{message}</p>}
     {status?.mode !== 'off' && status?.mode && <p className="studio-notice">Đang bật đồng bộ LAN toàn workspace. Tắt kết nối đó trong mục bên dưới trước khi đồng bộ riêng từng project.</p>}
     <fieldset disabled={busy}>

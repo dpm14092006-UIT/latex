@@ -32,7 +32,7 @@ export const ImageBlock = Node.create({
       const caption = document.createElement('input')
       caption.type = 'text'
       caption.className = 'latex-image-caption'
-      caption.placeholder = 'Nhập chú thích cho hình…'
+      caption.placeholder = 'Figure 1. Caption… / Figure ??? (tự nhập số)'
       caption.setAttribute('aria-label', 'Chú thích hình')
       caption.maxLength = 500
       const refresh = () => {

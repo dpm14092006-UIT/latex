@@ -4,6 +4,35 @@ Mới nhất ở trên. Workspace v1 và giao thức LAN v1 được giữ qua m
 
 ## Chưa phát hành
 
+## 0.6.2 — tối ưu backend và sửa lỗi vòng tiếp theo
+
+- Tra PDF cache trước giải mã tệp đính kèm; không lưu kết quả của tác vụ đã hủy. Đưa xử lý AST xuất Word vào worker và bỏ bản sao thừa đầu ra Pandoc.
+- Giữ văn bản khi phục hồi định dạng lỗi; sửa text rỗng, danh sách Word và mark code lồng liên kết/in đậm.
+- Chặn AI áp kết quả source cũ; tháo DMG khi mount thất bại hoặc bị hủy.
+- Chi tiết và phạm vi đo hiệu năng: [UPGRADE-0.6.2](UPGRADE-0.6.2.md).
+
+## 0.6.1 — rà soát hệ thống và bảo toàn dữ liệu
+
+- Nâng khung cấu trúc thành tìm kiếm toàn bản thảo và tải thêm; sửa ngăn điều hướng mobile giữ khóa vùng soạn thảo sau khi chạy lệnh.
+- Chặn nhập sao lưu bị mất dữ liệu do chuẩn hóa; giữ nội dung Word trong chú thích, ảnh trùng tên khác thư mục và các ô gộp bảng lớn.
+- Sửa trạng thái cập nhật khi kiểm tra lại/tải/cài đồng thời; sao lưu nguyên tử và khôi phục app cũ khi xác minh bản thay thế thất bại.
+- Đưa kiểm tra DOCX vào worker có hỗ trợ hủy; tăng kiểm tra dữ liệu gốc trước nâng cấp.
+- Chi tiết: [UPGRADE-0.6.1](UPGRADE-0.6.1.md).
+
+- **Khung tài liệu trực quan**: mở từ biểu tượng cấu trúc trên thanh trên hoặc bảng lệnh; sơ đồ các tiêu đề, đoạn văn, bảng, ảnh và công thức cập nhật theo bản thảo, đánh dấu khối đang chọn và cho phép bấm để đến đúng vị trí. Màn hình rộng dùng khung bên cạnh, màn hình nhỏ dùng ngăn có hỗ trợ bàn phím.
+- **Trang & lề**: sơ đồ khổ giấy và vùng in với tiêu đề, tác giả, Abstract, mục lục; chỉnh A4/A5/Letter, lề, cỡ chữ, giãn dòng ngay trong khung. Lưu cùng thiết lập tài liệu; khóa chỉnh khi xem Tổng hợp hoặc PDF đang lấy source LaTeX riêng. Sơ đồ chỉ minh họa bố cục, phân trang thật vẫn xem ở Bản in.
+- Tích hợp công cụ tinh gọn và hướng dẫn phím tắt F1 từ commit `dcf2879`, giữ các cải tiến cục bộ về caption bảng/ảnh và đồng bộ project.
+
+## 0.6.0 — đồng bộ project và giao diện gọn hơn
+
+- Đồng bộ từng project bằng mã qua Internet; có phê duyệt thiết bị, mã hóa, xử lý xung đột, PDF, ưu tiên LAN và nối lại khi offline. Cần cấu hình máy chủ HTTPS để dùng khác mạng.
+- Nút **Đồng bộ** trên thanh công cụ và trong bảng lệnh. Bỏ khối thống kê/thời gian đọc lặp ở thanh bên.
+- Sửa PATH Windows khi kiểm tra/chạy khác nền tảng; chống đường dẫn MiKTeX trùng do khác cách viết.
+- Kiểm tra gói ứng dụng có đầy đủ dịch vụ mới và chạy ghép hai app đóng gói, tránh trường hợp mã nguồn đã cập nhật nhưng ứng dụng đã cài vẫn thiếu tính năng.
+- Chi tiết: [UPGRADE-0.6.0](UPGRADE-0.6.0.md).
+
+### Các cải tiến đã tích lũy trước 0.6.0
+
 - **Backend và giao diện gọn hơn**: web và desktop dùng chung logic khởi động/dừng backend; hủy khởi động và request không để lại tiến trình, shutdown có giới hạn chờ và được gộp khi gọi đồng thời. Giữ đúng HTTP status khi backend trả lỗi JSON rỗng; không gửi token qua redirect và kiểm tra cổng trong tín hiệu ready. Backend từ chối yêu cầu khi đang dừng và kiểm tra Origin chặt hơn.
 - **PDF**: **Cập nhật PDF** và **Thử lại** biên dịch mới tài liệu hiện tại; bỏ nút xóa toàn bộ cache trong Hệ thống cùng API/IPC riêng. Biên dịch tự động vẫn dùng cache. Bảng Hệ thống đọc đúng môi trường web và chỉ hiện hướng dẫn cài công cụ đang thiếu.
 - **Điều hướng**: giữ một nhóm chọn chế độ Soạn thảo / Soạn + PDF / LaTeX / Bản in; thanh quy trình chỉ báo trạng thái source và PDF. Bỏ tùy chọn thử nghiệm đổi vị trí thanh chế độ trên/dưới.

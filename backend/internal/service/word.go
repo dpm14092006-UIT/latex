@@ -112,9 +112,6 @@ func (s *wordService) importDocument(ctx context.Context, input []byte) ([]byte,
 	if len(input) == 0 || len(input) > maxWordDocumentBytes {
 		return nil, appError(http.StatusBadRequest, "Tệp Word vượt 25 MB hoặc không hợp lệ.")
 	}
-	if err := validateWordZip(input); err != nil {
-		return nil, appError(http.StatusBadRequest, err.Error())
-	}
 	ctx, untrack := s.track(ctx)
 	defer untrack()
 	if err := s.queue.acquire(ctx); err != nil {
@@ -122,6 +119,14 @@ func (s *wordService) importDocument(ctx context.Context, input []byte) ([]byte,
 	}
 	defer s.queue.release()
 	defer s.runTimes.since(time.Now())
+	// Archive validation decompresses up to 64 MB. It belongs inside the
+	// worker limit and tracked lifetime, just like the Pandoc conversion.
+	if err := validateWordZipContext(ctx, input); err != nil {
+		if errors.Is(err, errClientCancelled) {
+			return nil, err
+		}
+		return nil, appError(http.StatusBadRequest, err.Error())
+	}
 
 	executable, err := findPandoc()
 	if err != nil {
@@ -203,6 +208,14 @@ func (s *wordService) exportDocument(ctx context.Context, input []byte) ([]byte,
 	if len(input) == 0 || len(input) > maxJSONRequestBytes {
 		return nil, appError(http.StatusBadRequest, "Dữ liệu xuất Word không hợp lệ.")
 	}
+	ctx, untrack := s.track(ctx)
+	defer untrack()
+	if err := s.queue.acquire(ctx); err != nil {
+		return nil, err
+	}
+	defer s.queue.release()
+	defer s.runTimes.since(time.Now())
+
 	var ast map[string]any
 	if err := json.Unmarshal(input, &ast); err != nil {
 		return nil, appError(http.StatusBadRequest, "Dữ liệu xuất Word không hợp lệ.")
@@ -230,13 +243,6 @@ func (s *wordService) exportDocument(ctx context.Context, input []byte) ([]byte,
 	if err != nil || len(serialized) > maxWordASTBytes {
 		return nil, appError(http.StatusBadRequest, "Tài liệu Word vượt giới hạn.")
 	}
-	ctx, untrack := s.track(ctx)
-	defer untrack()
-	if err := s.queue.acquire(ctx); err != nil {
-		return nil, err
-	}
-	defer s.queue.release()
-	defer s.runTimes.since(time.Now())
 
 	executable, err := findPandoc()
 	if err != nil {
@@ -287,6 +293,25 @@ func (s *wordService) exportDocument(ctx context.Context, input []byte) ([]byte,
 func astTruncated(output []byte) bool { return len(output) >= maxWordASTBytes }
 
 func validateWordZip(data []byte) error {
+	return validateWordZipContext(context.Background(), data)
+}
+
+type wordArchiveReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r wordArchiveReader) Read(p []byte) (int, error) {
+	if r.ctx.Err() != nil {
+		return 0, errClientCancelled
+	}
+	return r.reader.Read(p)
+}
+
+func validateWordZipContext(ctx context.Context, data []byte) error {
+	if ctx.Err() != nil {
+		return errClientCancelled
+	}
 	archive, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return fmt.Errorf("Gói Word không hợp lệ.")
@@ -297,6 +322,9 @@ func validateWordZip(data []byte) error {
 	seen := make(map[string]struct{}, len(archive.File))
 	var total uint64
 	for _, file := range archive.File {
+		if ctx.Err() != nil {
+			return errClientCancelled
+		}
 		name := file.Name
 		if file.Flags&1 != 0 || file.Mode()&os.ModeSymlink != 0 {
 			return fmt.Errorf("Gói Word chứa tệp mã hóa hoặc liên kết không được hỗ trợ.")
@@ -315,6 +343,9 @@ func validateWordZip(data []byte) error {
 		total += file.UncompressedSize64
 	}
 	for _, file := range archive.File {
+		if ctx.Err() != nil {
+			return errClientCancelled
+		}
 		if file.FileInfo().IsDir() {
 			continue
 		}
@@ -322,8 +353,11 @@ func validateWordZip(data []byte) error {
 		if err != nil {
 			return fmt.Errorf("Không đọc được gói Word.")
 		}
-		written, copyErr := io.Copy(io.Discard, io.LimitReader(reader, int64(file.UncompressedSize64)+1))
+		written, copyErr := io.Copy(io.Discard, io.LimitReader(wordArchiveReader{ctx: ctx, reader: reader}, int64(file.UncompressedSize64)+1))
 		closeErr := reader.Close()
+		if errors.Is(copyErr, errClientCancelled) {
+			return errClientCancelled
+		}
 		if copyErr != nil || closeErr != nil || uint64(written) != file.UncompressedSize64 {
 			return fmt.Errorf("Kích thước hoặc dữ liệu gói Word không hợp lệ.")
 		}
