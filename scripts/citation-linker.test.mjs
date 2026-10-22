@@ -11,7 +11,7 @@ const schema = new Schema({ nodes: {
   doc: { content: 'block+' }, paragraph: { content: 'inline*', group: 'block' },
   heading: { content: 'inline*', group: 'block', attrs: { level: { default: 1 } } },
   codeBlock: { content: 'text*', group: 'block', code: true },
-  citation: { inline: true, atom: true, group: 'inline', attrs: { key: {}, mode: { default: 'parenthetical' } } },
+  citation: { inline: true, atom: true, group: 'inline', attrs: { key: {}, mode: { default: 'parenthetical' }, sourceText: { default: '' }, sourceParts: { default: null } } },
   inlineMath: { inline: true, atom: true, group: 'inline' }, text: { group: 'inline' },
   hardBreak: { inline: true, group: 'inline' },
 }, marks: { bold: {}, italic: {}, code: {}, link: { attrs: { href: {} } } } })
@@ -108,10 +108,22 @@ test('each source keeps its page locator in a grouped cite, including several ye
   const scan = scanUnlinkedCitations(doc, entries)
   assert.equal(scan.rows.length, 1)
   assert.equal(scan.rows[0].resolved, true)
-  const state = EditorState.create({ schema, doc })
-  const linked = state.apply(linkCitationTransaction(state, scan, { [scan.rows[0].id]: scan.rows[0].keys }, entries).transaction)
-  assert.equal(linked.doc.textContent, 'Theo  (pp. 2–4);  (p. 9), kết quả tốt.')
-  assert.deepEqual(linked.doc.firstChild.content.content.filter(node => node.type.name === 'citation').map(node => node.attrs.key), ['smith2021', 'lee2022'])
+  let state = EditorState.create({ schema, doc, plugins: [history()] })
+  state = state.apply(linkCitationTransaction(state, scan, { [scan.rows[0].id]: scan.rows[0].keys }, entries).transaction)
+  const linked = state.doc.firstChild.content.content.filter(node => node.type.name === 'citation')
+  assert.equal(linked.length, 1)
+  assert.equal(linked[0].attrs.key, 'smith2021,lee2022')
+  assert.equal(linked[0].attrs.sourceText, '(Smith, 2021, pp. 2–4; Lee, 2022, p. 9)')
+  assert.deepEqual(linked[0].attrs.sourceParts, [
+    { key: 'smith2021', separatorBefore: '', suffixText: ' (pp. 2–4)' },
+    { key: 'lee2022', separatorBefore: '; ', suffixText: ' (p. 9)' },
+  ])
+  assert.equal(state.doc.textContent, 'Theo , kết quả tốt.')
+  assert.equal(undo(state, tr => { state = state.apply(tr) }), true)
+  assert.ok(state.doc.eq(doc))
+  assert.equal(redo(state, tr => { state = state.apply(tr) }), true)
+  assert.equal(state.doc.firstChild.content.content.find(node => node.type.name === 'citation')?.attrs.sourceText, linked[0].attrs.sourceText)
+  assert.deepEqual(state.doc.firstChild.content.content.find(node => node.type.name === 'citation')?.attrs.sourceParts, linked[0].attrs.sourceParts)
 })
 
 test('mapped numeric narratives preserve author semantics when switching citation style', () => {
@@ -329,7 +341,10 @@ test('surfaces careful REF suggestions for year mismatches and compound surnames
   const linkedKeys = []
   linked.doc.descendants(node => { if (node.type.name === 'citation') linkedKeys.push(node.attrs.key) })
   assert.deepEqual(linkedKeys, ['kant2024', 'smith2020,smith2021'])
-  assert.ok(linked.doc.textContent.endsWith('(p. 6) '))
+  const narrative = linked.doc.firstChild.content.content.find(node => node.type.name === 'citation' && node.attrs.key === 'kant2024')
+  assert.equal(narrative.attrs.mode, 'narrative')
+  assert.equal(narrative.attrs.sourceText, 'Kant et al. (2025, p. 6)')
+  assert.deepEqual(narrative.attrs.sourceParts, [{ key: 'kant2024', separatorBefore: '', suffixText: ' (p. 6)' }])
 })
 
 test('preserves a page locator after linking a parenthetical author-year citation', () => {
@@ -340,7 +355,9 @@ test('preserves a page locator after linking a parenthetical author-year citatio
   const state = EditorState.create({ schema, doc })
   const linked = state.apply(linkCitationTransaction(state, scan, { [scan.rows[0].id]: ['smith2021'] }, entries).transaction)
   assert.equal(linked.doc.child(0).firstChild.attrs.key, 'smith2021')
-  assert.ok(linked.doc.child(0).child(1).text.startsWith(' (pp. 14–16) remains relevant.'))
+  assert.equal(linked.doc.child(0).firstChild.attrs.sourceText, '(Smith, 2021, pp. 14–16)')
+  assert.deepEqual(linked.doc.child(0).firstChild.attrs.sourceParts, [{ key: 'smith2021', separatorBefore: '', suffixText: ' (pp. 14–16)' }])
+  assert.equal(linked.doc.child(0).child(1).text, ' remains relevant.')
 })
 
 test('recognizes protected corporate authors and particle surnames as complete citation identities', () => {

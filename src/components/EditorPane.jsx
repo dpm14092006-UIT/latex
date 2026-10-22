@@ -6,7 +6,7 @@ import { AlignCenter, AlignJustify, AlignLeft, AlignRight, Baseline, Bold, BookO
 import { FONT_SIZES, HIGHLIGHT_COLORS, MATH_SYMBOLS, TEXT_COLORS, TEXT_SYMBOLS } from '../services/RichTextFormats.js'
 import { useTrackpadZoom } from '../hooks/useTrackpadZoom.js'
 import ZoomControls, { ZOOM_LEVELS } from './ZoomControls.jsx'
-import { formatShortcut } from '../services/KeyboardShortcuts.js'
+import { formatShortcut, matchesShortcut, shortcutKeys } from '../services/KeyboardShortcuts.js'
 
 // Marks the format painter copies; links and code are content, not formatting.
 const PAINTABLE_MARKS = new Set(['bold', 'italic', 'underline', 'strike', 'superscript', 'subscript', 'textStyle', 'highlight'])
@@ -184,7 +184,6 @@ function layoutPages(view, paper, zoom) {
 }
 
 const ribbonTabs = [
-  { id: 'quick', label: 'Cơ bản' },
   { id: 'home', label: 'Trang chủ' },
   { id: 'insert', label: 'Chèn' },
   { id: 'references', label: 'Tham chiếu' },
@@ -192,12 +191,12 @@ const ribbonTabs = [
   { id: 'view', label: 'Xem' },
 ]
 
-function ToolButton({ title, active, onClick, children, prominent = false, ariaExpanded }) {
+function ToolButton({ title, active, onClick, children, prominent = false, ariaExpanded, shortcutId }) {
   return (
     <button
       type="button"
       className={'studio-ribbon-tool' + (active ? ' is-active' : '') + (prominent ? ' is-prominent' : '')}
-      title={formatShortcut(title)}
+      title={formatShortcut(shortcutId ? `${title} (${shortcutKeys(shortcutId).join(' / ')})` : title)}
       aria-label={formatShortcut(title)}
       aria-pressed={active === undefined ? undefined : active}
       aria-expanded={ariaExpanded}
@@ -237,9 +236,11 @@ export default function EditorPane({
   const stageRef = useRef(null)
   const paperRef = useRef(null)
   const findInputRef = useRef(null)
+  const replacementInputRef = useRef(null)
+  const linkInputRef = useRef(null)
   const paginationRefreshRef = useRef(null)
   const [ribbonOpen, setRibbonOpen] = useState(true)
-  const [activeRibbonTab, setActiveRibbonTab] = useState('quick')
+  const [activeRibbonTab, setActiveRibbonTab] = useState('home')
   const [outlineOpen, setOutlineOpen] = useState(false)
   const [navigation, setNavigation] = useState('scroll')
   const [pageCount, setPageCount] = useState(1)
@@ -248,8 +249,10 @@ export default function EditorPane({
   useEffect(() => { onPageCountChange?.(pageCount) }, [onPageCountChange, pageCount])
   const focusToolbarWasOpenRef = useRef(null)
   const [showFind, setShowFind] = useState(false), [findText, setFindText] = useState(''), [replacement, setReplacement] = useState(''), [findMessage, setFindMessage] = useState('')
-  useEffect(() => { if (showFind) findInputRef.current?.focus() }, [showFind])
+  const [findReplaceMode, setFindReplaceMode] = useState(false)
+  useLayoutEffect(() => { if (showFind) (findReplaceMode ? replacementInputRef : findInputRef).current?.focus() }, [showFind, findReplaceMode])
   const [showLink, setShowLink] = useState(false), [linkUrl, setLinkUrl] = useState('')
+  useLayoutEffect(() => { if (showLink) linkInputRef.current?.focus() }, [showLink])
   const [openMenu, setOpenMenu] = useState(null)
   const [tableSize, setTableSize] = useState([0, 0])
   const [painterMarks, setPainterMarks] = useState(null)
@@ -307,6 +310,11 @@ export default function EditorPane({
     setOpenMenu(value => value === name ? null : name)
   }
   const clearFormatting = () => chain()?.unsetAllMarks().unsetTextAlign().run()
+  const openFind = (replace = false) => {
+    setFindReplaceMode(replace)
+    setShowFind(true)
+    if (showFind) (replace ? replacementInputRef : findInputRef).current?.focus()
+  }
   // First click copies the selection's formatting; the next click applies it.
   const formatPainter = () => {
     if (!editor) return
@@ -485,13 +493,17 @@ export default function EditorPane({
 
   return (
     <section className={`flex h-full min-h-0 w-full flex-col overflow-hidden ${focusMode ? 'studio-editor-focus' : ''}`} aria-label="Soạn thảo tài liệu" onKeyDown={event => {
+      // Inputs, captions, IME composition and dialogs own their keyboard events.
+      if (event.defaultPrevented || event.nativeEvent.isComposing || event.keyCode === 229 || event.target.closest?.('input, textarea, select, math-field') || !event.target.closest?.('.tiptap') || document.querySelector('.modal-backdrop [role="dialog"], dialog[open]')) return
+      if (!readOnly && matchesShortcut(event, 'formula')) { event.preventDefault(); onOpenFormula(); return }
+      if (!readOnly && matchesShortcut(event, 'clear-format')) { event.preventDefault(); clearFormatting(); return }
+      if (!readOnly && matchesShortcut(event, 'find')) { event.preventDefault(); openFind(); return }
+      if (!readOnly && matchesShortcut(event, 'replace')) { event.preventDefault(); openFind(true); return }
       if (!(event.ctrlKey || event.metaKey) || event.altKey) return
       const key = event.key.toLowerCase()
       const zoomShortcuts = { '=': () => changeZoom(1), '+': () => changeZoom(1), '-': () => changeZoom(-1), 0: () => setZoom(1) }
       // Zoom stays available in read-only summary mode, like the zoom buttons.
       const shortcuts = readOnly ? zoomShortcuts : {
-        f: () => setShowFind(true),
-        h: () => setShowFind(true),
         k: () => { setLinkUrl(editor?.getAttributes('link').href || ''); setShowLink(true) },
         ...zoomShortcuts,
       }
@@ -520,30 +532,14 @@ export default function EditorPane({
         </div>
 
         <div id="editor-format-toolbar" onScroll={() => setOpenMenu(null)} className="studio-ribbon-panel" role="toolbar" aria-label="Công cụ soạn thảo" hidden={!ribbonOpen}>
-          {activeRibbonTab === 'quick' && <>
-            <ToolButton title="Hoàn tác (Ctrl+Z)" onClick={() => editor?.chain().focus().undo().run()}><Undo2 size={16} /></ToolButton>
-            <ToolButton title="Làm lại (Ctrl+Shift+Z)" onClick={() => editor?.chain().focus().redo().run()}><Redo2 size={16} /></ToolButton>
-            <ToolDivider />
-            <select className="studio-ribbon-select" value={paragraphStyle} onChange={event => applyParagraphStyle(event.target.value)} aria-label="Kiểu đoạn văn">
-              <option value="paragraph">Đoạn văn</option><option value="heading-1">Tiêu đề 1</option><option value="heading-2">Tiêu đề 2</option><option value="heading-3">Tiêu đề 3</option>
-            </select>
-            <ToolDivider />
-            <ToolButton title="In đậm (Ctrl+B)" active={format.bold} onClick={() => onFormat('toggleBold')}><Bold size={16} /></ToolButton>
-            <ToolButton title="In nghiêng (Ctrl+I)" active={format.italic} onClick={() => onFormat('toggleItalic')}><Italic size={16} /></ToolButton>
-            <ToolButton title="Gạch chân (Ctrl+U)" active={format.underline} onClick={() => onFormat('toggleUnderline')}><Underline size={16} /></ToolButton>
-            <ToolDivider />
-            <ToolButton title="Danh sách" active={format.bulletList} onClick={() => onFormat('toggleBulletList')}><List size={16} /></ToolButton>
-            <ToolButton title="Trích dẫn" active={format.blockquote} onClick={() => onFormat('toggleBlockquote')}><Quote size={16} /></ToolButton>
-            <ToolButton title="Chèn trích dẫn (Ctrl+Shift+C)" onClick={() => onOpenReferences?.('cite')}><TextQuote size={16} /></ToolButton>
-            <ToolButton title="Liên kết (Ctrl+Shift+K)" onClick={() => { setLinkUrl(editor?.getAttributes('link').href || ''); setShowLink(value => !value) }}><Link size={16} /></ToolButton>
-            <ToolDivider />
-            <ToolButton title="Chèn công thức toán học" onClick={onOpenFormula}><Sigma size={17} /><span>Công thức</span></ToolButton>
-          </>}
           {activeRibbonTab === 'home' && <>
-            <RibbonGroup label="Lịch sử">
+            <RibbonGroup label="Thao tác thường dùng">
               <ToolButton title="Hoàn tác (Ctrl+Z)" onClick={() => editor?.chain().focus().undo().run()}><Undo2 size={16} /></ToolButton>
               <ToolButton title="Làm lại (Ctrl+Shift+Z)" onClick={() => editor?.chain().focus().redo().run()}><Redo2 size={16} /></ToolButton>
-              <ToolButton title="Tìm và thay thế" active={showFind} onClick={() => setShowFind(value => !value)}><Search size={16} /></ToolButton>
+              <ToolButton title="Tìm và thay thế" shortcutId="find" active={showFind} onClick={() => showFind ? setShowFind(false) : openFind()}><Search size={16} /></ToolButton>
+              <ToolButton title="Chèn trích dẫn (Ctrl+Shift+C)" onClick={() => onOpenReferences?.('cite')}><TextQuote size={16} /></ToolButton>
+              <ToolButton title="Liên kết (Ctrl+Shift+K)" onClick={() => { setLinkUrl(editor?.getAttributes('link').href || ''); setShowLink(value => !value) }}><Link size={16} /></ToolButton>
+              <ToolButton title="Chèn công thức toán học" shortcutId="formula" onClick={onOpenFormula}><Sigma size={17} /><span>Công thức</span></ToolButton>
             </RibbonGroup>
             <ToolDivider />
             <RibbonGroup label="Kiểu đoạn">
@@ -582,13 +578,13 @@ export default function EditorPane({
                   <button type="button" className="studio-menu-item" onClick={() => { chain()?.unsetHighlight().run(); setOpenMenu(null) }}>Không tô sáng</button>
                 </div>}
               </div>
-              <ToolButton title="Xóa định dạng" onClick={clearFormatting}><RemoveFormatting size={16} /></ToolButton>
+              <ToolButton title="Xóa định dạng" shortcutId="clear-format" onClick={clearFormatting}><RemoveFormatting size={16} /></ToolButton>
               <ToolButton title={painterMarks ? 'Chọn văn bản rồi bấm lại để áp dụng định dạng' : 'Sao chép định dạng'} active={Boolean(painterMarks)} onClick={formatPainter}><Paintbrush size={16} /></ToolButton>
             </RibbonGroup>
             <ToolDivider />
             <RibbonGroup label="Đoạn văn">
-              <ToolButton title="Danh sách" active={format.bulletList} onClick={() => onFormat('toggleBulletList')}><List size={17} /></ToolButton>
-              <ToolButton title="Danh sách đánh số" active={format.orderedList} onClick={() => onFormat('toggleOrderedList')}><ListOrdered size={16} /></ToolButton>
+              <ToolButton title="Danh sách" shortcutId="bullet-list" active={format.bulletList} onClick={() => onFormat('toggleBulletList')}><List size={17} /></ToolButton>
+              <ToolButton title="Danh sách đánh số" shortcutId="ordered-list" active={format.orderedList} onClick={() => onFormat('toggleOrderedList')}><ListOrdered size={16} /></ToolButton>
               <ToolButton title="Giảm mức thụt lề (Shift+Tab)" onClick={() => chain()?.liftListItem('listItem').run()}><IndentDecrease size={16} /></ToolButton>
               <ToolButton title="Tăng mức thụt lề (Tab)" onClick={() => chain()?.sinkListItem('listItem').run()}><IndentIncrease size={16} /></ToolButton>
               <ToolButton title="Trích dẫn" active={format.blockquote} onClick={() => onFormat('toggleBlockquote')}><Quote size={16} /></ToolButton>
@@ -657,7 +653,7 @@ export default function EditorPane({
             </RibbonGroup>
             <ToolDivider />
             <RibbonGroup label="Công thức">
-              <ToolButton title="Chèn công thức toán học" prominent onClick={onOpenFormula}><Sigma size={17} /><span>Chèn công thức</span><Plus size={12} /></ToolButton>
+              <ToolButton title="Chèn công thức toán học" shortcutId="formula" prominent onClick={onOpenFormula}><Sigma size={17} /><span>Chèn công thức</span><Plus size={12} /></ToolButton>
               <ToolButton title="Quét công thức trong bản thảo và xem gợi ý LaTeX" onClick={onOpenMathScan}><Search size={16} /><span>Quét công thức</span></ToolButton>
               <ToolButton title="Thư viện công thức" onClick={onOpenFormulaLibrary}><BookOpen size={16} /><span>Thư viện</span></ToolButton>
             </RibbonGroup>
@@ -674,14 +670,14 @@ export default function EditorPane({
             </RibbonGroup>
             <ToolDivider />
             <RibbonGroup label="Tài liệu học thuật">
-              <ToolButton title="Nhãn, tham chiếu chéo và chú thích" onClick={onOpenManager}><BookOpen size={17} /><span>Nhãn & chú thích</span></ToolButton>
+              <ToolButton title="Nhãn, tham chiếu chéo và chú thích" onClick={() => onOpenManager('academic')}><BookOpen size={17} /><span>Nhãn & chú thích</span></ToolButton>
               <ToolButton title="Mở mục lục tài liệu" active={outlineOpen} onClick={() => setOutlineOpen(value => !value)} aria-expanded={outlineOpen}><ListTree size={17} /><span>Mục lục</span></ToolButton>
             </RibbonGroup>
           </>}
 
           {activeRibbonTab === 'layout' && <>
             <RibbonGroup label="Thiết lập trang">
-              <ToolButton title="Thiết lập tài liệu, trang và tác giả" onClick={onOpenManager}><FileText size={17} /><span>Thiết lập tài liệu</span></ToolButton>
+              <ToolButton title="Thiết lập tài liệu, trang và tác giả" onClick={() => onOpenManager('settings')}><FileText size={17} /><span>Thiết lập tài liệu</span></ToolButton>
               <ToolButton title="Chọn mẫu tài liệu" onClick={onOpenDocumentTemplates}><BookOpen size={16} /><span>Mẫu trang</span></ToolButton>
             </RibbonGroup>
           </>}
@@ -709,8 +705,8 @@ export default function EditorPane({
         </div>}
       </div>
 
-      {!readOnly && showFind && <div className="studio-inline-tools" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setShowFind(false); editor?.commands.focus() } }}><input ref={findInputRef} aria-label="Tìm trong bản thảo" placeholder="Tìm nội dung…" value={findText} onChange={event => setFindText(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') search() }} /><input aria-label="Thay bằng" placeholder="Thay bằng…" value={replacement} onChange={event => setReplacement(event.target.value)} /><button type="button" onClick={() => search()}>Tìm tiếp</button><button type="button" onClick={() => { const selected = editor?.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to) || ''; if (findText && selected.toLocaleLowerCase() === findText.toLocaleLowerCase()) editor.chain().focus().insertContent(replacement).run(); search() }}>Thay</button><button type="button" onClick={() => search(true)}>Thay tất cả</button><span role="status">{findMessage}</span><button type="button" className="noir-inline-close" aria-label="Đóng tìm kiếm" title="Đóng tìm kiếm · Esc" onClick={() => { setShowFind(false); editor?.commands.focus() }}><X size={14} /></button></div>}
-      {!readOnly && showLink && <div className="studio-inline-tools" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setShowLink(false); editor?.commands.focus() } }}><input aria-label="Địa chỉ liên kết" placeholder="https://…" value={linkUrl} onChange={event => setLinkUrl(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.nativeEvent.isComposing && /^(https?:\/\/|mailto:)/i.test(linkUrl)) { event.preventDefault(); editor?.chain().focus().extendMarkRange('link').setLink({ href: linkUrl }).run(); setShowLink(false) } }} /><button type="button" disabled={!/^(https?:\/\/|mailto:)/i.test(linkUrl)} onClick={() => { editor?.chain().focus().extendMarkRange('link').setLink({ href: linkUrl }).run(); setShowLink(false) }}>Áp dụng</button><button type="button" onClick={() => { editor?.chain().focus().unsetLink().run(); setShowLink(false) }}>Gỡ liên kết</button><button type="button" className="noir-inline-close" aria-label="Đóng công cụ liên kết" title="Đóng công cụ liên kết · Esc" onClick={() => { setShowLink(false); editor?.commands.focus() }}><X size={14} /></button></div>}
+      {!readOnly && showFind && <div className="studio-inline-tools" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setShowFind(false); editor?.view.focus() } }}><input ref={findInputRef} aria-label="Tìm trong bản thảo" placeholder="Tìm nội dung…" value={findText} onChange={event => setFindText(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') search() }} /><input ref={replacementInputRef} aria-label="Thay bằng" placeholder="Thay bằng…" value={replacement} onChange={event => setReplacement(event.target.value)} /><button type="button" onClick={() => search()}>Tìm tiếp</button><button type="button" onClick={() => { const selected = editor?.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to) || ''; if (findText && selected.toLocaleLowerCase() === findText.toLocaleLowerCase()) editor.chain().focus().insertContent(replacement).run(); search() }}>Thay</button><button type="button" onClick={() => search(true)}>Thay tất cả</button><span role="status">{findMessage}</span><button type="button" className="noir-inline-close" aria-label="Đóng tìm kiếm" title="Đóng tìm kiếm · Esc" onClick={() => { setShowFind(false); editor?.view.focus() }}><X size={14} /></button></div>}
+      {!readOnly && showLink && <div className="studio-inline-tools" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setShowLink(false); editor?.view.focus() } }}><input ref={linkInputRef} aria-label="Địa chỉ liên kết" placeholder="https://…" value={linkUrl} onChange={event => setLinkUrl(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.nativeEvent.isComposing && /^(https?:\/\/|mailto:)/i.test(linkUrl)) { event.preventDefault(); editor?.chain().focus().extendMarkRange('link').setLink({ href: linkUrl }).run(); setShowLink(false) } }} /><button type="button" disabled={!/^(https?:\/\/|mailto:)/i.test(linkUrl)} onClick={() => { editor?.chain().focus().extendMarkRange('link').setLink({ href: linkUrl }).run(); setShowLink(false) }}>Áp dụng</button><button type="button" onClick={() => { editor?.chain().focus().unsetLink().run(); setShowLink(false) }}>Gỡ liên kết</button><button type="button" className="noir-inline-close" aria-label="Đóng công cụ liên kết" title="Đóng công cụ liên kết · Esc" onClick={() => { setShowLink(false); editor?.view.focus() }}><X size={14} /></button></div>}
       {!readOnly && format.inTable && <div className="studio-inline-tools" role="toolbar" aria-label="Công cụ bảng">
         <button type="button" onClick={onOpenTableLibrary} title="Chọn kiểu bảng, căn cột, cỡ chữ, giãn dòng và xem mã LaTeX"><Table2 size={14} /> Kiểu bảng</button>
         {[['left', 'Căn trái ô', AlignLeft], ['center', 'Căn giữa ô', AlignCenter], ['right', 'Căn phải ô', AlignRight]].map(([value, label, Icon]) => <button type="button" key={value} title={label} aria-label={label} onClick={() => editor.chain().focus().setCellAttribute('align', value).run()}><Icon size={14} /></button>)}

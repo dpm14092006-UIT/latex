@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { FileCode2, FileText, Sigma, ChevronLeft, ChevronRight, LoaderCircle, Settings2 } from 'lucide-react'
+import { Sigma, ChevronLeft, ChevronRight, LoaderCircle, Settings2 } from 'lucide-react'
 import ZoomControls from './ZoomControls.jsx'
 import { useTrackpadZoom } from '../hooks/useTrackpadZoom.js'
 
@@ -266,10 +266,6 @@ export default function PdfPreviewPane({
   onPdfModeChange,
   compileBlocked,
   onUpdate,
-  latexOpen,
-  onToggleLatex,
-  sourceEdited,
-  effectiveLatex,
   compileError,
   onRetry,
   pdfUrl,
@@ -309,20 +305,10 @@ export default function PdfPreviewPane({
             <option value="1">Tự động · 1 trang</option>
             <option value="manual">Thủ công</option>
           </select>
-          <button type="button" className="btn btn--sm btn--icon" onClick={onToggleLatex} aria-pressed={latexOpen} title={latexOpen ? 'Ẩn LaTeX' : 'Xem LaTeX'} aria-label={latexOpen ? 'Ẩn LaTeX' : 'Xem LaTeX'}><FileCode2 size={13} /></button>
           <button type="button" className="btn btn--sm btn--solid" aria-label="Cập nhật PDF" onClick={onUpdate} disabled={compileBlocked}>{compileState === 'compiling' ? 'Xếp bản mới nhất' : 'Cập nhật PDF'}</button>
         </div>
       </div>
       {pdfStale && <p className="studio-alert" role="status">Có thay đổi chưa cập nhật vào PDF. Bên dưới là bản PDF gần nhất.</p>}
-      {latexOpen && (
-        <div className="studio-drawer">
-          <div className="flex items-center justify-between gap-2">
-            <span className="label">{sourceEdited ? 'Source đang dùng' : 'Source tự tạo'}</span>
-            <button type="button" className="btn btn--sm" onClick={() => navigator.clipboard?.writeText(effectiveLatex)}><FileText size={12} />Sao chép</button>
-          </div>
-          <pre>{effectiveLatex}</pre>
-        </div>
-      )}
       {compileLog && <details className="studio-compile-log"><summary>Nhật ký biên dịch</summary><pre>{compileLog}</pre></details>}
 
       {compileError && <div className="studio-alert max-h-28 overflow-auto" role="alert"><code>{compileError}</code>{!compileBlocked && <button type="button" onClick={onRetry} className="btn btn--sm ml-auto">Thử lại</button>}</div>}

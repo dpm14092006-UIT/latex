@@ -154,8 +154,6 @@ textarea.field { font-family: var(--font-mono); font-size: 12px; line-height: 1.
 .studio-pdf-controls { flex-wrap: wrap; }
 .studio-pdf-view-controls { flex-wrap: wrap; justify-content: flex-end; }
 .studio-pdf-zoom-controls .studio-zoom-select { width: 126px; }
-.studio-drawer { max-height: 176px; flex: 0 0 auto; overflow: auto; padding: 8px 12px; border-bottom: var(--rule); }
-.studio-drawer pre { margin: 8px 0 0; white-space: pre-wrap; font: 400 11px/1.6 var(--font-mono); }
 .studio-empty { display: flex; height: 100%; min-height: 100%; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 28px; text-align: center; }
 .studio-empty-mark { display: grid; width: 44px; height: 44px; place-items: center; border: var(--rule); border-radius: 3px; }
 .studio-empty strong { font-size: 14px; font-weight: 600; }

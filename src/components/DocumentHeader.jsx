@@ -1,4 +1,4 @@
-import { AlignLeft, Check, FileCode2, FileDown, LayoutPanelLeft, Menu, Moon, PanelTopClose, PanelRight, Settings2, Sun } from 'lucide-react'
+import { AlignLeft, Check, FileCode2, FileDown, Keyboard, LayoutPanelLeft, Menu, Moon, PanelTopClose, PanelRight, Settings2, Sun } from 'lucide-react'
 import { UpdateButton } from './UpdatePanel.jsx'
 
 const views = [
@@ -8,7 +8,7 @@ const views = [
   { id: 'preview', label: 'Bản in', Icon: PanelRight },
 ]
 
-export default function DocumentHeader({ readOnly = false, title, projectName, onTitleChange, saved, theme, onToggleTheme, exporting, canExport, onExport, mode, onModeChange, onToggleFocus, onToggleNav, navOpen, onOpenManager, isCompact, updates }) {
+export default function DocumentHeader({ readOnly = false, title, projectName, onTitleChange, saved, theme, onToggleTheme, exporting, canExport, onExport, mode, onModeChange, onToggleFocus, onToggleNav, navOpen, onOpenManager, onOpenShortcuts, isCompact, updates }) {
   return <>
     <header className="studio-header mono-topbar">
       <div className="mono-top-left">
@@ -22,6 +22,7 @@ export default function DocumentHeader({ readOnly = false, title, projectName, o
         </div>
       </div>
       <div className="studio-header-actions">
+        <button type="button" className="btn btn--icon btn--ghost" onClick={onOpenShortcuts} title="Phím tắt (F1)" aria-label="Phím tắt" aria-keyshortcuts="F1"><Keyboard size={16} /></button>
         <button type="button" className="btn btn--icon btn--ghost" onClick={onToggleTheme} title={theme === 'dark' ? 'Nền trắng' : 'Nền đen'} aria-label={theme === 'dark' ? 'Nền trắng' : 'Nền đen'}>{theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}</button>
         <button type="button" className="btn btn--icon btn--ghost" onClick={onToggleFocus} title="Chế độ tập trung" aria-label="Chế độ tập trung"><PanelTopClose size={16} /></button>
         <span className="mono-top-divider" />

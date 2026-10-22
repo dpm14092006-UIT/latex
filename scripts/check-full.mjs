@@ -32,6 +32,8 @@ const suites = [
   { name: 'test:review-fixes' },
   { name: 'formula-recognition-ui', args: ['scripts/formula-recognition-ui.mjs'] },
   { name: 'test:math-keyboard' },
+  { name: 'test:shortcuts' },
+  { name: 'test:shortcuts:desktop' },
   { name: 'test:desktop' },
   { name: 'test:sync:desktop' },
   { name: 'test:sync:internet:desktop' },

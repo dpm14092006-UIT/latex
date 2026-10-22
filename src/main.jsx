@@ -1,5 +1,5 @@
 import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { formatShortcut } from './services/KeyboardShortcuts.js'
+import { formatShortcut, matchesShortcut } from './services/KeyboardShortcuts.js'
 import { createRoot } from 'react-dom/client'
 import { useEditor } from '@tiptap/react'
 import { Extension } from '@tiptap/core'
@@ -60,6 +60,7 @@ import WorkflowBar from './components/WorkflowBar.jsx'
 import ProjectTabs from './components/ProjectTabs.jsx'
 import { compileProject } from './services/ProjectCompilation.js'
 import CommandPalette from './components/CommandPalette.jsx'
+import KeyboardShortcutsDialog from './components/KeyboardShortcutsDialog.jsx'
 import EditorPane from './components/EditorPane.jsx'
 import PdfPreviewPane from './components/PdfPreviewPane.jsx'
 import LatexSourcePane from './components/LatexSourcePane.jsx'
@@ -81,6 +82,7 @@ import './aurora.css'
 import './table-library.css'
 import './spellcheck.css'
 import './ai.css'
+import './keyboard-shortcuts.css'
 
 // LaTeX và bộ kiểm tra workspace chỉ có ba cấp tiêu đề; h4–h6 dán từ web/Word hạ về cấp 3.
 const ThreeLevelHeading = Heading.extend({
@@ -339,6 +341,7 @@ function App({ initialWorkspace }) {
   const closeNavigation = useCallback(() => setMobileNavOpen(false), [])
   const toggleNavigation = () => isCompact ? setMobileNavOpen(value => !value) : setNavCollapsed(value => !value)
   const [commandOpen, setCommandOpen] = useState(false)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [managerContext, setManagerContext] = useState(null)
   const [pendingHeading, setPendingHeading] = useState(null)
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: 'editor-preview-layout', storage: layoutStorageRef.current })
@@ -368,7 +371,6 @@ function App({ initialWorkspace }) {
   const [formula, setFormula] = useState('X_t^{selected} = S_t^{(n)} ∪ E_t^{(k)}')
   const [katexRenderer, setKatexRenderer] = useState(null)
   const [formulaType, setFormulaType] = useState('inline')
-  const [latexOpen, setLatexOpen] = useState(() => Boolean(restoredWorkspace?.latexOpen))
   const [sourceDraft, setSourceDraft] = useState(() => activeTask.sourceDraft)
   const [sourceEdited, setSourceEdited] = useState(() => activeTask.sourceEdited)
   const [sourceDraftBackup, setSourceDraftBackup] = useState(() => activeTask.sourceDraftBackup)
@@ -773,7 +775,6 @@ function App({ initialWorkspace }) {
     activeDocumentTemplateId,
     mode,
     activeTab,
-    latexOpen,
     settings, assets, sourceTrusted,
   }
   const workspaceRevisionRef = useRef(0)
@@ -834,7 +835,7 @@ function App({ initialWorkspace }) {
     setSaved(false)
     const timer = window.setTimeout(() => { void persistWorkspaceRef.current?.(false) }, 300)
     return () => window.clearTimeout(timer)
-  }, [title, docData, sourceDraft, sourceEdited, sourceDraftBackup, theme, customTemplates, documentTemplates, activeDocumentTemplateId, mode, activeTab, latexOpen, workspace, settings, assets, sourceTrusted])
+  }, [title, docData, sourceDraft, sourceEdited, sourceDraftBackup, theme, customTemplates, documentTemplates, activeDocumentTemplateId, mode, activeTab, workspace, settings, assets, sourceTrusted])
   useEffect(() => {
     const interval = window.setInterval(() => {
       if (workspaceDirtyRef.current) void persistWorkspaceRef.current?.(false)
@@ -862,11 +863,16 @@ function App({ initialWorkspace }) {
   useEffect(() => { const media = window.matchMedia('(max-width: 900px)'); const onChange = event => setIsCompact(event.matches); media.addEventListener('change', onChange); return () => media.removeEventListener('change', onChange) }, [])
   useEffect(() => {
     const keyboard = event => {
-      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'k' || event.altKey || event.shiftKey) return
-      if (document.querySelector('.modal-backdrop [role="dialog"]')) return
+      if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return
+      const dialog = document.querySelector('.modal-backdrop [role="dialog"], dialog[open]')
+      let action
+      if (matchesShortcut(event, 'help') && (!dialog || dialog.classList.contains('studio-shortcuts'))) action = () => setShortcutsOpen(value => !value)
+      else if (matchesShortcut(event, 'commands') && (!dialog || dialog.classList.contains('mono-command') && !dialog.classList.contains('studio-shortcuts'))) action = () => setCommandOpen(value => !value)
+      else if (matchesShortcut(event, 'save') && !dialog) action = () => { void persistWorkspaceRef.current?.(true) }
+      if (!action) return
       event.preventDefault()
       event.stopPropagation()
-      setCommandOpen(value => !value)
+      if (!event.repeat) action()
     }
     window.addEventListener('keydown', keyboard, true)
     return () => window.removeEventListener('keydown', keyboard, true)
@@ -1474,7 +1480,7 @@ function App({ initialWorkspace }) {
     onRequestImage={requestImage}
     onOpenFormula={openFormula}
     onOpenMathScan={() => editor && setMathScanOpen(true)}
-    onOpenManager={() => setManagerOpen(true)}
+    onOpenManager={tab => { setManagerContext({ tab }); setManagerOpen(true) }}
     onOpenReferences={tab => openReferencesDialog(tab || 'cite')}
     onOpenFormulaLibrary={openFormulaLibrary}
     onOpenTableLibrary={() => { if (!summaryModeRef.current) setTableLibraryOpen(true) }}
@@ -1498,10 +1504,6 @@ function App({ initialWorkspace }) {
     onPdfModeChange={setPdfMode}
     compileBlocked={!sourceTrusted || Boolean(compileAssetError)}
     onUpdate={updatePdf}
-    latexOpen={latexOpen}
-    onToggleLatex={() => setLatexOpen(value => !value)}
-    sourceEdited={sourceEdited}
-    effectiveLatex={effectiveLatex}
     compileError={compileError}
     onRetry={updatePdf}
     pdfUrl={pdfUrl}
@@ -1551,6 +1553,8 @@ function App({ initialWorkspace }) {
     { id: 'scan-math', label: 'Quét công thức và gợi ý LaTeX', Icon: Sigma, disabled: summaryMode || !editor, run: () => editor && setMathScanOpen(true) },
     { id: 'manager', label: 'Quản lý tài liệu và sao lưu', Icon: Settings2, run: () => openManager() },
     { id: 'focus', label: focusMode ? 'Thoát chế độ tập trung' : 'Chế độ tập trung', Icon: PanelTopOpen, run: toggleFocusMode },
+    { id: 'shortcuts', label: 'Phím tắt bàn phím (F1)', Icon: BookOpen, run: () => setShortcutsOpen(true) },
+    { id: 'save', label: formatShortcut('Lưu ngay trên máy (Ctrl+S)'), Icon: FileDown, run: () => { void persistWorkspaceRef.current?.(true) } },
   ]
   return (
     <div className={`studio-app mono-root${focusMode ? ' mono-focus' : ''}${!navOpen ? ' mono-nav-collapsed' : ''}`}>
@@ -1569,6 +1573,7 @@ function App({ initialWorkspace }) {
       {!focusMode ? <DocumentHeader
         readOnly={summaryMode}
         onOpenManager={() => openManager()} updates={updates} title={title} projectName={activeProject.name}
+        onOpenShortcuts={() => setShortcutsOpen(true)}
         onTitleChange={event => { if (!summaryMode) setTitle(event.target.value) }} saved={saved} theme={theme}
         onToggleTheme={() => setTheme(value => value === 'dark' ? 'light' : 'dark')}
         exporting={exporting} canExport={(sourceTrusted && !compileAssetError) || (pdfCached && !pdfStale)} onExport={exportPdf}
@@ -1622,6 +1627,7 @@ function App({ initialWorkspace }) {
 
       </div>
       {commandOpen && <CommandPalette commands={commandItems} onClose={() => setCommandOpen(false)} />}
+      {shortcutsOpen && <KeyboardShortcutsDialog onClose={() => setShortcutsOpen(false)} />}
 
       <FormulaDialog
         editing={editingFormulaPosition !== null}
