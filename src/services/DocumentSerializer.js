@@ -5,7 +5,7 @@ import { normalizeDocumentSpacing } from './DocumentSpacing.js'
 import { normalizeTextColor } from './RichTextFormats.js'
 import { sanitizeSettings } from './DocumentSettings.js'
 import { base64ByteLength } from './ProjectAssets.js'
-import { normalizeCellAlign, normalizeTableStyle } from './TableStyles.js'
+import { normalizeCellAlign, normalizeTableStyle, tableHeaderRowCount } from './TableStyles.js'
 import { tableCaptionParts, tableCaptionText } from './TableCaptions.js'
 import { MAX_TABLE_COLUMNS } from './DocumentData.js'
 
@@ -663,11 +663,7 @@ function renderLatexTable(node, context) {
   // A merged cell cannot extend below the last row of the table.
   for (const [rowIndex, row] of rows.entries()) for (const item of row) item.rowspan = Math.min(item.rowspan, rows.length - rowIndex)
 
-  let headerRows = 0
-  for (const row of rows) {
-    if (!row.some(({ cell }) => cell.type === 'tableHeader')) break
-    headerRows += 1
-  }
+  let headerRows = tableHeaderRowCount(node)
 
   const lengths = Array(columns).fill(4)
   const headerLabels = Array(columns).fill('')

@@ -9,7 +9,7 @@ import { toLatex } from '../src/services/DocumentSerializer.js'
 import { createProject, createTask } from '../src/services/WorkspaceData.js'
 import { startGoBackendForTests } from './go-backend-test-client.mjs'
 
-const output = 'artifacts/table-math-fix'
+const output = process.env.TABLE_RENDER_OUTPUT || 'artifacts/table-form-fix'
 await mkdir(output, { recursive: true })
 const formula = String.raw`\hat y_t^{(m,n,k)} = f_{m,t}\left( y_{t-1}, \mathbf{x}_{sat,t}^{(n)}, \mathbf{x}_{econ,t-1}^{(k)} \right) \tag{1}`
 const paragraph = text => ({ type: 'paragraph', content: [{ type: 'text', text }] })
@@ -30,9 +30,9 @@ const doc = { type: 'doc', content: [paragraph('Model forecast'), { type: 'block
 const backend = await startGoBackendForTests()
 let server, browser
 try {
-  for (const style of ['grid', 'academic']) {
+  for (const style of ['default', 'grid', 'academic']) {
     const example = structuredClone(table)
-    if (style === 'academic') example.attrs.tableStyle = style
+    if (style !== 'default') example.attrs.tableStyle = style
     const { latex } = toLatex({ type: 'doc', content: [example] }, '')
     const pdf = await backend.compileLatex(latex, [], { fresh: true })
     await writeFile(`${output}/${style}.pdf`, pdf)
@@ -43,8 +43,10 @@ try {
       const ops = await page.getOperatorList()
       const boxes = ops.fnArray.flatMap((op, index) => op === OPS.constructPath ? [Array.from(ops.argsArray[index][2])] : [])
       const horizontal = boxes.filter(([x1, y1, x2, y2]) => Math.abs(x2 - x1) > 250 && Math.abs(y2 - y1) < 1)
-      assert.ok(horizontal.length >= (style === 'grid' ? 4 : 2), `${style}: actual PDF rules must span the table, not a tiny first-pass stub`)
-      if (style === 'grid') assert.ok(boxes.filter(([x1, y1, x2, y2]) => Math.abs(x2 - x1) < 1 && Math.abs(y2 - y1) > 8).length >= 3, 'PDF must draw vertical grid rules')
+      assert.ok(horizontal.length >= (style === 'grid' ? 4 : 3), `${style}: actual PDF rules must span the table, including the header separator`)
+      const vertical = boxes.filter(([x1, y1, x2, y2]) => Math.abs(x2 - x1) < 1 && Math.abs(y2 - y1) > 8)
+      if (style === 'grid') assert.ok(vertical.length >= 3, 'an explicitly chosen grid retains vertical rules')
+      else assert.equal(vertical.length, 0, 'academic tables have open sides rather than a box around every cell')
       const viewport = page.getViewport({ scale: 1.5 })
       const canvas = createCanvas(viewport.width, viewport.height)
       await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise
@@ -58,7 +60,9 @@ try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } })
   const project = createProject('Table and equation regression', createTask('Rendering regression', doc))
   await page.addInitScript(project => {
-    localStorage.setItem('latex-workspace-v1', JSON.stringify({ version: 1, projects: [project], activeProjectId: project.id, mode: 'write' }))
+    localStorage.setItem('latex-theme-default-migrated', '1')
+    localStorage.setItem('latex-theme', 'light')
+    localStorage.setItem('latex-workspace-v1', JSON.stringify({ version: 1, projects: [project], activeProjectId: project.id, mode: 'write', theme: 'light' }))
     localStorage.setItem('latex-pdf-batch-mode', 'manual')
   }, project)
   await page.goto(`http://127.0.0.1:${server.httpServer.address().port}`)
@@ -70,14 +74,17 @@ try {
   assert.match(await block.locator('.katex-tag').innerText(), /1/)
   assert.equal(await page.locator('.tiptap [data-type="inline-math"] .katex-display').count(), 0)
   const cell = page.locator('.tiptap table td').first()
-  assert.equal(await page.locator('.tiptap table').getAttribute('data-table-style'), 'grid')
-  assert.equal(await cell.evaluate(element => getComputedStyle(element).borderLeftStyle), 'solid')
-  assert.notEqual(await cell.evaluate(element => getComputedStyle(element).borderLeftColor), 'rgba(0, 0, 0, 0)')
+  assert.equal(await page.locator('.tiptap table').getAttribute('data-table-style'), 'academic')
+  assert.equal(await page.locator('.tiptap table').evaluate(element => getComputedStyle(element).borderTopWidth), '2px')
+  assert.equal(await page.locator('.tiptap table').evaluate(element => getComputedStyle(element).borderBottomWidth), '2px')
+  assert.equal(await cell.evaluate(element => getComputedStyle(element).borderLeftColor), 'rgba(0, 0, 0, 0)')
+  assert.notEqual(await cell.evaluate(element => getComputedStyle(element).borderBottomColor), 'rgba(0, 0, 0, 0)', 'bold imported headers have a visible separator in the draft')
   await page.screenshot({ path: `${output}/editor.png`, fullPage: true })
+  await page.locator('.styled-table').screenshot({ path: `${output}/table-preview.png` })
   await block.click()
   await page.locator('math-field').waitFor()
   assert.equal(await page.locator('math-field').evaluate(element => element.value), formula)
-  console.log('PASS editor: tagged display equation, inline equation, original editing source and visible default grid')
+  console.log('PASS editor: tagged equation, editable source and academic rules with inferred Word header')
 } finally {
   await browser?.close()
   await server?.close()

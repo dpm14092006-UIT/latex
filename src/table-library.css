@@ -3,7 +3,7 @@
 .ProseMirror table[data-table-style] { --table-rule: var(--fg); --table-guide: color-mix(in srgb, var(--line) 55%, transparent); }
 .ProseMirror table[data-table-style] :is(th, td) { border: 1px solid transparent; transition: border-color .12s ease; }
 .ProseMirror .tableWrapper:hover table[data-table-style]:not([data-table-style='grid']) :is(th, td) { border-color: var(--table-guide); }
-.ProseMirror table[data-table-style]:is([data-table-style='academic'], [data-table-style='striped'], [data-table-style='shaded']) { border-top: 1.5px solid var(--table-rule); border-bottom: 1.5px solid var(--table-rule); }
+.ProseMirror table[data-table-style]:is([data-table-style='academic'], [data-table-style='striped'], [data-table-style='shaded']) { border-top: 2px solid var(--table-rule); border-bottom: 2px solid var(--table-rule); }
 .ProseMirror table[data-table-style]:is([data-table-style='academic'], [data-table-style='striped'], [data-table-style='shaded'], [data-table-style='minimal']) tr:has(> th):not(:has(+ tr > th)) > th { border-bottom: 1px solid var(--table-rule); }
 .ProseMirror .tableWrapper:hover table[data-table-style]:is([data-table-style='academic'], [data-table-style='striped'], [data-table-style='shaded'], [data-table-style='minimal']) tr:has(> th):not(:has(+ tr > th)) > th { border-bottom-color: var(--table-rule); }
 .ProseMirror table[data-table-style='grid'] :is(th, td) { border: 1px solid var(--table-rule); }

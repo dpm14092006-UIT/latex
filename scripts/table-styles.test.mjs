@@ -3,7 +3,7 @@ import test from 'node:test'
 import { tableLatexPreview, toLatex } from '../src/services/DocumentSerializer.js'
 import { isValidDocument } from '../src/services/DocumentData.js'
 import { importWordAst, toWordAst } from '../src/services/WordDocument.js'
-import { createPresetTable, normalizeTableStyle, TABLE_PRESETS, TABLE_STYLE_DEFAULTS, TABLE_STYLES } from '../src/services/TableStyles.js'
+import { createPresetTable, normalizeTableStyle, tableHeaderRowCount, TABLE_PRESETS, TABLE_STYLE_DEFAULTS, TABLE_STYLES } from '../src/services/TableStyles.js'
 import { normalizeTableCaptions, tableCaptionParts, tableCaptionText } from '../src/services/TableCaptions.js'
 
 const paragraph = text => ({ type: 'paragraph', content: text ? [{ type: 'text', text }] : [] })
@@ -23,20 +23,40 @@ test('table style attributes are whitelisted and fall back to defaults', () => {
   assert.deepEqual(hostile, TABLE_STYLE_DEFAULTS)
   const { latex } = toLatex({ type: 'doc', content: [simple({ tableStyle: '}\\input{x}', fontSize: '\\input{x}' })] }, 'T')
   assert.doesNotMatch(latex, /\\input\{x\}/)
-  assert.match(latex, /\\hline/)
+  assert.match(latex, /\\toprule/)
 })
 
-test('tables without a chosen style have a complete grid', () => {
+test('tables without a chosen style retain the original academic form', () => {
   const latex = tableLatexPreview(simple({ caption: '', label: '' }))
   assert.match(latex, /^\\begingroup\n\\small\n/)
   assert.match(latex, /\\renewcommand\{\\arraystretch\}\{1\.2\}/)
-  assert.match(latex, /\\begin\{longtable\}\{\|l\|r\|\}/)
+  assert.match(latex, /\\begin\{longtable\}\{@\{\}lr@\{\}\}/)
   assert.doesNotMatch(latex, /\\caption|\\tablename|\\thetable/)
   assert.match(latex, /\\textbf\{Tên\}/)
-  assert.match(latex, /\\hline/)
-  assert.doesNotMatch(latex, /\\rowcolor|\\toprule/)
+  assert.match(latex, /\\toprule/)
+  assert.doesNotMatch(latex, /\\rowcolor|\\hline/)
   const legacy = tableLatexPreview(simple({ tableStyle: null, fontSize: null }))
-  assert.match(legacy, /\\begin\{longtable\}\{\|l\|r\|\}/)
+  assert.match(legacy, /\\begin\{longtable\}\{@\{\}lr@\{\}\}/)
+})
+
+test('bold Word header cells receive an academic separator without rewriting their JSON', () => {
+  const imported = table({}, [
+    ['Model', 'Settings'].map(value => ({ type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: value, marks: [{ type: 'bold' }] }] }] })),
+    [cell('tableCell', 'Ridge'), cell('tableCell', 'Internal estimation')],
+  ])
+  const original = structuredClone(imported)
+  assert.equal(tableHeaderRowCount(imported), 1)
+  const latex = tableLatexPreview(imported)
+  assert.match(latex, /\\textbf\{Model\} & \\textbf\{Settings\} \\\\\n\\midrule/)
+  assert.doesNotMatch(latex, /\\hline|\\begin\{longtable\}\{\|/)
+  assert.deepEqual(imported, original)
+  const word = toWordAst({ type: 'doc', content: [imported] }, 'Header')
+  assert.equal(word.blocks[0].c[3][1].length, 1, 'Word repeats the inferred header too')
+  const allBold = { ...imported, content: [imported.content[0], structuredClone(imported.content[0])] }
+  assert.equal(tableHeaderRowCount(allBold), 0)
+  const plainFirst = structuredClone(imported)
+  plainFirst.content[0].content[1].content[0].content[0].marks = []
+  assert.equal(tableHeaderRowCount(plainFirst), 0)
 })
 
 test('each table style emits its own rules', () => {

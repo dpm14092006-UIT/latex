@@ -5,6 +5,7 @@ import { downloadBlob } from './ArchiveService.js'
 import { MAX_DOCUMENT_IMAGES, MAX_LATEX_SOURCE_BYTES, MAX_WORD_DOCUMENT_BYTES } from './DocumentLimits.js'
 import { isValidBase64, matchesImageSignature } from './ProjectAssets.js'
 import { tableCaptionParts, tableCaptionText } from './TableCaptions.js'
+import { tableHeaderRowCount } from './TableStyles.js'
 
 const PANDOC_ALIGNMENTS = { AlignLeft: 'left', AlignCenter: 'center', AlignRight: 'right' }
 
@@ -222,11 +223,7 @@ export function toWordAst(doc, title, settings = {}, templateSource = '') {
       })
       const columnSpecs = columnVotes.map(votes => [{ t: [...votes].sort((a, b) => b[1] - a[1])[0]?.[0] || 'AlignDefault' }, { t: 'ColWidthDefault' }])
       const rows = children.map(row => [attr, (row.content || []).map(cell => [attr, pandocAlign(cell), span(cell, 'rowspan'), span(cell, 'colspan'), (cell.content || []).map(block)])])
-      let headCount = 0
-      for (const row of children) {
-        if (!(row.content || []).some(cell => cell.type === 'tableHeader')) break
-        headCount++
-      }
+      const headCount = tableHeaderRowCount(node)
       const caption = tableCaptionText(node.attrs)
       return { t: 'Table', c: [[node.attrs?.label || '', [], []], [null, caption ? [{ t: 'Plain', c: inline({ type: 'text', text: caption }) }] : []], columnSpecs, [attr, rows.slice(0, headCount)], [[attr, 0, [], rows.slice(headCount)]], [attr, []]] }
     }

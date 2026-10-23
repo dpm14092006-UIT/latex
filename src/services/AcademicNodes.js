@@ -5,7 +5,7 @@ import { closeHistory, redo, undo } from '@tiptap/pm/history'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import { CellSelection } from '@tiptap/pm/tables'
 import { citationKeys, citationLabel, citationNumbers, describeEntry } from './Bibliography.js'
-import { isValidTableStyleAttribute, normalizeTableStyle, TABLE_STYLE_DEFAULTS } from './TableStyles.js'
+import { isValidTableStyleAttribute, normalizeTableStyle, tableHeaderRowCount, TABLE_STYLE_DEFAULTS } from './TableStyles.js'
 import { tableCaptionParts } from './TableCaptions.js'
 export const AcademicAttributes = Extension.create({
   name: 'academicAttributes',
@@ -24,7 +24,7 @@ export const CrossReference = referenceNode('crossReference', 'target', '[↗ ')
 export const Footnote = referenceNode('footnote', 'text', '[Chú thích: ')
 
 // Table style attributes default to null so documents saved before the table
-// library keep their JSON; missing styles use the same visible grid in both views.
+// library keep their JSON; missing styles use the academic layout in both views.
 const tableStyleAttributes = Object.fromEntries(Object.keys(TABLE_STYLE_DEFAULTS).map(name => {
   const attribute = `data-${name.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)}`
   return [name, {
@@ -52,7 +52,7 @@ let styledTableCount = 0
 
 // Columns holding only numbers are right-aligned in the PDF; the draft mirrors
 // that for tables without merged cells, where a column is an nth-child.
-function numericColumnCss(node, id) {
+function tablePresentationCss(node, id) {
   const rows = []
   let merged = false
   node.forEach(row => {
@@ -63,9 +63,9 @@ function numericColumnCss(node, id) {
     })
     rows.push(cells)
   })
-  if (merged) return ''
-  let headerRows = 0
-  while (headerRows < rows.length && rows[headerRows].some(cell => cell.type.name === 'tableHeader')) headerRows += 1
+  const headerRows = tableHeaderRowCount(node)
+  const headerCss = headerRows ? `.ProseMirror .tableWrapper table[data-styled-table="${id}"]:is([data-table-style="academic"], [data-table-style="striped"], [data-table-style="shaded"], [data-table-style="minimal"]) > tbody > tr:nth-child(${headerRows}) > :is(th, td) { border-bottom: 1px solid var(--table-rule); }` : ''
+  if (merged) return headerCss
   const body = rows.slice(headerRows)
   const columns = Math.max(0, ...rows.map(cells => cells.length))
   const selectors = []
@@ -73,7 +73,7 @@ function numericColumnCss(node, id) {
     const values = body.map(cells => cells[column]?.textContent.trim()).filter(Boolean)
     if (values.length && values.every(value => NUMERIC_CELL.test(value))) selectors.push(`table[data-styled-table="${id}"] > tbody > tr > :nth-child(${column + 1})`)
   }
-  return selectors.length ? `${selectors.join(',\n')} { text-align: right; }` : ''
+  return `${headerCss}\n${selectors.length ? `${selectors.join(',\n')} { text-align: right; }` : ''}`
 }
 
 function tableTextField(className, label, placeholder, multiline) {
@@ -197,7 +197,7 @@ export class StyledTableView extends TableView {
       if (this.table.nextSibling !== this.captionRow) this.table.after(this.captionRow)
     } else if (this.table.previousSibling !== this.captionRow) this.table.before(this.captionRow)
     if (this.dom.lastChild !== this.note.field) this.dom.append(this.note.field)
-    const css = numericColumnCss(node, this.id)
+    const css = tablePresentationCss(node, this.id)
     if (this.alignStyle.textContent !== css) this.alignStyle.textContent = css
     this.resizeNote()
   }

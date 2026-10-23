@@ -4,6 +4,12 @@ Mới nhất ở trên. Workspace v1 và giao thức LAN v1 được giữ qua m
 
 ## Chưa phát hành
 
+## 0.6.4 — khôi phục form bảng học thuật
+
+- Trả mặc định về booktabs ba đường kẻ như trước lần đổi lưới; giữ đường kẻ PDF đủ rộng.
+- Nhận diện hàng đầu in đậm từ Word để bản thảo/PDF/Word có đúng hàng tiêu đề.
+- Chi tiết: [UPGRADE-0.6.4](UPGRADE-0.6.4.md).
+
 ## 0.6.3 — sửa đường kẻ bảng và công thức có số
 
 - Biên dịch lại longtable để đường kẻ đủ độ rộng; bảng chưa chọn kiểu mặc định kẻ lưới.

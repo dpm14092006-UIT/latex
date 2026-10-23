@@ -39,7 +39,7 @@ export const TABLE_CAPTION_POSITIONS = [
 export const TABLE_ALIGNMENTS = ['left', 'center', 'right']
 
 export const TABLE_STYLE_DEFAULTS = Object.freeze({
-  tableStyle: 'grid',
+  tableStyle: 'academic',
   fontSize: 'small',
   rowSpacing: '1.2',
   tableWidth: 'auto',
@@ -72,6 +72,38 @@ export function normalizeTableStyle(attrs = {}) {
 
 export function normalizeCellAlign(value) {
   return TABLE_ALIGNMENTS.includes(value) ? value : null
+}
+
+// Word imports may store their bold heading row as ordinary cells. Infer its
+// presentation without rewriting the saved document or treating an all-bold
+// table as one large header. Accept both JSON and ProseMirror nodes.
+export function tableHeaderRowCount(table) {
+  const children = node => {
+    if (Array.isArray(node?.content)) return node.content
+    const result = []
+    node?.forEach?.(child => result.push(child))
+    return result
+  }
+  const type = node => typeof node?.type === 'string' ? node.type : node?.type?.name
+  const rows = children(table)
+  let explicit = 0
+  while (explicit < rows.length && children(rows[explicit]).some(cell => type(cell) === 'tableHeader')) explicit++
+  if (explicit) return explicit
+  const boldCell = cell => {
+    let text = 0, allBold = true
+    const visit = node => {
+      if (type(node) === 'text' && node.text?.trim()) {
+        text++
+        if (!node.marks?.some(mark => type(mark) === 'bold')) allBold = false
+      }
+      for (const child of children(node)) visit(child)
+    }
+    visit(cell)
+    return text > 0 && allBold
+  }
+  let inferred = 0
+  while (inferred < rows.length && children(rows[inferred]).length && children(rows[inferred]).every(boldCell)) inferred++
+  return inferred < rows.length ? inferred : 0
 }
 
 // Các mẫu dựng sẵn trong thư viện: kiểu bảng + kích thước + nội dung gợi ý.
