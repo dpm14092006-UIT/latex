@@ -116,6 +116,9 @@ try {
   if (await tools.count()) await tools.click()
   await page.getByRole('combobox', { name: 'Chế độ cập nhật PDF', exact: true }).selectOption('manual')
   await page.getByRole('button', { name: 'Cập nhật PDF', exact: true }).click()
+  // An older job can finish while the forced latest revision is still queued.
+  // Wait for the current revision, rather than accepting its earlier blob URL.
+  await page.locator('.studio-panel-status[data-tone="ready"]').waitFor({ timeout: 90000 })
   await page.waitForFunction(() => Boolean(window.darkTextPdfUrl), undefined, { timeout: 90000 })
   const bytes = Buffer.from(await page.evaluate(async () => Array.from(new Uint8Array(await (await fetch(window.darkTextPdfUrl)).arrayBuffer()))))
   await writeFile(join(output, 'dark-typing.pdf'), bytes)

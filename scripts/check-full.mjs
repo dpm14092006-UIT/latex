@@ -25,6 +25,7 @@ const suites = [
   { name: 'smoke:serializer' },
   { name: 'test:word:roundtrip' },
   { name: 'test:table-math-rendering' },
+  { name: 'test:table-note-math' },
   { name: 'test:ui' },
   { name: 'test:document-frame' },
   { name: 'image-captions-ui', args: ['scripts/image-captions-ui.mjs'] },

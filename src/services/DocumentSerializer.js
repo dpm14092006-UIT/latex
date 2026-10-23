@@ -7,6 +7,7 @@ import { sanitizeSettings } from './DocumentSettings.js'
 import { base64ByteLength } from './ProjectAssets.js'
 import { normalizeCellAlign, normalizeTableStyle, tableHeaderRowCount } from './TableStyles.js'
 import { tableCaptionParts, tableCaptionText } from './TableCaptions.js'
+import { tableNoteContent } from './TableNoteContent.js'
 import { MAX_TABLE_COLUMNS } from './DocumentData.js'
 
 export const starter = { type: 'doc', content: [{ type: 'paragraph' }] }
@@ -593,9 +594,10 @@ function tableNoteLatex(note) {
   const text = String(note || '').replace(/\s+/gu, ' ').trim()
   if (!text) return ''
   const label = /^([^\s:$\\]{1,15}(?: [^\s:$\\]{1,15}){0,2}):\s*/u.exec(text)
+  const content = value => tableNoteContent(value).map(node => node.type === 'inlineMath' ? `$${node.attrs.latex}$` : latexEscape(node.text)).join('')
   return label
-    ? `\\textit{${latexEscape(label[1])}:} ${latexTextWithMath(text.slice(label[0].length))}`
-    : `\\textit{Note:} ${latexTextWithMath(text)}`
+    ? `\\textit{${latexEscape(label[1])}:} ${content(text.slice(label[0].length))}`
+    : `\\textit{Note:} ${content(text)}`
 }
 const manualTableLabelDefinition = String.raw`\makeatletter
 \providecommand{\vietlatextablelabel}[2]{\phantomsection\def\@currentlabel{#1}\label{#2}}

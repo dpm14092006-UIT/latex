@@ -18,6 +18,8 @@ Hai ô có ngay trên bảng, trong thanh công cụ và thư viện bảng; dù
 
 Caption hình vẫn nhập toàn bộ, ví dụ `Figure 1. Forecast results` hoặc `Figure ???`. `Table` và `Figure` giữ tiếng Anh khi bản nháp có tiếng Việt; nội dung tiêu đề do người dùng gõ không tự dịch. Ghi chú chưa có nhãn dùng `Note:`; nhãn tự nhập như `Source:` được giữ nguyên.
 
+Ghi chú bảng hỗ trợ công thức trong dòng: đặt con trỏ trong ghi chú rồi bấm **ƒx**, **Chèn công thức** hoặc phím tắt **⌘⇧M / Ctrl+Shift+M**. Bấm công thức để sửa bằng cùng hộp soạn trực quan/LaTeX của bản thảo. Có thể gõ/dán `$p=n+k$`, `\(x_1\)` và chỉ số Unicode như `NO₂`. Công thức được giữ khi lưu, xuất PDF và xuất Word dưới dạng công thức Office có thể sửa; giá tiền như `$5 và $10` vẫn là chữ. Giới hạn ghi chú vẫn là 2.000 ký tự, hỗ trợ hoàn tác/làm lại và khóa chỉnh khi xem Tổng hợp.
+
 Tham chiếu LaTeX tới bảng lấy đúng giá trị ở **Table No.**. Để trống số thì tham chiếu dùng `??`, không suy đoán theo vị trí bảng. Số và tiêu đề được giữ khi xuất/nhập Word.
 
 ## Kiểu đường kẻ

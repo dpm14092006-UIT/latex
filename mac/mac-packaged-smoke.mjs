@@ -113,12 +113,23 @@ try {
   await page.locator('.tiptap').evaluate(element => element.editor.commands.setContent({ type: 'doc', content: [
     { type: 'blockMath', attrs: { latex: String.raw`y_t = f(x) \tag{1}` } },
     { type: 'paragraph', content: [{ type: 'inlineMath', attrs: { latex: 'x^2' } }] },
-    { type: 'table', attrs: { tableStyle: null }, content: [{ type: 'tableRow', content: ['Model', 'Settings'].map(text => ({ type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] })) }] },
+    { type: 'table', attrs: { tableStyle: null, note: String.raw`The $\mathrm{NO}_2$ extraction scale.` }, content: [{ type: 'tableRow', content: ['Model', 'Settings'].map(text => ({ type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] })) }] },
   ] }))
   await page.locator('.tiptap [data-type="block-math"] .katex-display .katex-tag').waitFor()
   assert.equal(await page.locator('.tiptap .katex-error').count(), 0)
   assert.equal(await page.locator('.tiptap [data-type="inline-math"] .katex-display').count(), 0)
   assert.equal(await page.locator('.tiptap table').getAttribute('data-table-style'), 'academic')
+  const tableNote = page.getByRole('textbox', { name: 'Ghi chú bảng', exact: true })
+  await tableNote.locator('.katex').waitFor()
+  await tableNote.locator('[data-type="inline-math"]').click()
+  await page.locator('math-field').waitFor()
+  assert.equal(await page.locator('math-field').evaluate(element => element.value), String.raw`\mathrm{NO}_2`)
+  await page.getByRole('dialog').getByRole('button', { name: 'LaTeX', exact: true }).click()
+  await page.getByRole('dialog').locator('textarea:visible').fill(String.raw`\mathrm{NO}_2 + x_1`)
+  await page.getByRole('dialog').getByRole('button', { name: 'Lưu công thức', exact: true }).click()
+  assert.equal(await page.locator('.tiptap').evaluate(element => element.editor.getJSON().content.find(node => node.type === 'table').attrs.note), String.raw`The $\mathrm{NO}_2 + x_1$ extraction scale.`)
+  assert.equal(await tableNote.locator('.katex-error').count(), 0)
+  console.log('Packaged table note: inline equation displays and edits in the normal formula dialog.')
   console.log('Packaged editor: tagged display equation, inline math and academic table form render correctly.')
   const firstBackend = await backendPid()
   process.kill(firstBackend, 'SIGKILL')

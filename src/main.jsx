@@ -68,6 +68,7 @@ import LatexSourcePane from './components/LatexSourcePane.jsx'
 import { DocumentTemplatesDialog, FormulaDialog, FormulaLibraryDialog, WorkspaceDialog } from './components/DocumentDialogs.jsx'
 import MathSuggestionDialog from './components/MathSuggestionDialog.jsx'
 import TableLibrary from './components/TableLibrary.jsx'
+import { activeTableNote } from './services/TableNoteEditor.js'
 import SpellcheckTools from './components/SpellcheckTools.jsx'
 import AiTools from './components/AiAssistant.jsx'
 import { useMathKeyboard } from './hooks/useMathKeyboard.js'
@@ -350,6 +351,7 @@ function App({ initialWorkspace }) {
   const [pendingHeading, setPendingHeading] = useState(null)
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: 'editor-preview-layout', storage: layoutStorageRef.current })
   const [formulaOpen, setFormulaOpen] = useState(false)
+  const [formulaInsertError, setFormulaInsertError] = useState('')
   const [mathScanOpen, setMathScanOpen] = useState(false)
   const [formulaInputMode, setFormulaInputMode] = useState('visual')
   const [mathliveReady, setMathliveReady] = useState(false)
@@ -364,6 +366,7 @@ function App({ initialWorkspace }) {
     window.mathVirtualKeyboard?.hide()
   }
   const formulaPastedUntrustedRef = useRef(false)
+  const noteFormulaTargetRef = useRef(null)
   const pendingInsertionSelectionRef = useRef(null)
   const openReferencesDialogRef = useRef(null)
   const [libraryOpen, setLibraryOpen] = useState(false)
@@ -456,11 +459,11 @@ function App({ initialWorkspace }) {
       BlockMath.configure({
         // Editing starts from the node's LaTeX; a leftover "Gõ thường" mode would show the previous plain text instead.
         katexOptions: { throwOnError: false, displayMode: true },
-        onClick: (node, pos) => { if (summaryModeRef.current) return; pendingInsertionSelectionRef.current = null; formulaPastedUntrustedRef.current = false; setFormula(node.attrs.latex); setFormulaType('block'); setFormulaInputMode(current => current === 'recognize' ? 'visual' : current); setEditingFormulaPosition(pos); setFormulaOpen(true) },
+        onClick: (node, pos) => { if (summaryModeRef.current) return; noteFormulaTargetRef.current = null; pendingInsertionSelectionRef.current = null; formulaPastedUntrustedRef.current = false; setFormula(node.attrs.latex); setFormulaType('block'); setFormulaInputMode(current => current === 'recognize' ? 'visual' : current); setEditingFormulaPosition(pos); setFormulaOpen(true) },
       }),
       InlineMath.configure({
         katexOptions: { throwOnError: false, displayMode: false },
-        onClick: (node, pos) => { if (summaryModeRef.current) return; pendingInsertionSelectionRef.current = null; formulaPastedUntrustedRef.current = false; setFormula(node.attrs.latex); setFormulaType('inline'); setFormulaInputMode(current => current === 'recognize' ? 'visual' : current); setEditingFormulaPosition(pos); setFormulaOpen(true) },
+        onClick: (node, pos) => { if (summaryModeRef.current) return; noteFormulaTargetRef.current = null; pendingInsertionSelectionRef.current = null; formulaPastedUntrustedRef.current = false; setFormula(node.attrs.latex); setFormulaType('inline'); setFormulaInputMode(current => current === 'recognize' ? 'visual' : current); setEditingFormulaPosition(pos); setFormulaOpen(true) },
       }),
       TextAlign.configure({ types: ['heading', 'paragraph'], alignments: ['left', 'center', 'right', 'justify'] }),
       ...richTextExtensions,
@@ -514,6 +517,23 @@ function App({ initialWorkspace }) {
     },
   })
   useEffect(() => { editor?.setEditable(!summaryMode) }, [editor, summaryMode])
+  useEffect(() => {
+    if (!editor) return
+    const openNoteFormula = event => {
+      if (summaryModeRef.current) return
+      noteFormulaTargetRef.current = event.detail
+      pendingInsertionSelectionRef.current = null
+      formulaPastedUntrustedRef.current = false
+      setFormulaInsertError('')
+      setEditingFormulaPosition(null)
+      setFormula(event.detail.latex || '')
+      setFormulaType('inline')
+      setFormulaInputMode('visual')
+      setFormulaOpen(true)
+    }
+    editor.view.dom.addEventListener('table-note-formula', openNoteFormula)
+    return () => editor.view.dom.removeEventListener('table-note-formula', openNoteFormula)
+  }, [editor])
   const editorTaskIdRef = useRef(activeTask.id)
   const rememberEditorSelection = () => {
     const state = editor?.state
@@ -1040,6 +1060,8 @@ function App({ initialWorkspace }) {
   const insertMath = (value, type, untrusted = false, untrustedMeta = UNTRUSTED_LATEX_TEMPLATE_META) => {
     if (!editor || !value.trim()) return
     const latexValue = normalizeFormulaInput(value)
+    const noteTarget = noteFormulaTargetRef.current
+    if (noteTarget) return noteTarget.note.insertFormula(noteTarget, latexValue, untrusted)
     const saved = pendingInsertionSelectionRef.current
     const useSaved = saved?.taskId === activeTask.id && saved.doc === editor.state.doc
     const selection = useSaved ? saved : editor.state.selection
@@ -1061,6 +1083,16 @@ function App({ initialWorkspace }) {
   }
   const insertFormula = () => {
     if (!editor || !formula.trim()) return
+    const noteTarget = noteFormulaTargetRef.current
+    if (noteTarget) {
+      if (!noteTarget.note.insertFormula(noteTarget, normalizeFormulaInput(formula), formulaPastedUntrustedRef.current)) {
+        setFormulaInsertError('Không thể chèn công thức: ghi chú tối đa 2.000 ký tự hoặc vị trí đang sửa đã thay đổi.')
+        return
+      }
+      formulaPastedUntrustedRef.current = false
+      closeFormula()
+      return
+    }
     if (editingFormulaPosition !== null) {
       const transaction = updateMathNode(editor.state, editingFormulaPosition, normalizeFormulaInput(formula), formulaType)
       if (transaction) {
@@ -1272,6 +1304,10 @@ function App({ initialWorkspace }) {
   const format = (action, options) => { if (summaryModeRef.current) return; const chain = editor?.chain().focus(); if (!chain) return; (options ? chain[action](options) : chain[action]()).run() }
   const openFormula = () => {
     if (summaryModeRef.current) return
+    const note = editor && activeTableNote(editor.view)
+    if (note && !note.editor.isDestroyed) { note.requestFormula(); return }
+    noteFormulaTargetRef.current = null
+    setFormulaInsertError('')
     rememberEditorSelection()
     formulaPastedUntrustedRef.current = false
     setEditingFormulaPosition(null)
@@ -1280,9 +1316,9 @@ function App({ initialWorkspace }) {
     setFormula('X_t^{selected} = S_t^{(n)} ∪ E_t^{(k)}')
     setFormulaOpen(true)
   }
-  const closeFormula = () => { pendingInsertionSelectionRef.current = null; blurMathField(); setFormulaOpen(false) }
-  const openFormulaLibrary = () => { if (summaryModeRef.current) return; rememberEditorSelection(); setLibraryOpen(true) }
-  const closeFormulaLibrary = () => { pendingInsertionSelectionRef.current = null; setLibraryOpen(false) }
+  const closeFormula = () => { noteFormulaTargetRef.current = null; pendingInsertionSelectionRef.current = null; blurMathField(); setFormulaOpen(false) }
+  const openFormulaLibrary = () => { if (summaryModeRef.current) return; noteFormulaTargetRef.current = activeTableNote(editor.view)?.insertionTarget() || null; rememberEditorSelection(); setLibraryOpen(true) }
+  const closeFormulaLibrary = () => { noteFormulaTargetRef.current = null; pendingInsertionSelectionRef.current = null; setLibraryOpen(false) }
   const jumpToHeading = index => {
     if (isCompact) setActiveTab('write')
     else if (mode === 'preview' || mode === 'source') setMode('write')
@@ -1670,11 +1706,13 @@ function App({ initialWorkspace }) {
       {shortcutsOpen && <KeyboardShortcutsDialog onClose={() => setShortcutsOpen(false)} />}
 
       <FormulaDialog
-        editing={editingFormulaPosition !== null}
+        editing={editingFormulaPosition !== null || Boolean(noteFormulaTargetRef.current?.editing)}
+        inlineOnly={Boolean(noteFormulaTargetRef.current)}
         open={formulaOpen}
         onClose={closeFormula}
         formula={formula}
-        onFormulaChange={setFormula}
+        onFormulaChange={value => { setFormula(value); setFormulaInsertError('') }}
+        insertError={formulaInsertError}
         formulaType={formulaType}
         onFormulaTypeChange={setFormulaType}
         inputMode={formulaInputMode}

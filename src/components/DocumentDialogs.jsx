@@ -67,6 +67,8 @@ export function WorkspaceDialog({ type, value, onChange, onClose, onSave, frame,
 
 export function FormulaDialog({
   editing = false,
+  inlineOnly = false,
+  insertError = '',
   open,
   onClose,
   formula,
@@ -103,7 +105,7 @@ export function FormulaDialog({
       <span className="label">Kiểu hiển thị</span>
       <div className="studio-choice-row">
         <button type="button" onClick={() => onFormulaTypeChange('inline')} aria-pressed={formulaType === 'inline'}>Trong dòng <span>x²</span></button>
-        <button type="button" onClick={() => onFormulaTypeChange('block')} aria-pressed={formulaType === 'block'}>Căn giữa <span>∫ f(x)</span></button>
+        {!inlineOnly && <button type="button" onClick={() => onFormulaTypeChange('block')} aria-pressed={formulaType === 'block'}>Căn giữa <span>∫ f(x)</span></button>}
       </div>
       <span className="label">Cách nhập</span>
       <div className="seg w-fit">
@@ -159,6 +161,7 @@ export function FormulaDialog({
       />
       <span className="label">Xem trước</span>
       <div className="studio-preview-box" dangerouslySetInnerHTML={{ __html: renderFormula(katexRenderer, normalizeFormula(formula) || '\\,', formulaType === 'block') }} />
+      {insertError && <p role="alert" className="studio-dialog-note">{insertError}</p>}
       <div className="studio-dialog-foot">
         <span className="label">{formatShortcut('Ctrl + Enter')} để {editing ? 'lưu' : 'chèn'}</span>
         <button type="button" className="btn btn--solid" disabled={!canInsert} onClick={onInsert}><Plus size={14} /> {editing ? 'Lưu công thức' : 'Chèn công thức'}</button>

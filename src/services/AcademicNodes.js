@@ -7,6 +7,7 @@ import { CellSelection } from '@tiptap/pm/tables'
 import { citationKeys, citationLabel, citationNumbers, describeEntry } from './Bibliography.js'
 import { isValidTableStyleAttribute, normalizeTableStyle, tableHeaderRowCount, TABLE_STYLE_DEFAULTS } from './TableStyles.js'
 import { tableCaptionParts } from './TableCaptions.js'
+import { TableNoteEditor } from './TableNoteEditor.js'
 export const AcademicAttributes = Extension.create({
   name: 'academicAttributes',
   addGlobalAttributes() { return [{ types: ['heading', 'blockMath'], attributes: { label: { default: '', parseHTML: element => element.getAttribute('data-label') || '', renderHTML: attrs => attrs.label ? { 'data-label': attrs.label } : {} } } }] },
@@ -112,18 +113,16 @@ export class StyledTableView extends TableView {
     this.captionRow.className = 'table-caption-row'
     this.captionRow.contentEditable = 'false'
     this.captionRow.append(this.number.field, this.caption.field)
-    this.note = tableTextField('table-note-field', 'Ghi chú', 'Ghi chú dưới bảng: nguồn số liệu, đơn vị, giải thích ký hiệu… (có thể gõ công thức $p = n + k$)', true)
-    this.note.input.maxLength = 2000
+    this.note = new TableNoteEditor(this)
     this.dom.classList.add('styled-table')
     this.dom.prepend(this.alignStyle)
     this.listeners = []
-    for (const [name, { input }] of [['tableNumber', this.number], ['caption', this.caption], ['note', this.note]]) {
+    for (const [name, { input }] of [['tableNumber', this.number], ['caption', this.caption]]) {
       const listen = (type, handler) => {
         input.addEventListener(type, handler)
         this.listeners.push(() => input.removeEventListener(type, handler))
       }
       listen('input', event => {
-        this.resizeNote()
         if (!event.isComposing) this.commit(name, input.value)
       })
       listen('compositionend', () => this.commit(name, input.value))
@@ -144,11 +143,13 @@ export class StyledTableView extends TableView {
     }
   }
 
-  commit(name, value) {
+  commit(name, value, meta = null) {
     const position = this.position()
     const attrs = { ...this.node.attrs, ...tableCaptionParts(this.node.attrs) }
     if (!this.editable() || position === null || (attrs[name] || '') === value) return
-    this.view.dispatch(this.view.state.tr.setNodeMarkup(position, undefined, { ...attrs, [name]: value }))
+    const transaction = this.view.state.tr.setNodeMarkup(position, undefined, { ...attrs, [name]: value })
+    if (meta) transaction.setMeta(meta, true)
+    this.view.dispatch(transaction)
   }
 
   onFieldKeyDown(event) {
@@ -174,22 +175,17 @@ export class StyledTableView extends TableView {
     }
   }
 
-  resizeNote() {
-    const { input } = this.note
-    input.style.height = 'auto'
-    if (input.scrollHeight) input.style.height = `${input.scrollHeight}px`
-  }
-
   render(node, force = false) {
     applyTableStyle(this.table, node)
     const style = normalizeTableStyle(node.attrs)
     // Keep what the writer is typing; the node catches up on the next input.
     const attrs = { ...node.attrs, ...tableCaptionParts(node.attrs) }
-    for (const [name, { input }] of [['tableNumber', this.number], ['caption', this.caption], ['note', this.note]]) {
+    for (const [name, { input }] of [['tableNumber', this.number], ['caption', this.caption]]) {
       if ((force || document.activeElement !== input) && input.value !== (attrs[name] || '')) input.value = attrs[name] || ''
       input.readOnly = !this.editable()
     }
     this.dom.classList.toggle('has-table-note', Boolean(node.attrs.note))
+    this.note.render(node.attrs.note || '', this.editable())
     // The order the PDF prints them in: caption, table, note or table,
     // caption, note. Moving the table itself would disturb the selection in
     // its cells, so only the two fields are placed around it.
@@ -199,7 +195,6 @@ export class StyledTableView extends TableView {
     if (this.dom.lastChild !== this.note.field) this.dom.append(this.note.field)
     const css = tablePresentationCss(node, this.id)
     if (this.alignStyle.textContent !== css) this.alignStyle.textContent = css
-    this.resizeNote()
   }
 
   update(node) {
@@ -219,6 +214,7 @@ export class StyledTableView extends TableView {
 
   destroy() {
     for (const remove of this.listeners) remove()
+    this.note.destroy()
   }
 }
 

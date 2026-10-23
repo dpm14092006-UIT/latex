@@ -4,6 +4,12 @@ Mới nhất ở trên. Workspace v1 và giao thức LAN v1 được giữ qua m
 
 ## Chưa phát hành
 
+## 0.6.5 — công thức trong ghi chú bảng
+
+- Soạn công thức ngay trong ghi chú bằng cùng hộp thoại công thức của bản thảo; chèn đúng vị trí, bấm sửa và hoàn tác/làm lại.
+- Giữ công thức trong PDF và công thức Office chỉnh sửa được khi xuất Word.
+- Chi tiết: [UPGRADE-0.6.5](UPGRADE-0.6.5.md).
+
 ## 0.6.4 — khôi phục form bảng học thuật
 
 - Trả mặc định về booktabs ba đường kẻ như trước lần đổi lưới; giữ đường kẻ PDF đủ rộng.

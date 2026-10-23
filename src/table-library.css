@@ -36,7 +36,14 @@
 .ProseMirror .table-text-field :is(input, textarea):focus { border-color: var(--fg); outline: none; background: var(--soft); }
 .ProseMirror .table-caption-field input { flex: 1 1 auto; font-size: .95em; text-align: left; }
 .ProseMirror .table-caption-field input:not(:placeholder-shown) { font-weight: 600; }
-.ProseMirror .table-note-field textarea { flex: 1 1 auto; font-size: .84em; line-height: 1.5; text-align: justify; }
+.ProseMirror .table-note-editor { flex: 1 1 auto; min-width: 0; font-size: .84em; line-height: 1.5; }
+.ProseMirror .table-note-editor > .table-note-content { min-height: 1.5em; padding: 3px 6px; border: 1px solid transparent; border-radius: 4px; font: inherit; color: inherit; background: transparent; text-align: justify; }
+.ProseMirror .table-note-editor > .table-note-content:hover { border-color: var(--table-guide, var(--line)); }
+.ProseMirror .table-note-editor > .table-note-content:focus { border-color: var(--fg); outline: none; background: var(--soft); }
+.ProseMirror .table-note-editor > .table-note-content > p { margin: 0; font: inherit; line-height: inherit; }
+.ProseMirror .table-note-editor > .table-note-content > p:only-child:has(> br:only-child)::before { content: 'Ghi chú dưới bảng…'; color: var(--muted); pointer-events: none; float: left; height: 0; }
+.ProseMirror .table-note-formula { flex: none; padding: 3px 6px; border: 1px solid var(--line); border-radius: 4px; color: var(--fg); background: var(--bg); font: inherit; font-size: .8em; cursor: pointer; }
+.ProseMirror .table-note-formula:disabled { display: none; }
 /* Ô ghi chú trống chỉ hiện khi rê chuột vào bảng hoặc đang gõ, đỡ rối mắt. */
 .ProseMirror .styled-table:not(.has-table-note):not(:hover) .table-note-field:not(:focus-within) { opacity: 0; }
 .ProseMirror .styled-table .table-note-field { transition: opacity .12s ease; }
