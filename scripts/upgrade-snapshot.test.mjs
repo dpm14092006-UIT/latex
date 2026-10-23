@@ -16,6 +16,16 @@ test('upgrade comparison accepts the established numbered-heading representation
   after.projects[0].tasks[0].updatedAt += 1000
   assert.deepEqual(upgradeSnapshot(after), upgradeSnapshot(before))
 })
+test('upgrade comparison accepts empty schema labels but detects changes to authored labels', () => {
+  const before = fixture('I. Introduction')
+  before.projects[0].tasks[0].document.content.push({ type: 'blockMath', attrs: { latex: 'x^2' } })
+  const after = structuredClone(before)
+  after.projects[0].tasks[0].document = normalizeDocumentHeadings(after.projects[0].tasks[0].document)
+  for (const node of after.projects[0].tasks[0].document.content) node.attrs = { ...node.attrs, label: '' }
+  assert.deepEqual(upgradeSnapshot(after), upgradeSnapshot(before))
+  after.projects[0].tasks[0].document.content[0].attrs.label = 'sec:authored'
+  assert.notDeepEqual(upgradeSnapshot(after), upgradeSnapshot(before))
+})
 test('upgrade comparison detects content, source, bibliography and identity changes', () => {
   const before = fixture('Nội dung phải giữ')
   for (const field of ['text', 'sourceDraft', 'bibliography', 'id']) {

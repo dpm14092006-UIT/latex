@@ -1,6 +1,6 @@
 {
   "name": "latex-word-studio",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "Ứng dụng desktop cục bộ (macOS và Windows) để soạn văn bản, LaTeX, Word và PDF.",
   "author": "Viet LaTeX Studio",
   "main": "electron/main.cjs",
@@ -77,7 +77,8 @@
     "desktop:build:win": "node win/build-win.mjs",
     "desktop:build:win:dir": "node win/build-win.mjs --dir",
     "test:bench:cache": "npm run backend:build && node scripts/bench-cache.mjs",
-    "test:word:roundtrip": "npm run backend:build && node scripts/word-roundtrip-regressions.mjs"
+    "test:word:roundtrip": "npm run backend:build && node scripts/word-roundtrip-regressions.mjs",
+    "test:table-math-rendering": "npm run backend:build && node scripts/table-math-rendering.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",

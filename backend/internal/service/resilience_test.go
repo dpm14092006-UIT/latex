@@ -484,3 +484,16 @@ func TestRerunPatternDetectsCommonReferenceCommands(t *testing.T) {
 		}
 	}
 }
+
+func TestLongtableRequiresWidthReruns(t *testing.T) {
+	for _, source := range []string{`\begin{longtable}{ll}`, "\\begin { longtable }{ll}"} {
+		if !rerunPattern.MatchString(source) {
+			t.Errorf("longtable widths require a rerun: %s", source)
+		}
+	}
+	for _, source := range []string{`\begin{tabular}{ll}`, `longtable`, `\begin{longtableX}`} {
+		if rerunPattern.MatchString(source) {
+			t.Errorf("ordinary tables retain their single pass: %s", source)
+		}
+	}
+}

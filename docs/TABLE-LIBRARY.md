@@ -24,8 +24,8 @@ Tham chiếu LaTeX tới bảng lấy đúng giá trị ở **Table No.**. Để
 
 | Kiểu | LaTeX |
 | --- | --- |
-| Học thuật | `booktabs`: `\toprule`, `\midrule` dưới tiêu đề, `\bottomrule` (mặc định, giống bảng cũ) |
-| Lưới | Đường dọc `|` và `\hline` sau mỗi hàng; ô gộp hàng dùng `\cline` để đường kẻ không cắt qua ô |
+| Học thuật | `booktabs`: `\toprule`, `\midrule` dưới tiêu đề, `\bottomrule` |
+| Lưới (mặc định) | Đường dọc `|` và `\hline` sau mỗi hàng; ô gộp hàng dùng `\cline` để đường kẻ không cắt qua ô |
 | Sọc xen kẽ | Ba đường kẻ, hàng nội dung xen kẽ tô nền `\rowcolor` (gói `colortbl`, `xcolor`) |
 | Tiêu đề tô nền | Ba đường kẻ, các hàng tiêu đề tô nền |
 | Tối giản | Chỉ `\midrule` dưới tiêu đề |
@@ -52,6 +52,6 @@ Chọn trọn hàng hoặc cột rồi nhấn **Delete/Backspace** sẽ xóa lu�
 
 ## Dữ liệu và an toàn
 
-Số và nội dung được lưu riêng trên node `table`: `tableNumber` (tối đa 50 ký tự), `caption` (500 ký tự), `note` (2.000 ký tự). Thuộc tính định dạng: `tableStyle`, `fontSize`, `rowSpacing`, `tableWidth`, `captionPosition`, `headerBold`; ô dùng thuộc tính `align` sẵn có của Tiptap. Bảng cũ không có các thuộc tính này vẫn xuất như trước. Mọi giá trị đi qua danh sách cho phép trong `src/services/TableStyles.js`; giá trị lạ (từ ZIP, LAN hay dữ liệu hỏng) quay về mặc định, không thể chèn LaTeX tùy ý. Kiểm thử: `scripts/table-styles.test.mjs`.
+Số và nội dung được lưu riêng trên node `table`: `tableNumber` (tối đa 50 ký tự), `caption` (500 ký tự), `note` (2.000 ký tự). Thuộc tính định dạng: `tableStyle`, `fontSize`, `rowSpacing`, `tableWidth`, `captionPosition`, `headerBold`; ô dùng thuộc tính `align` sẵn có của Tiptap. Từ 0.6.3, bảng chưa chọn kiểu hoặc lưu kiểu `null` dùng lưới đầy đủ; kiểu đã chọn rõ ràng vẫn được giữ. Backend biên dịch longtable nhiều lượt để độ rộng cột và đường kẻ ổn định. Mọi giá trị đi qua danh sách cho phép trong `src/services/TableStyles.js`; giá trị lạ quay về mặc định, không thể chèn LaTeX tùy ý. Kiểm thử: `scripts/table-styles.test.mjs`, `scripts/table-math-rendering.mjs`.
 
 Gõ `1. ` ở đầu dòng không còn tự tạo danh sách đánh số thụt lề; dùng nút **Danh sách đánh số** khi cần danh sách thật.

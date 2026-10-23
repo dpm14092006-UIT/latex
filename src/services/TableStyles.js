@@ -39,7 +39,7 @@ export const TABLE_CAPTION_POSITIONS = [
 export const TABLE_ALIGNMENTS = ['left', 'center', 'right']
 
 export const TABLE_STYLE_DEFAULTS = Object.freeze({
-  tableStyle: 'academic',
+  tableStyle: 'grid',
   fontSize: 'small',
   rowSpacing: '1.2',
   tableWidth: 'auto',

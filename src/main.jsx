@@ -10,7 +10,7 @@ import { convertUnicodeScriptMath } from './services/UnicodeScriptMath.js'
 import StarterKit from '@tiptap/starter-kit'
 import Heading from '@tiptap/extension-heading'
 import Placeholder from '@tiptap/extension-placeholder'
-import Mathematics from '@tiptap/extension-mathematics'
+import { BlockMath, InlineMath } from '@tiptap/extension-mathematics'
 import { TableRow, TableCell, TableHeader } from '@tiptap/extension-table'
 import TextAlign from '@tiptap/extension-text-align'
 import { AcademicAttributes, AcademicTable, Citation, CrossReference, Footnote } from './services/AcademicNodes.js'
@@ -453,10 +453,14 @@ function App({ initialWorkspace }) {
       StarterKit.configure({ heading: false, orderedList: false }),
       ThreeLevelHeading,
       Placeholder.configure({ placeholder: 'Bắt đầu viết nội dung của bạn…' }),
-      Mathematics.configure({
+      BlockMath.configure({
         // Editing starts from the node's LaTeX; a leftover "Gõ thường" mode would show the previous plain text instead.
-        blockOptions: { katexOptions: { throwOnError: false }, onClick: (node, pos) => { if (summaryModeRef.current) return; pendingInsertionSelectionRef.current = null; formulaPastedUntrustedRef.current = false; setFormula(node.attrs.latex); setFormulaType('block'); setFormulaInputMode(current => current === 'recognize' ? 'visual' : current); setEditingFormulaPosition(pos); setFormulaOpen(true) } },
-        inlineOptions: { katexOptions: { throwOnError: false }, onClick: (node, pos) => { if (summaryModeRef.current) return; pendingInsertionSelectionRef.current = null; formulaPastedUntrustedRef.current = false; setFormula(node.attrs.latex); setFormulaType('inline'); setFormulaInputMode(current => current === 'recognize' ? 'visual' : current); setEditingFormulaPosition(pos); setFormulaOpen(true) } },
+        katexOptions: { throwOnError: false, displayMode: true },
+        onClick: (node, pos) => { if (summaryModeRef.current) return; pendingInsertionSelectionRef.current = null; formulaPastedUntrustedRef.current = false; setFormula(node.attrs.latex); setFormulaType('block'); setFormulaInputMode(current => current === 'recognize' ? 'visual' : current); setEditingFormulaPosition(pos); setFormulaOpen(true) },
+      }),
+      InlineMath.configure({
+        katexOptions: { throwOnError: false, displayMode: false },
+        onClick: (node, pos) => { if (summaryModeRef.current) return; pendingInsertionSelectionRef.current = null; formulaPastedUntrustedRef.current = false; setFormula(node.attrs.latex); setFormulaType('inline'); setFormulaInputMode(current => current === 'recognize' ? 'visual' : current); setEditingFormulaPosition(pos); setFormulaOpen(true) },
       }),
       TextAlign.configure({ types: ['heading', 'paragraph'], alignments: ['left', 'center', 'right', 'justify'] }),
       ...richTextExtensions,

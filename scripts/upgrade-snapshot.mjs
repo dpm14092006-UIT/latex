@@ -3,6 +3,16 @@ import { normalizeDocumentHeadings } from '../src/services/DocumentSerializer.js
 import { clampHeadingLevels, isValidDocument } from '../src/services/DocumentData.js'
 import { validateAssets } from '../src/services/ProjectAssets.js'
 
+// Opening a numbered paragraph as a heading adds the schema's empty label.
+// Compare that empty default consistently while retaining authored labels.
+function withLabelDefaults(node) {
+  return {
+    ...node,
+    ...(['heading', 'blockMath'].includes(node.type) && node.attrs?.label === undefined ? { attrs: { ...node.attrs, label: '' } } : {}),
+    ...(Array.isArray(node.content) ? { content: node.content.map(withLabelDefaults) } : {}),
+  }
+}
+
 // Numbered paragraphs have been normalized to headings since 0.5.1.
 // Accept that existing representation change, while still comparing all text,
 // marks, formulas, source, citations, assets, settings and document identities.
@@ -23,7 +33,7 @@ export function upgradeSnapshot(value) {
   }
   return { ...workspace, projects: workspace.projects.map(project => ({
     ...project, tasks: project.tasks.map(({ updatedAt: _time, ...task }) => ({
-      ...task, document: normalizeDocumentHeadings(task.document),
+      ...task, document: withLabelDefaults(normalizeDocumentHeadings(task.document)),
     })),
   })) }
 }

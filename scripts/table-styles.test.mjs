@@ -23,17 +23,20 @@ test('table style attributes are whitelisted and fall back to defaults', () => {
   assert.deepEqual(hostile, TABLE_STYLE_DEFAULTS)
   const { latex } = toLatex({ type: 'doc', content: [simple({ tableStyle: '}\\input{x}', fontSize: '\\input{x}' })] }, 'T')
   assert.doesNotMatch(latex, /\\input\{x\}/)
-  assert.match(latex, /\\toprule/)
+  assert.match(latex, /\\hline/)
 })
 
-test('tables saved before the table library keep the academic layout', () => {
+test('tables without a chosen style have a complete grid', () => {
   const latex = tableLatexPreview(simple({ caption: '', label: '' }))
   assert.match(latex, /^\\begingroup\n\\small\n/)
   assert.match(latex, /\\renewcommand\{\\arraystretch\}\{1\.2\}/)
-  assert.match(latex, /\\begin\{longtable\}\{@\{\}lr@\{\}\}/)
+  assert.match(latex, /\\begin\{longtable\}\{\|l\|r\|\}/)
   assert.doesNotMatch(latex, /\\caption|\\tablename|\\thetable/)
   assert.match(latex, /\\textbf\{Tên\}/)
-  assert.doesNotMatch(latex, /\\rowcolor|\\hline/)
+  assert.match(latex, /\\hline/)
+  assert.doesNotMatch(latex, /\\rowcolor|\\toprule/)
+  const legacy = tableLatexPreview(simple({ tableStyle: null, fontSize: null }))
+  assert.match(legacy, /\\begin\{longtable\}\{\|l\|r\|\}/)
 })
 
 test('each table style emits its own rules', () => {
@@ -71,19 +74,19 @@ test('coloured tables load xcolor and colortbl; grid tables load array only', ()
 })
 
 test('font size, row spacing, width, caption position and header weight are applied', () => {
-  const latex = tableLatexPreview(simple({ fontSize: 'footnotesize', rowSpacing: '1.5', tableWidth: 'full', captionPosition: 'bottom', headerBold: false, caption: 'Kết quả' }))
+  const latex = tableLatexPreview(simple({ tableStyle: 'academic', fontSize: 'footnotesize', rowSpacing: '1.5', tableWidth: 'full', captionPosition: 'bottom', headerBold: false, caption: 'Kết quả' }))
   assert.match(latex, /^\\begingroup\n\\footnotesize\n/)
   assert.match(latex, /\\arraystretch\}\{1\.5\}/)
   assert.match(latex, /\\begin\{longtable\}\{@\{\}>\{\\raggedright\\arraybackslash\}p\{[\d.]+\\linewidth\}>\{\\raggedleft\\arraybackslash\}p\{[\d.]+\\linewidth\}@\{\}\}/)
   assert.match(latex, /\\bottomrule\n\\caption\*\{Kết quả\} \\\\\n\\endlastfoot/)
   assert.doesNotMatch(latex, /\\endfirsthead[\s\S]*\\caption[\s\S]*\\endhead/)
   assert.doesNotMatch(latex, /\\textbf/)
-  const natural = tableLatexPreview(table({ tableWidth: 'natural' }, [[cell('tableCell', 'x'.repeat(60)), cell('tableCell', 'y')]]))
+  const natural = tableLatexPreview(table({ tableStyle: 'academic', tableWidth: 'natural' }, [[cell('tableCell', 'x'.repeat(60)), cell('tableCell', 'y')]]))
   assert.match(natural, /\\begin\{longtable\}\{@\{\}ll@\{\}\}/)
 })
 
 test('cell alignment sets the column type and overrides single cells', () => {
-  const latex = tableLatexPreview(table({}, [
+  const latex = tableLatexPreview(table({ tableStyle: 'academic' }, [
     [cell('tableHeader', 'Tên', { align: 'center' }), cell('tableHeader', 'Ghi chú')],
     [cell('tableCell', 'A', { align: 'center' }), cell('tableCell', 'trái')],
     [cell('tableCell', 'B', { align: 'center' }), cell('tableCell', 'phải', { align: 'right' })],
@@ -102,7 +105,7 @@ test('merged cells stay inside their columns and grid rules skip continuing rows
     [cell('tableCell', 'A', { rowspan: 2 }), cell('tableCell', '1'), cell('tableCell', '2'), cell('tableCell', 'x')],
     [cell('tableCell', '3'), cell('tableCell', '4'), cell('tableCell', 'y')],
   ]
-  const academic = tableLatexPreview(table({}, rows))
+  const academic = tableLatexPreview(table({ tableStyle: 'academic' }, rows))
   assert.match(academic, /\\multirow\{2\}\{=\}\{\\textbf\{Ghi chú/, 'paragraph columns wrap merged text')
   assert.match(academic, /\\multirow\{2\}\{\*\}\{A\}/)
   assert.match(academic, /\\multicolumn\{2\}\{c\}\{\\textbf\{Kết quả\}\}|\\multicolumn\{2\}\{l\}\{\\textbf\{Kết quả\}\}/)

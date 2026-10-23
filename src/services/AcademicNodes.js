@@ -24,7 +24,7 @@ export const CrossReference = referenceNode('crossReference', 'target', '[↗ ')
 export const Footnote = referenceNode('footnote', 'text', '[Chú thích: ')
 
 // Table style attributes default to null so documents saved before the table
-// library keep their JSON; the serializer and the view fall back to defaults.
+// library keep their JSON; missing styles use the same visible grid in both views.
 const tableStyleAttributes = Object.fromEntries(Object.keys(TABLE_STYLE_DEFAULTS).map(name => {
   const attribute = `data-${name.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)}`
   return [name, {

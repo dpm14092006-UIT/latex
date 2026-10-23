@@ -142,7 +142,7 @@ test('serializer preserves table cells and uses unboxed booktabs rules', () => {
     type: 'doc',
     content: [{
       type: 'table',
-      attrs: { caption: 'Predictor budgets', label: 'tab:budget' },
+      attrs: { tableStyle: 'academic', caption: 'Predictor budgets', label: 'tab:budget' },
       content: [{
         type: 'tableRow',
         content: ['(n,k)', 'p', 'RMSE', 'MAE', 'MAPE', 'R2'].map(value => ({ type: 'tableHeader', content: [para(text(value))] })),

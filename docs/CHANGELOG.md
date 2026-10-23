@@ -4,6 +4,12 @@ Mới nhất ở trên. Workspace v1 và giao thức LAN v1 được giữ qua m
 
 ## Chưa phát hành
 
+## 0.6.3 — sửa đường kẻ bảng và công thức có số
+
+- Biên dịch lại longtable để đường kẻ đủ độ rộng; bảng chưa chọn kiểu mặc định kẻ lưới.
+- Render riêng công thức display/inline, giữ `\tag{1}` ở bản thảo thay vì hiện mã nguồn.
+- Chi tiết: [UPGRADE-0.6.3](UPGRADE-0.6.3.md).
+
 ## 0.6.2 — tối ưu backend và sửa lỗi vòng tiếp theo
 
 - Tra PDF cache trước giải mã tệp đính kèm; không lưu kết quả của tác vụ đã hủy. Đưa xử lý AST xuất Word vào worker và bỏ bản sao thừa đầu ra Pandoc.

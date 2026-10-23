@@ -49,8 +49,9 @@ var (
 
 // Commands that read .aux/.toc data back and need another pass: the \ref
 // family (\autoref, \cref, \nameref, \hyperref[...], but not \href), the
-// \cite family (\citep, \parencite, ...) and lists of contents/figures.
-var rerunPattern = regexp.MustCompile(`\\(?:ref|[a-zA-Z]*[a-gi-zA-Z]ref|[a-zA-Z]*cite[a-zA-Z]*|tableofcontents|listof[a-zA-Z]+|bibliography)\b`)
+// \cite family and lists. Longtable also reads column widths from .aux;
+// stopping after its first pass can leave rules only a few points wide.
+var rerunPattern = regexp.MustCompile(`\\(?:(?:ref|[a-zA-Z]*[a-gi-zA-Z]ref|[a-zA-Z]*cite[a-zA-Z]*|tableofcontents|listof[a-zA-Z]+|bibliography)\b|begin\s*\{\s*longtable\s*\})`)
 
 type encodedAsset struct {
 	Filename string `json:"filename"`

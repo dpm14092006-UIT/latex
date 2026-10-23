@@ -110,6 +110,16 @@ try {
   await page.waitForFunction(() => !window.mathVirtualKeyboard.visible)
   assert.equal(await page.getByRole('dialog').count(), 0)
   console.log('Packaged formula keyboard: input above keyboard, close control and no orphan after closing the dialog.')
+  await page.locator('.tiptap').evaluate(element => element.editor.commands.setContent({ type: 'doc', content: [
+    { type: 'blockMath', attrs: { latex: String.raw`y_t = f(x) \tag{1}` } },
+    { type: 'paragraph', content: [{ type: 'inlineMath', attrs: { latex: 'x^2' } }] },
+    { type: 'table', attrs: { tableStyle: null }, content: [{ type: 'tableRow', content: ['Model', 'Settings'].map(text => ({ type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] })) }] },
+  ] }))
+  await page.locator('.tiptap [data-type="block-math"] .katex-display .katex-tag').waitFor()
+  assert.equal(await page.locator('.tiptap .katex-error').count(), 0)
+  assert.equal(await page.locator('.tiptap [data-type="inline-math"] .katex-display').count(), 0)
+  assert.equal(await page.locator('.tiptap table').getAttribute('data-table-style'), 'grid')
+  console.log('Packaged editor: tagged display equation, inline math and default grid render correctly.')
   const firstBackend = await backendPid()
   process.kill(firstBackend, 'SIGKILL')
   await delay(300)
