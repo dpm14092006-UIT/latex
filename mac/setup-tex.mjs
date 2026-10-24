@@ -52,10 +52,12 @@ try {
   await run(join(texBin, 'tlmgr'), ['option', 'docfiles', '0'], env)
   await run(join(texBin, 'tlmgr'), ['option', 'srcfiles', '0'], env)
   await run(join(texBin, 'tlmgr'), ['update', '--self'], env)
-  // Package installation can pass several format selectors to fmtutil at
-  // once. Disable that hook; xelatex is rebuilt explicitly just below.
+  // TeX Live 2026's post-install hook passes mutually exclusive fmtutil
+  // selectors together. Run the required system updates explicitly below.
+  await run(join(texBin, 'tlmgr'), ['option', 'postcode', '0'], env)
   await run(join(texBin, 'tlmgr'), ['option', 'formats', '0'], env)
   await run(join(texBin, 'tlmgr'), ['install', ...packages], env)
+  await run(join(texBin, 'updmap-sys'), [], env)
   await run(join(texBin, 'fmtutil-sys'), ['--byfmt', 'xelatex'], env)
   await configureFonts()
   for (const arch of ['x86_64', 'arm64']) await run('/usr/bin/lipo', [join(texBin, 'xetex'), '-verify_arch', arch])
