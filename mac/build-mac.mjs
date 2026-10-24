@@ -19,7 +19,9 @@ for (const binary of ['tools/pandoc/pandoc', 'tools/tex/bin/universal-darwin/xet
 await node('scripts/build-backend.mjs', ['--universal'])
 for (const arch of ['x86_64', 'arm64']) await run('/usr/bin/lipo', [join(root, 'build', 'backend', 'vietlatex-backend'), '-verify_arch', arch])
 await run(process.execPath, [join(root, 'node_modules', 'vite', 'bin', 'vite.js'), 'build'], { ...process.env, BUILD_DESKTOP_APP: 'true' })
-await run(process.execPath, [join(root, 'node_modules', 'electron-builder', 'cli.js'), '--config', join('mac', 'electron-builder.config.cjs'), '--mac', ...(process.argv.includes('--dir') ? ['--dir'] : ['dmg']), '--universal', '--publish', 'never'])
+const builderEnv = { ...process.env }
+for (const key of ['CSC_LINK', 'CSC_NAME', 'CSC_KEY_PASSWORD']) if (!builderEnv[key]?.trim()) delete builderEnv[key]
+await run(process.execPath, [join(root, 'node_modules', 'electron-builder', 'cli.js'), '--config', join('mac', 'electron-builder.config.cjs'), '--mac', ...(process.argv.includes('--dir') ? ['--dir'] : ['dmg']), '--universal', '--publish', 'never'], builderEnv)
 await node('mac/verify-mac-package.mjs')
 if (!process.argv.includes('--dir')) {
   await run(process.env.PYTHON_BINARY || 'python3', [join(root, 'mac', 'package-mac-source.py')])
