@@ -51,9 +51,10 @@ try {
   await run(join(texBin, 'tlmgr'), ['option', 'repository', 'https://tlnet.yihui.org'], env)
   await run(join(texBin, 'tlmgr'), ['option', 'docfiles', '0'], env)
   await run(join(texBin, 'tlmgr'), ['option', 'srcfiles', '0'], env)
-  // Keep TinyTeX's bundled tlmgr paired with its fmtutil scripts. Updating
-  // tlmgr alone can create an incompatible fmtutil invocation on TeX Live 2026.
-  await run(join(texBin, 'tlmgr'), ['option', 'create_formats', '0'], env)
+  await run(join(texBin, 'tlmgr'), ['update', '--self'], env)
+  // Package installation can pass several format selectors to fmtutil at
+  // once. Disable that hook; xelatex is rebuilt explicitly just below.
+  await run(join(texBin, 'tlmgr'), ['option', 'formats', '0'], env)
   await run(join(texBin, 'tlmgr'), ['install', ...packages], env)
   await run(join(texBin, 'fmtutil-sys'), ['--byfmt', 'xelatex'], env)
   await configureFonts()
