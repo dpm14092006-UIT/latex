@@ -1,6 +1,6 @@
 {
   "name": "latex-word-studio",
-  "version": "0.6.12",
+  "version": "0.6.13",
   "description": "Ứng dụng desktop cục bộ (macOS và Windows) để soạn văn bản, LaTeX, Word và PDF.",
   "author": "Viet LaTeX Studio",
   "main": "electron/main.cjs",
