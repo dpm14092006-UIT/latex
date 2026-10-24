@@ -51,9 +51,8 @@ try {
   await run(join(texBin, 'tlmgr'), ['option', 'repository', 'https://tlnet.yihui.org'], env)
   await run(join(texBin, 'tlmgr'), ['option', 'docfiles', '0'], env)
   await run(join(texBin, 'tlmgr'), ['option', 'srcfiles', '0'], env)
-  await run(join(texBin, 'tlmgr'), ['update', '--self'], env)
-  // TeX Live 2026's tlmgr may combine incompatible fmtutil selectors while
-  // installing packages. We build the required XeLaTeX format explicitly below.
+  // Keep TinyTeX's bundled tlmgr paired with its fmtutil scripts. Updating
+  // tlmgr alone can create an incompatible fmtutil invocation on TeX Live 2026.
   await run(join(texBin, 'tlmgr'), ['option', 'create_formats', '0'], env)
   await run(join(texBin, 'tlmgr'), ['install', ...packages], env)
   await run(join(texBin, 'fmtutil-sys'), ['--byfmt', 'xelatex'], env)
