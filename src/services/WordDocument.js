@@ -106,7 +106,13 @@ export async function importWordAst(ast) {
       else if (item.t === 'RawBlock' && item.c?.[0] === 'openxml' && item.c?.[1] === WORD_PAGE_BREAK) result.push({ type: 'pageBreak' })
       else if (item.t === 'Div') result.push(...await blocks(item.c[1]))
       else if (item.t === 'Table') {
-        const rows = [...item.c[3][1].map(row => [row, true]), ...item.c[4].flatMap(body => [...body[2], ...body[3]].map(row => [row, false])), ...item.c[5][1].map(row => [row, false])]
+        const headRows = item.c[3][1].map(row => [row, true])
+        const rows = [...headRows, ...item.c[4].flatMap(body => [...body[2], ...body[3]].map(row => [row, false])), ...item.c[5][1].map(row => [row, false])]
+        // Some DOCX/Pandoc combinations include the final table-head row a
+        // second time as the first body row. Drop that boundary duplicate so
+        // it does not appear twice in the editor and exported documents.
+        const rowSignature = row => JSON.stringify((row?.[1] || []).map(cell => [cell?.[2] || 1, cell?.[3] || 1, plain(cell?.[4]).replace(/\s+/gu, ' ').trim()]))
+        while (headRows.length && rows[headRows.length]?.[0] && rowSignature(headRows.at(-1)[0]) === rowSignature(rows[headRows.length][0])) rows.splice(headRows.length, 1)
         // Cell alignment wins; a row without merged cells falls back to the column alignment.
         const columnAligns = (item.c[2] || []).map(spec => PANDOC_ALIGNMENTS[spec?.[0]?.t] || null)
         const cellAlign = (row, cell, index) => PANDOC_ALIGNMENTS[cell[1]?.t] || (row[1].length === columnAligns.length ? columnAligns[index] : null)

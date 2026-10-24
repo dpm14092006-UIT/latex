@@ -1551,7 +1551,7 @@ export function toLatex(doc, title, templateSource = defaultDocumentTemplate, do
     Object.prototype.hasOwnProperty.call(values, key) ? String(values[key]) : placeholder,
   )
   if (settings.abstractEnabled) {
-    const definition = String.raw`% Fixed abstract heading and justified body, independent of the surrounding alignment.
+    const definition = String.raw`% Center the abstract heading and indent the justified body independently of surrounding alignment.
 \makeatletter
 \@ifundefined{abstract}{\newenvironment{abstract}{}{}}{}
 \makeatother
