@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { spawn } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, writeFile, rm, access, cp } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile, rm, access, cp, chmod } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -56,7 +56,10 @@ try {
   // selectors together. Run the required system updates explicitly below.
   await run(join(texBin, 'tlmgr'), ['option', 'postcode', '0'], env)
   await run(join(texBin, 'tlmgr'), ['option', 'formats', '0'], env)
-  await run(join(texBin, 'tlmgr'), ['install', ...packages], env)
+  const formatShim = join(staging, 'fmtutil-sys')
+  await writeFile(formatShim, '#!/bin/sh\nexit 0\n')
+  await chmod(formatShim, 0o755)
+  await run(join(texBin, 'tlmgr'), ['install', ...packages], { ...env, PATH: `${staging}:${env.PATH}` })
   await run(join(texBin, 'updmap-sys'), [], env)
   await run(join(texBin, 'fmtutil-sys'), ['--byfmt', 'xelatex'], env)
   await configureFonts()
